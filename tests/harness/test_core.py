@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import registry as registry_mod
+from skuggi import probe as probe_mod
 from skuggi.config import Settings
 from skuggi.core import AgentCore
 from skuggi.registry import ToolSpec, ToolStatus
@@ -113,10 +113,10 @@ def test_doctor_and_install(core: AgentCore, monkeypatch: pytest.MonkeyPatch) ->
     status = ToolStatus(
         spec, found=True, path=Path("/usr/bin/nmap"), version="7", source="host"
     )
-    monkeypatch.setattr(registry_mod, "probe", lambda *_a, **_k: [status])
+    monkeypatch.setattr(probe_mod, "probe", lambda *_a, **_k: [status])
     assert core.doctor_statuses() == [status]
     assert core.install_tool("ghost-tool") is None
-    monkeypatch.setattr(registry_mod, "install_tool", lambda *_a, **_k: status)
+    monkeypatch.setattr(probe_mod, "install_tool", lambda *_a, **_k: status)
     assert core.install_tool("nmap") == status
 
 

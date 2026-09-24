@@ -28,7 +28,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 
 from skuggi import ledger as ledger_mod
-from skuggi import memory, pentest_tools, providers, registry, reports, tools
+from skuggi import memory, pentest_tools, probe, providers, reports, tools
 from skuggi.config import Provider, Settings
 from skuggi.configs import ConfigError, load_layout, load_registry, load_scope
 from skuggi.engagement import EngagementConfig
@@ -283,7 +283,7 @@ class AgentCore:
 
     def doctor_statuses(self) -> list[ToolStatus]:
         """Probe the host for every recognized tool."""
-        return registry.probe(
+        return probe.probe(
             self.registry,
             source=self.settings.tool_source,
             managed_dir=self.settings.managed_tools_dir,
@@ -291,18 +291,18 @@ class AgentCore:
 
     def runtime_statuses(self) -> list[RuntimeStatus]:
         """Probe the host for the standard runtimes/toolchains."""
-        return registry.probe_runtimes()
+        return probe.probe_runtimes()
 
     def net_tool_statuses(self) -> list[RuntimeStatus]:
         """Probe the host for the standard Unix net tools."""
-        return registry.probe_net_tools()
+        return probe.probe_net_tools()
 
     def install_tool(self, binary: str) -> ToolStatus | None:
         """Install one recognized tool; returns its status, or None if unknown."""
         spec = self.registry.spec_for(binary)
         if spec is None:
             return None
-        return registry.install_tool(
+        return probe.install_tool(
             spec,
             source=self.settings.tool_source,
             managed_dir=self.settings.managed_tools_dir,

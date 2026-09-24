@@ -25,15 +25,10 @@ from rich.table import Table
 from skuggi import palette
 from skuggi.config import Settings
 from skuggi.core import AgentCore
+from skuggi.doctor import PROBING_MSG, render_doctor
 from skuggi.engagement import EngagementConfig
 from skuggi.ledger import Ledger
-from skuggi.registry import (
-    ToolRegistry,
-    doctor_hints,
-    doctor_table,
-    net_tool_table,
-    runtime_table,
-)
+from skuggi.registry import ToolRegistry
 from skuggi.state import AgentState
 
 
@@ -295,16 +290,11 @@ class Tui:
         if parts and parts[0] == "install":
             self._install_tool(parts[1] if len(parts) > 1 else "")
             return
-        with self.console.status("probing host tools and runtimes...", spinner="dots"):
+        with self.console.status(PROBING_MSG, spinner="dots"):
             statuses = self.core.doctor_statuses()
             runtimes = self.core.runtime_statuses()
             net_tools = self.core.net_tool_statuses()
-        self.console.print(doctor_table(statuses))
-        self.console.print(runtime_table(runtimes))
-        self.console.print(net_tool_table(net_tools))
-        hints = doctor_hints(statuses, runtimes, net_tools)
-        if hints:
-            self.console.print(hints)
+        render_doctor(self.console, statuses, runtimes, net_tools)
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""

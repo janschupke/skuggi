@@ -23,7 +23,7 @@ import threading
 from collections.abc import Iterator
 
 from skuggi.core import AgentCore
-from skuggi.registry import doctor_ansi
+from skuggi.doctor import PROBING_MSG, doctor_ansi
 
 _CONTROL_HELP = (
     "skuggi shell commands:\n"
@@ -93,7 +93,7 @@ class Daemon:
         elif name == "doctor":
             # Emitted (and flushed) before the probe runs, so the client shows
             # progress immediately rather than a silent wait.
-            yield "probing host tools and runtimes...\n"
+            yield PROBING_MSG + "\n"
             yield doctor_ansi(
                 self.core.doctor_statuses(),
                 self.core.runtime_statuses(),

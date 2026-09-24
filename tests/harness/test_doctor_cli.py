@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from skuggi import doctor
+from skuggi import probe as probe_mod
 from skuggi.config import Settings
 
 
@@ -15,7 +16,7 @@ def test_probe_statuses_reads_the_registry(
     pentest_configs: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pentest_configs()
-    monkeypatch.setattr(doctor, "probe", lambda *_a, **_k: [])
+    monkeypatch.setattr(probe_mod, "probe", lambda *_a, **_k: [])
     assert doctor.probe_statuses(Settings()) == []
 
 
@@ -23,9 +24,9 @@ def test_main_returns_zero_with_configs(
     pentest_configs: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pentest_configs()
-    monkeypatch.setattr(doctor, "probe", lambda *_a, **_k: [])
-    monkeypatch.setattr(doctor, "probe_runtimes", lambda *_a, **_k: [])
-    monkeypatch.setattr(doctor, "probe_net_tools", lambda *_a, **_k: [])
+    monkeypatch.setattr(probe_mod, "probe", lambda *_a, **_k: [])
+    monkeypatch.setattr(probe_mod, "probe_runtimes", lambda *_a, **_k: [])
+    monkeypatch.setattr(probe_mod, "probe_net_tools", lambda *_a, **_k: [])
     assert doctor.main() == 0
 
 

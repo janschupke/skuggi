@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import registry as registry_mod
+from skuggi import probe as probe_mod
 from skuggi.config import Settings
 from skuggi.core import AgentCore
 from skuggi.daemon import Daemon
@@ -86,14 +86,14 @@ def test_slash_engagement_shows_scope(daemon: Daemon) -> None:
 def test_slash_doctor(daemon: Daemon, monkeypatch: pytest.MonkeyPatch) -> None:
     spec = ToolSpec(name="nmap", binary="nmap", method="scan")
     monkeypatch.setattr(
-        registry_mod,
+        probe_mod,
         "probe",
         lambda *_a, **_k: [
             ToolStatus(spec, found=True, path=Path("/x"), version="7", source="host")
         ],
     )
-    monkeypatch.setattr(registry_mod, "probe_runtimes", lambda *_a, **_k: [])
-    monkeypatch.setattr(registry_mod, "probe_net_tools", lambda *_a, **_k: [])
+    monkeypatch.setattr(probe_mod, "probe_runtimes", lambda *_a, **_k: [])
+    monkeypatch.setattr(probe_mod, "probe_net_tools", lambda *_a, **_k: [])
     assert "nmap" in _chunks(daemon, {"op": "input", "text": "/doctor"})
 
 
