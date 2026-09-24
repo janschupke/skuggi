@@ -27,6 +27,12 @@ from pathlib import Path
 MAX_CAPTURE_BYTES = 262_144
 _TRUNCATED = "\n...[truncated]"
 
+# Sentinel exit codes for outcomes that are not a real process status. Negative
+# so they cannot collide with a real exit status (0-255) or a signal (reported
+# negative by Popen but never this large in magnitude).
+_TIMEOUT_EXIT = -100
+_SPAWN_ERROR_EXIT = -101
+
 
 def _cap(text: str) -> str:
     """Byte-cap captured output, marking it when it was truncated."""
@@ -52,11 +58,6 @@ class CommandResult:
     def timed_out(self) -> bool:
         """Whether the command was killed for exceeding its timeout."""
         return self.exit_code == _TIMEOUT_EXIT
-
-
-# A negative code cannot collide with a real process exit status (0-255) or a
-# signal (reported as negative by Popen but never this large in magnitude).
-_TIMEOUT_EXIT = -100
 
 
 def run(
@@ -110,9 +111,6 @@ def run(
         started_at=started,
         finished_at=datetime.now(UTC),
     )
-
-
-_SPAWN_ERROR_EXIT = -101
 
 
 def _decode(raw: str | bytes | None) -> str:

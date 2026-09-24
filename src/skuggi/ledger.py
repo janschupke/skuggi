@@ -18,7 +18,7 @@ import sqlite3
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -122,6 +122,29 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+# Column lists derived from the row dataclasses, so SELECT order (and the
+# positional Row(*row) unpacking) can never drift from the field order. The
+# INSERT lists drop the autoincrement id.
+_SESSION_COLS = tuple(f.name for f in fields(SessionRow))
+_COMMAND_COLS = tuple(f.name for f in fields(CommandRow))
+_FINDING_COLS = tuple(f.name for f in fields(FindingRow))
+
+
+# The column names interpolated below are code-defined dataclass field names
+# (never user input), so the S608 string-building warning does not apply.
+def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
+    """An INSERT statement for `columns` with positional placeholders."""
+    placeholders = ", ".join("?" * len(columns))
+    cols = ", ".join(columns)
+    return f"INSERT INTO {table} ({cols}) VALUES ({placeholders})"  # noqa: S608
+
+
+def _select_sql(table: str, columns: tuple[str, ...], clause: str) -> str:
+    """A SELECT of `columns` from `table` with a trailing WHERE/ORDER clause."""
+    cols = ", ".join(columns)
+    return f"SELECT {cols} FROM {table} {clause}"  # noqa: S608
+
+
 class Ledger:
     """A thin, typed wrapper over the ledger database."""
 
@@ -170,9 +193,7 @@ class Ledger:
         """
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO commands (session_id, thread_id, command, binary, method,"
-                " status, exit_code, stdout, stderr, reason, started_at, finished_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                _insert_sql("commands", _COMMAND_COLS[1:]),
                 (
                     session_id,
                     thread_id,
@@ -204,8 +225,7 @@ class Ledger:
         """Insert a finding row and return its id."""
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO findings (session_id, command_id, title, severity,"
-                " description, evidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                _insert_sql("findings", _FINDING_COLS[1:]),
                 (
                     session_id,
                     command_id,
@@ -232,8 +252,7 @@ class Ledger:
         """The session row, or None if it was never started."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT session_id, engagement_name, mode, started_at"
-                " FROM sessions WHERE session_id = ?",
+                _select_sql("sessions", _SESSION_COLS, "WHERE session_id = ?"),
                 (session_id,),
             ).fetchone()
         return SessionRow(*row) if row else None
@@ -242,9 +261,9 @@ class Ledger:
         """Every command in the session, oldest first."""
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, session_id, thread_id, command, binary, method, status,"
-                " exit_code, stdout, stderr, reason, started_at, finished_at"
-                " FROM commands WHERE session_id = ? ORDER BY id",
+                _select_sql(
+                    "commands", _COMMAND_COLS, "WHERE session_id = ? ORDER BY id"
+                ),
                 (session_id,),
             ).fetchall()
         return [CommandRow(*row) for row in rows]
@@ -253,8 +272,9 @@ class Ledger:
         """Every finding in the session, oldest first."""
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, session_id, command_id, title, severity, description,"
-                " evidence, created_at FROM findings WHERE session_id = ? ORDER BY id",
+                _select_sql(
+                    "findings", _FINDING_COLS, "WHERE session_id = ? ORDER BY id"
+                ),
                 (session_id,),
             ).fetchall()
         return [FindingRow(*row) for row in rows]

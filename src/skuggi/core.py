@@ -190,6 +190,8 @@ class AgentCore:
             bind_tools=self.settings.supports_tools(),
             max_tool_rounds=self.settings.max_tool_rounds,
             retrieve_k=self.settings.retrieve_k,
+            history_messages=self.settings.history_messages,
+            history_chars=self.settings.history_chars,
             prompts=prompt_set(self.mode),
         )
 

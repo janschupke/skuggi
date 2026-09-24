@@ -78,6 +78,10 @@ class Settings(BaseSettings):
 
     max_revisions: int = 2
     max_tool_rounds: int = 4
+    # How much prior conversation the planner/worker/critic see, bounded by
+    # both a message count and a character budget (see graph.render_history).
+    history_messages: int = 8
+    history_chars: int = 4_000
 
     # --- pentest harness ---
     # The operating mode selects the agent's prompt set (pentest/redteam/blueteam).

@@ -99,7 +99,6 @@ filterwarnings = [
 ]
 markers = [
     "eval: talks to a real LLM provider; needs credentials, deselected by default",
-    "slow: builds a real FAISS index or exercises the sqlite saver end to end",
     "mock_http: drives a mocked HTTP transport; the blanket network block is lifted",
     "runs_commands: spawns a real subprocess; the blanket subprocess block is lifted",
 ]
