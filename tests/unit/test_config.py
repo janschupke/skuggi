@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -45,10 +47,28 @@ def test_chatgpt_cannot_bind_tools() -> None:
 
 def test_model_for_each_provider() -> None:
     settings = Settings()
-    assert settings.model_for("openai") == "gpt-4o-mini"
-    assert settings.model_for("chatgpt") == "gpt-5-codex"
-    assert settings.model_for("anthropic").startswith("claude-")
-    assert settings.model_for("ollama") == "llama3.2"
+    assert settings.model_for("openai") == "gpt-6-luna"
+    assert settings.model_for("chatgpt") == "gpt-6-luna"
+    assert settings.model_for("anthropic") == "claude-haiku-4-5"
+    assert settings.model_for("ollama") == "qwen3"
+
+
+def test_model_is_overridable_per_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SKUGGI_MODEL_ANTHROPIC", "claude-opus-5")
+    assert Settings().model_for("anthropic") == "claude-opus-5"
+
+
+def test_defaults_carry_no_date_suffixed_or_superseded_ids() -> None:
+    """Guards against a stale pin quietly becoming the default again.
+
+    The original scaffold shipped gpt-4o-mini and a date-suffixed Sonnet 4.5,
+    both long superseded by the time anyone ran it.
+    """
+    settings = Settings()
+    for provider in ("openai", "chatgpt", "anthropic", "ollama"):
+        model = settings.model_for(provider)
+        assert not re.search(r"-20\d{6}$", model), f"{model} pins a dated snapshot"
+        assert "gpt-4" not in model, f"{model} is a superseded generation"
 
 
 def test_suite_does_not_see_real_credentials() -> None:

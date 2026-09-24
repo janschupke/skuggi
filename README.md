@@ -163,18 +163,20 @@ It can be in one of two shapes:
      new tokens back to auth.json at mode 0600, and replays the request
      (`CodexAuth`).
 
-   **Model entitlement.** This endpoint accepts only models your ChatGPT
-   account is licensed for through Codex, and rejects ordinary chat model
-   names outright:
+   **Model names.** This endpoint accepts only *current* model names, and the
+   error it gives for anything else is misleading:
 
    ```
-   400 {"detail": "The 'gpt-5' model is not supported when using Codex
+   400 {"detail": "The 'gpt-5-codex' model is not supported when using Codex
         with a ChatGPT account."}
    ```
 
-   A 400 like that means auth succeeded and only the model is wrong -- set
-   `SKUGGI_MODEL_CHATGPT` to one your plan includes. A 404 instead means the
-   route is wrong.
+   That reads like an account-entitlement problem. It is not. Every
+   `gpt-*-codex` name is refused this way -- `gpt-5-codex`, `gpt-5.1-codex`,
+   `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`, `gpt-5.2-codex`,
+   `gpt-5.3-codex` -- while the current general model works fine. If you see
+   this, set `SKUGGI_MODEL_CHATGPT` to a current model rather than going
+   looking at your plan. A 404 instead of a 400 means the route is wrong.
 
 If the `chatgpt` path stops working after an `OAuth refresh failed` error,
 run `codex login` again.

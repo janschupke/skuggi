@@ -74,13 +74,15 @@ a partial run is normal:
 
 ```
 $ make eval
-6 passed, 4 skipped
+8 passed, 2 skipped
 SKIPPED  ANTHROPIC_API_KEY is not set
 SKIPPED  no Ollama server at http://localhost:11434
-SKIPPED  chatgpt: 400 - The 'gpt-5-codex' model is not supported when using
-         Codex with a ChatGPT account.
 ```
 
-That last one is account entitlement, not a defect: the codex endpoint serves
-only models your ChatGPT plan licenses. Set `SKUGGI_MODEL_CHATGPT` to one it
-does. A 400 there means auth succeeded; a 404 would mean the route is wrong.
+A provider you have no credentials for skips rather than fails, so a partial
+run is the normal outcome.
+
+If a chatgpt case skips with `400 - The '<model>' model is not supported when
+using Codex with a ChatGPT account`, that is a stale model name, not an
+account problem -- see the Codex auth section of the README. The skip is
+matched narrowly on that phrase so every other provider error still fails.

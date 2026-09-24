@@ -39,12 +39,21 @@ class Settings(BaseSettings):
     )
 
     provider: Provider = "openai"
-    model_openai: str = "gpt-4o-mini"
-    # Codex-over-ChatGPT accepts only models the account is entitled to, and
-    # rejects plain chat model names such as "gpt-5" outright.
-    model_chatgpt: str = "gpt-5-codex"
-    model_anthropic: str = "claude-sonnet-4-5-20250929"
-    model_ollama: str = "llama3.2"
+
+    # Defaults are the small, cheap tier of each provider's *current* lineup --
+    # a local agent harness should not open with a frontier-priced model. Every
+    # one is overridable with SKUGGI_MODEL_<PROVIDER>.
+    #
+    # Verified live against each provider on 2026-09-24. The codex endpoint in
+    # particular accepts only current model names: every gpt-*-codex name is
+    # refused there with "not supported when using Codex with a ChatGPT
+    # account", which reads like an entitlement problem but is a staleness one.
+    model_openai: str = "gpt-6-luna"
+    model_chatgpt: str = "gpt-6-luna"
+    model_anthropic: str = "claude-haiku-4-5"
+    # Ollama serves whatever you have pulled, so this one is a suggestion:
+    # `ollama pull qwen3` first, or point it at a model you already have.
+    model_ollama: str = "qwen3"
 
     embedding_model: str = "text-embedding-3-small"
     embedding_model_ollama: str = "nomic-embed-text"
