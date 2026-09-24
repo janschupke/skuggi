@@ -21,6 +21,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from skuggi.paths import ensure_dir
+
 
 class WorkspaceLayout(BaseModel):
     """The configurable folder structure of an engagement workspace."""
@@ -110,6 +112,6 @@ class Workspace:
 
     def ensure(self) -> None:
         """Create the workspace tree if it does not already exist (idempotent)."""
-        self.root.mkdir(parents=True, exist_ok=True)
+        ensure_dir(self.root)
         for rel in self.layout.dirs():
-            (self.root / rel).mkdir(parents=True, exist_ok=True)
+            ensure_dir(self.root / rel)

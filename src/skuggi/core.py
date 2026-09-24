@@ -19,7 +19,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args
 
 from langchain_core.messages import AIMessageChunk, HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -41,7 +41,7 @@ from skuggi.vectorstore import Store
 from skuggi.workspace import Workspace, WorkspaceLayout
 
 _STREAM_MODES: list[StreamMode] = ["updates", "messages"]
-_PROVIDERS = ("openai", "chatgpt", "anthropic", "ollama")
+_PROVIDERS = get_args(Provider)
 
 EventKind = Literal["reset", "status", "token", "final"]
 
@@ -78,12 +78,7 @@ class AgentCore:
         self.registry = self._load_registry()
 
         self._embeddings = providers.get_embeddings(self.settings)
-        self.store = Store(
-            self.settings.faiss_path,
-            self._embeddings,
-            chunk_size=self.settings.chunk_size,
-            chunk_overlap=self.settings.chunk_overlap,
-        )
+        self.store = Store.from_settings(self.settings, self._embeddings)
         self.llm = providers.get_chat_model(self.settings, model=self.model)
 
         self._saver_ctx = memory.open_checkpointer(self.settings.sqlite_path)

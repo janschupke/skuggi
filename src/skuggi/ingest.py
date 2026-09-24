@@ -22,16 +22,10 @@ def main() -> int:
     args = ap.parse_args()
 
     settings = Settings()
-    faiss_path = settings.faiss_path
-    store = Store(
-        faiss_path,
-        providers.get_embeddings(settings),
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-    )
+    store = Store.from_settings(settings, providers.get_embeddings(settings))
     added = store.ingest([Path(p) for p in args.paths])
     store.persist()
-    print(f"indexed {added} chunk(s) into {faiss_path}")
+    print(f"indexed {added} chunk(s) into {settings.faiss_path}")
     return 0
 
 

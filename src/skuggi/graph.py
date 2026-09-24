@@ -45,6 +45,7 @@ from skuggi.state import (
     RevisionUpdate,
     WorkerUpdate,
 )
+from skuggi.text import join_blocks, labeled
 from skuggi.vectorstore import Store, format_hits
 
 _APPROVED = "APPROVED"
@@ -117,15 +118,6 @@ def render_history(
     return "\n".join(lines)
 
 
-def _block(label: str, body: str) -> str:
-    """A labelled prompt section, or nothing when the body is empty."""
-    return f"{label}:\n{body}" if body.strip() else ""
-
-
-def _compose(*blocks: str) -> str:
-    return "\n\n".join(block for block in blocks if block)
-
-
 def _pick_draft(scratch: Sequence[BaseMessage]) -> str:
     """The last assistant message with real text.
 
@@ -192,10 +184,10 @@ def build_graph(
         prompt = [
             SystemMessage(content=deps.prompts.planner),
             HumanMessage(
-                content=_compose(
-                    _block("Conversation so far", history(state)),
-                    _block("Request", last_user_text(state["messages"])),
-                    _block("Prior critique", state.get("critique") or ""),
+                content=join_blocks(
+                    labeled("Conversation so far", history(state)),
+                    labeled("Request", last_user_text(state["messages"])),
+                    labeled("Prior critique", state.get("critique") or ""),
                 )
             ),
         ]
@@ -221,11 +213,11 @@ def build_graph(
             seed: list[BaseMessage] = [
                 SystemMessage(content=deps.prompts.worker),
                 HumanMessage(
-                    content=_compose(
-                        _block("Conversation so far", history(state)),
-                        _block("Retrieved context", state.get("context") or ""),
-                        _block("Request", last_user_text(state["messages"])),
-                        _block("Plan", state.get("plan") or ""),
+                    content=join_blocks(
+                        labeled("Conversation so far", history(state)),
+                        labeled("Retrieved context", state.get("context") or ""),
+                        labeled("Request", last_user_text(state["messages"])),
+                        labeled("Plan", state.get("plan") or ""),
                     )
                 ),
             ]
@@ -242,10 +234,10 @@ def build_graph(
         prompt = [
             SystemMessage(content=deps.prompts.critic),
             HumanMessage(
-                content=_compose(
-                    _block("Conversation so far", history(state, divisor=2)),
-                    _block("Request", last_user_text(state["messages"])),
-                    _block("Draft", state.get("draft") or ""),
+                content=join_blocks(
+                    labeled("Conversation so far", history(state, divisor=2)),
+                    labeled("Request", last_user_text(state["messages"])),
+                    labeled("Draft", state.get("draft") or ""),
                 )
             ),
         ]

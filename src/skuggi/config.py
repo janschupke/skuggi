@@ -28,6 +28,13 @@ from skuggi.modes import Mode
 Provider = Literal["openai", "chatgpt", "anthropic", "ollama"]
 ToolSource = Literal["host", "managed", "combine"]
 
+# The ChatGPT-account (codex) endpoints. Verified live: the responses route is
+# under /codex (a bare /backend-api/responses 404s), and refresh is the OpenAI
+# OAuth token endpoint. Single source: codex_chat imports these for its
+# defaults so the two never drift.
+CODEX_RESPONSES_BASE = "https://chatgpt.com/backend-api/codex"
+CODEX_REFRESH_URL = "https://auth.openai.com/oauth/token"
+
 
 class Settings(BaseSettings):
     """Runtime configuration for one skuggi session."""
@@ -92,11 +99,8 @@ class Settings(BaseSettings):
     command_timeout_s: float = 120.0
 
     codex_auth_path: Path = Path("~/.codex/auth.json")
-    codex_responses_base: str = "https://chatgpt.com/backend-api/codex"
-    codex_refresh_url: str = "https://auth.openai.com/oauth/token"
-    # Retreat switch: if the codex endpoint rejects the OpenAI SDK's payload,
-    # flipping this is an env change rather than a revert.
-    codex_use_openai_sdk: bool = True
+    codex_responses_base: str = CODEX_RESPONSES_BASE
+    codex_refresh_url: str = CODEX_REFRESH_URL
 
     openai_api_key: SecretStr | None = Field(None, validation_alias="OPENAI_API_KEY")
     anthropic_api_key: SecretStr | None = Field(

@@ -23,17 +23,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 # A scan can emit megabytes; the ledger and any prompt that echoes a result
-# both need this bounded. 256 KiB matches file_read's _MAX_READ_BYTES.
-_MAX_CAPTURE_BYTES = 262_144
+# both need this bounded. Shared with tools.file_read (same 256 KiB ceiling).
+MAX_CAPTURE_BYTES = 262_144
 _TRUNCATED = "\n...[truncated]"
 
 
 def _cap(text: str) -> str:
     """Byte-cap captured output, marking it when it was truncated."""
     encoded = text.encode("utf-8", errors="replace")
-    if len(encoded) <= _MAX_CAPTURE_BYTES:
+    if len(encoded) <= MAX_CAPTURE_BYTES:
         return text
-    clipped = encoded[:_MAX_CAPTURE_BYTES].decode("utf-8", errors="replace")
+    clipped = encoded[:MAX_CAPTURE_BYTES].decode("utf-8", errors="replace")
     return clipped + _TRUNCATED
 
 

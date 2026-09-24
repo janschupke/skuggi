@@ -13,16 +13,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from skuggi import palette
 from skuggi.engagement import EngagementConfig
 from skuggi.ledger import CommandRow, FindingRow, Ledger, SessionRow
+from skuggi.paths import ensure_dir
+from skuggi.text import join_blocks, labeled
 
 # Most-severe first; anything unrecognized sorts last under "other".
-_SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
-
-
-def _block(label: str, body: str) -> str:
-    """A labelled section, or nothing when the body is empty (from graph.py)."""
-    return f"## {label}\n\n{body}" if body.strip() else ""
+_SEVERITY_ORDER = palette.severities()
 
 
 def _command_log(commands: list[CommandRow]) -> str:
@@ -74,15 +72,11 @@ def render_report(
         f"- Commands: {len(commands)} · Findings: {len(findings)}"
     )
     scope = engagement.describe() if engagement is not None else ""
-    return "\n\n".join(
-        block
-        for block in (
-            header,
-            _block("Scope", f"```\n{scope}\n```" if scope else ""),
-            _block("Findings", _findings(findings)),
-            _block("Command log", _command_log(commands)),
-        )
-        if block
+    return join_blocks(
+        header,
+        labeled("Scope", f"```\n{scope}\n```" if scope else "", heading=True),
+        labeled("Findings", _findings(findings), heading=True),
+        labeled("Command log", _command_log(commands), heading=True),
     )
 
 
@@ -113,8 +107,7 @@ def write_report(
     findings = ledger.findings_for(session_id)
     body = render_report(session, commands, findings, engagement=engagement)
 
-    reports_dir = reports_dir.expanduser()
-    reports_dir.mkdir(parents=True, exist_ok=True)
+    reports_dir = ensure_dir(reports_dir)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = reports_dir / f"{_slug(session.engagement_name)}-{session_id[:8]}-{stamp}.md"
     path.write_text(body, encoding="utf-8")

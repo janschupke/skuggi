@@ -19,6 +19,9 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from skuggi.config import Settings
+from skuggi.paths import ensure_dir
+
 _HIT_SEPARATOR = "\n\n---\n\n"
 
 
@@ -52,6 +55,16 @@ class Store:
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
         self._vs: FAISS | None = self._try_load()
+
+    @classmethod
+    def from_settings(cls, settings: Settings, embeddings: Embeddings) -> Store:
+        """Build a Store from settings (path + chunking) and an embeddings model."""
+        return cls(
+            settings.faiss_path,
+            embeddings,
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+        )
 
     def _try_load(self) -> FAISS | None:
         if (self.path / "index.faiss").exists():
@@ -106,5 +119,5 @@ class Store:
         """Write the index to disk; a no-op when nothing has been ingested."""
         if self._vs is None:
             return
-        self.path.mkdir(parents=True, exist_ok=True)
+        ensure_dir(self.path)
         self._vs.save_local(str(self.path))

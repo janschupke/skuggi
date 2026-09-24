@@ -24,6 +24,7 @@ from collections.abc import Iterator
 
 from skuggi.core import AgentCore
 from skuggi.doctor import PROBING_MSG, doctor_ansi
+from skuggi.ledger import finding_line
 
 _CONTROL_HELP = (
     "skuggi shell commands:\n"
@@ -127,12 +128,7 @@ class Daemon:
         rows = self.core.findings()
         if not rows:
             return "(no findings yet)\n"
-        lines = [
-            f"{f.severity.upper()} [{f.id}] {f.title}"
-            + (f" (cmd:{f.command_id})" if f.command_id is not None else "")
-            for f in rows
-        ]
-        return "\n".join(lines) + "\n"
+        return "\n".join(finding_line(f) for f in rows) + "\n"
 
 
 def serve(core: AgentCore, sock_path: str) -> ServerHandle:  # pragma: no cover

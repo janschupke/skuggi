@@ -27,7 +27,7 @@ from skuggi.config import Settings
 from skuggi.core import AgentCore
 from skuggi.doctor import PROBING_MSG, render_doctor
 from skuggi.engagement import EngagementConfig
-from skuggi.ledger import Ledger
+from skuggi.ledger import Ledger, finding_line
 from skuggi.registry import ToolRegistry
 from skuggi.state import AgentState
 
@@ -316,13 +316,12 @@ class Tui:
             self.console.print("[dim](no findings yet)[/dim]")
             return
         for finding in rows:
-            src = (
-                f" (cmd:{finding.command_id})" if finding.command_id is not None else ""
+            self.console.print(
+                finding_line(
+                    finding,
+                    lambda text, sev: palette.paint(text, palette.severity_style(sev)),
+                )
             )
-            sev = palette.paint(
-                finding.severity.upper(), palette.severity_style(finding.severity)
-            )
-            self.console.print(f"{sev} [{finding.id}] {finding.title}{src}")
 
     def _cmd_report(self, _arg: str) -> None:
         path = self.core.write_report()

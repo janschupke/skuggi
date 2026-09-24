@@ -18,6 +18,7 @@ from pathlib import Path
 
 from langchain_core.tools import BaseTool, tool
 
+from skuggi.execution import MAX_CAPTURE_BYTES
 from skuggi.vectorstore import Store, format_hits
 
 _BIN_OPS: dict[type[ast.operator], Callable[[float, float], float]] = {
@@ -37,7 +38,6 @@ _UNARY_OPS: dict[type[ast.unaryop], Callable[[float], float]] = {
 # 2**1024 is instant and ~309 digits; 9**(9**9) is not computable. The cap sits
 # above anything a chat user plausibly wants and below the range that hangs.
 _MAX_POW_EXPONENT = 1024
-_MAX_READ_BYTES = 262_144
 _MAX_RETRIEVE_K = 10
 _NO_RESULTS = "(no results -- the index is empty; use /ingest first)"
 
@@ -139,7 +139,7 @@ def build_tools(
             return "error: path escapes the working directory"
         if not target.is_file():
             return f"error: not a file: {target}"
-        limit = max(1, min(max_bytes, _MAX_READ_BYTES))
+        limit = max(1, min(max_bytes, MAX_CAPTURE_BYTES))
         with target.open("rb") as handle:
             return handle.read(limit).decode("utf-8", errors="replace")
 

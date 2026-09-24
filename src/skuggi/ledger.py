@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -100,6 +100,22 @@ class FindingRow:
     description: str
     evidence: str
     created_at: str
+
+
+def finding_line(
+    row: FindingRow, paint: Callable[[str, str], str] | None = None
+) -> str:
+    """One-line summary of a finding: ``SEV [id] title (cmd:N)``.
+
+    Shared by the REPL and the shell daemon so the row shape and the command
+    link never drift. ``paint`` styles the severity token (the REPL passes the
+    palette; the plaintext daemon passes nothing).
+    """
+    severity = row.severity.upper()
+    if paint is not None:
+        severity = paint(severity, row.severity)
+    link = f" (cmd:{row.command_id})" if row.command_id is not None else ""
+    return f"{severity} [{row.id}] {row.title}{link}"
 
 
 def _now() -> str:

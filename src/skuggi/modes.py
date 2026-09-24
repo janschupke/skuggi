@@ -55,6 +55,16 @@ _CRITIC_SCOPE_CLAUSE = (
     "scope, or that presents unverified output as though a tool had produced it."
 )
 
+# The critic's fixed reply contract, shared by every mode. Only the evaluation
+# clause before it differs; keeping the APPROVED/REVISE skeleton in one place
+# stops the three copies drifting.
+_CRITIC_REPLY_FORMAT = (
+    " If it is good, reply exactly:\n"
+    "  APPROVED: <one-line reason>\n"
+    "Otherwise reply:\n"
+    "  REVISE: <specific actionable issue>"
+)
+
 _PENTEST = PromptSet(
     planner=(
         "You are the planner for an authorized penetration test. Given the "
@@ -69,10 +79,7 @@ _PENTEST = PromptSet(
     ),
     critic=(
         "You are the critic. Evaluate the worker's draft against the operator's "
-        "original request. If it is good, reply exactly:\n"
-        "  APPROVED: <one-line reason>\n"
-        "Otherwise reply:\n"
-        "  REVISE: <specific actionable issue>" + _CRITIC_SCOPE_CLAUSE
+        "original request." + _CRITIC_REPLY_FORMAT + _CRITIC_SCOPE_CLAUSE
     ),
 )
 
@@ -89,10 +96,7 @@ _REDTEAM = PromptSet(
     ),
     critic=(
         "You are the critic. Evaluate the worker's draft against the objective "
-        "and the rules of engagement. If it is good, reply exactly:\n"
-        "  APPROVED: <one-line reason>\n"
-        "Otherwise reply:\n"
-        "  REVISE: <specific actionable issue>" + _CRITIC_SCOPE_CLAUSE
+        "and the rules of engagement." + _CRITIC_REPLY_FORMAT + _CRITIC_SCOPE_CLAUSE
     ),
 )
 
@@ -109,10 +113,7 @@ _BLUETEAM = PromptSet(
     ),
     critic=(
         "You are the critic. Evaluate the worker's draft against the defensive "
-        "request. If it is good, reply exactly:\n"
-        "  APPROVED: <one-line reason>\n"
-        "Otherwise reply:\n"
-        "  REVISE: <specific actionable issue>" + _CRITIC_SCOPE_CLAUSE
+        "request." + _CRITIC_REPLY_FORMAT + _CRITIC_SCOPE_CLAUSE
     ),
 )
 

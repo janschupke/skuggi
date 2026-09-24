@@ -14,6 +14,8 @@ from pathlib import Path
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+from skuggi.paths import ensure_parent
+
 
 @contextmanager
 def open_checkpointer(path: Path) -> Iterator[SqliteSaver]:
@@ -21,7 +23,7 @@ def open_checkpointer(path: Path) -> Iterator[SqliteSaver]:
 
     Hold this open for the lifetime of the session.
     """
-    path.expanduser().parent.mkdir(parents=True, exist_ok=True)
+    ensure_parent(path)
     with SqliteSaver.from_conn_string(str(path)) as saver:
         yield saver
 

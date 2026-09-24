@@ -11,13 +11,13 @@ from pathlib import Path
 import pytest
 
 from skuggi import execution
-from skuggi.execution import _MAX_CAPTURE_BYTES, _cap, run
+from skuggi.execution import MAX_CAPTURE_BYTES, _cap, run
 
 
 def test_cap_truncates_oversized_output() -> None:
-    capped = _cap("x" * (_MAX_CAPTURE_BYTES + 1000))
+    capped = _cap("x" * (MAX_CAPTURE_BYTES + 1000))
     assert capped.endswith("[truncated]")
-    assert len(capped.encode("utf-8")) <= _MAX_CAPTURE_BYTES + len("\n...[truncated]")
+    assert len(capped.encode("utf-8")) <= MAX_CAPTURE_BYTES + len("\n...[truncated]")
 
 
 def test_cap_leaves_small_output_untouched() -> None:
