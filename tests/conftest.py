@@ -70,8 +70,12 @@ def os_environ_keys() -> list[str]:
 
 @pytest.fixture(autouse=True)
 def no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make a forgotten HTTP mock fail loudly instead of reaching the internet."""
-    if _is_eval(request):
+    """Make a forgotten HTTP mock fail loudly instead of reaching the internet.
+
+    Lifted for tests marked `mock_http`, which install their own transport-level
+    interception and would otherwise be blocked before reaching it.
+    """
+    if _is_eval(request) or request.node.get_closest_marker("mock_http"):
         return
 
     def _blocked(*args: object, **kwargs: object) -> object:

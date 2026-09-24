@@ -78,9 +78,14 @@ def get_chat_model(settings: Settings, *, model: str | None = None) -> BaseChatM
     name = model or settings.model_for(provider)
 
     if provider == "chatgpt":
-        from skuggi.codex_chat import CodexChatModel
+        from skuggi.codex_chat import build_codex_chat_model
 
-        return CodexChatModel(model=name, auth_path=settings.auth_json())
+        return build_codex_chat_model(
+            name,
+            auth_path=settings.auth_json(),
+            responses_base=settings.codex_responses_base,
+            refresh_url=settings.codex_refresh_url,
+        )
 
     kwargs: dict[str, Any] = {}
     if provider == "openai":
