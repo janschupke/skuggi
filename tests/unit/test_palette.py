@@ -45,3 +45,23 @@ def test_paint_wraps_in_markup() -> None:
 def test_methods_and_severities_are_exposed() -> None:
     assert "scan" in palette.methods()
     assert "critical" in palette.severities()
+
+
+def test_methods_never_reuse_a_sentiment_colour() -> None:
+    """Methods are a categorical axis, never a good/bad signal."""
+    reserved = {palette.SUCCESS, palette.DANGER, palette.WARNING, palette.INFO}
+    for method in palette.methods():
+        assert palette.method_style(method) not in reserved
+
+
+def test_status_uses_sentiment_colours() -> None:
+    assert palette.status_style(found=True) == palette.SUCCESS
+    assert palette.status_style(found=False) == palette.DANGER
+
+
+def test_source_found_is_neutral_missing_is_danger() -> None:
+    assert palette.source_style("host") == palette.NEUTRAL
+    assert palette.source_style("managed") == palette.NEUTRAL
+    assert palette.source_style("missing") == palette.DANGER
+    # A missing source shares the missing-status danger colour.
+    assert palette.source_style("missing") == palette.status_style(found=False)

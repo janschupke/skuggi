@@ -267,3 +267,27 @@ def test_runtime_table_renders_status(monkeypatch: pytest.MonkeyPatch) -> None:
     rendered = cap.get()
     assert "python3" in rendered
     assert "missing" in rendered
+
+
+def test_doctor_table_sorts_by_method_and_shows_path() -> None:
+    def status(binary: str, method: str, path: str) -> ToolStatus:
+        return ToolStatus(
+            ToolSpec(name=binary, binary=binary, method=method),
+            found=True,
+            path=Path(path),
+            version=None,
+            source="host",
+        )
+
+    statuses = [
+        status("hydra", "bruteforce", "/b/hydra"),
+        status("nmap", "scan", "/b/nmap"),
+        status("curl", "recon", "/b/curl"),
+    ]
+    console = Console(force_terminal=True, width=120)
+    with console.capture() as cap:
+        console.print(doctor_table(statuses))
+    rendered = cap.get()
+    # palette method order: recon < scan < bruteforce
+    assert rendered.index("curl") < rendered.index("nmap") < rendered.index("hydra")
+    assert "/b/nmap" in rendered  # the binary-path column is present

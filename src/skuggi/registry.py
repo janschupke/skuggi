@@ -271,12 +271,29 @@ def _ensure_managed_venv(managed_dir: Path, runner: Runner) -> None:
     )
 
 
+def _method_rank(method: str) -> int:
+    """Sort key placing methods in the palette's defined order, unknowns last."""
+    order = palette.methods()
+    return order.index(method) if method in order else len(order)
+
+
 def doctor_table(statuses: list[ToolStatus]) -> Table:
-    """A colour-coded Rich table of the host tool probe (palette-driven)."""
+    """A colour-coded Rich table of the host tool probe (palette-driven).
+
+    Rows are grouped by method (in the palette's order) with a separator between
+    groups, and carry the resolved binary path.
+    """
     table = Table(title="skuggi tool doctor")
-    for column in ("tool", "method", "status", "version", "source"):
+    for column in ("tool", "method", "status", "version", "source", "path"):
         table.add_column(column)
-    for st in statuses:
+    ordered = sorted(
+        statuses, key=lambda st: (_method_rank(st.spec.method), st.spec.binary)
+    )
+    prev_method: str | None = None
+    for st in ordered:
+        if prev_method is not None and st.spec.method != prev_method:
+            table.add_section()
+        prev_method = st.spec.method
         table.add_row(
             st.spec.binary,
             palette.paint(st.spec.method, palette.method_style(st.spec.method)),
@@ -286,6 +303,7 @@ def doctor_table(statuses: list[ToolStatus]) -> Table:
             ),
             st.version or "-",
             palette.paint(st.source, palette.source_style(st.source)),
+            str(st.path) if st.path else "-",
         )
     return table
 

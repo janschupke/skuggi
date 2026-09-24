@@ -13,33 +13,39 @@ from __future__ import annotations
 SHIELD = "🐐"
 
 # --- sentiment --------------------------------------------------------------
+# These four are RESERVED: they carry good/bad meaning, so methods (a
+# categorical axis, not a sentiment) must never reuse them -- see `_METHOD`.
 SUCCESS = "green"
 DANGER = "bold red"
 WARNING = "yellow"
 INFO = "dim"
 
-# --- tool status (found on the host / missing) ------------------------------
-FOUND = "green"
-MISSING = "bold red"
+# The terminal's own foreground: a neutral, no-sentiment colour.
+NEUTRAL = "default"
 
 # --- where a tool resolved --------------------------------------------------
+# Found (host or managed) is neutral -- the status column already carries the
+# good/bad signal; only a missing source is danger (the same red as a missing
+# status).
 _SOURCE = {
-    "host": "green",
-    "managed": "cyan",
-    "missing": "red",
-    "unavailable": "red",
+    "host": NEUTRAL,
+    "managed": NEUTRAL,
+    "missing": DANGER,
+    "unavailable": DANGER,
 }
 
 # --- engagement methods -----------------------------------------------------
 # Coarse categories (a tool's registry entry fixes its one method). Each gets a
-# defined colour so scope and command logs read consistently.
+# defined colour; deliberately drawn from a cool/pink/orange palette that shares
+# no colour with the reserved sentiment set above, so a method is never mistaken
+# for a good/bad signal.
 _METHOD = {
     "recon": "cyan",
     "scan": "blue",
     "enumerate": "magenta",
     "bruteforce": "dark_orange",
-    "crack": "yellow",
-    "exploit": "bold red",
+    "crack": "medium_purple",
+    "exploit": "deep_pink3",
 }
 _METHOD_DEFAULT = "white"
 
@@ -55,13 +61,13 @@ _SEVERITY_DEFAULT = "white"
 
 
 def status_style(*, found: bool) -> str:
-    """The style for a found/missing tool status."""
-    return FOUND if found else MISSING
+    """The style for a found/missing tool status (success / danger)."""
+    return SUCCESS if found else DANGER
 
 
 def source_style(source: str) -> str:
-    """The style for where a tool resolved (host/managed/missing)."""
-    return _SOURCE.get(source, INFO)
+    """The style for where a tool resolved (host/managed neutral, missing danger)."""
+    return _SOURCE.get(source, NEUTRAL)
 
 
 def method_style(method: str | None) -> str:
