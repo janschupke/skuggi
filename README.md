@@ -88,8 +88,9 @@ State (`src/skuggi/state.py`) has two message channels, deliberately separate:
 
 ```python
 class _MessageChannels(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]   # the conversation
-    scratch:  Annotated[list[BaseMessage], add_messages]   # the worker's tool loop
+    messages: Annotated[list[BaseMessage], add_messages]  # the conversation
+    scratch: Annotated[list[BaseMessage], add_messages]  # the worker's tool loop
+
 
 class AgentState(_MessageChannels, total=False):
     plan: str
