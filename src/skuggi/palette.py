@@ -16,7 +16,7 @@ SHIELD = "🐐"
 # These four are RESERVED: they carry good/bad meaning, so methods (a
 # categorical axis, not a sentiment) must never reuse them -- see `_METHOD`.
 SUCCESS = "green"
-DANGER = "bold red"
+DANGER = "red"
 WARNING = "yellow"
 INFO = "dim"
 

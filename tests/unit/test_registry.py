@@ -269,6 +269,30 @@ def test_runtime_table_renders_status(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "missing" in rendered
 
 
+def test_runtimes_include_powershell_dotnet_and_perl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The runtime set covers the added interpreters/SDKs."""
+    monkeypatch.setattr("skuggi.registry.shutil.which", lambda _name: None)
+    names = {s.spec.name for s in probe_runtimes(runner=FakeRunner())}
+    assert {"powershell", ".net", "perl"} <= names
+
+
+def test_doctor_hints_lists_missing_runtimes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing runtime gets a host-filtered install hint in its own block."""
+    monkeypatch.setattr(
+        "skuggi.registry.shutil.which",
+        lambda name: "/usr/bin/brew" if name == "brew" else None,
+    )
+    runtimes = probe_runtimes(runner=FakeRunner())
+    hints = doctor_hints([], runtimes)
+    assert "Missing runtimes" in hints
+    assert "brew install perl" in hints
+    assert "apt install perl" not in hints  # apt absent on this fake host
+
+
 def test_doctor_table_sorts_by_method_and_shows_path() -> None:
     def status(binary: str, method: str, path: str) -> ToolStatus:
         return ToolStatus(

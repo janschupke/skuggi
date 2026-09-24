@@ -43,10 +43,10 @@ def main() -> int:
         console.print(f"[red]doctor:[/red] {exc}")
         return 1
     console.print(doctor_table(statuses))
-    hints = doctor_hints(statuses)
+    console.print(runtime_table(runtimes))
+    hints = doctor_hints(statuses, runtimes)
     if hints:
         console.print(hints)
-    console.print(runtime_table(runtimes))
     return 0
 
 

@@ -22,7 +22,7 @@ import shlex
 import shutil
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
@@ -280,8 +280,8 @@ def _method_rank(method: str) -> int:
 def doctor_table(statuses: list[ToolStatus]) -> Table:
     """A colour-coded Rich table of the host tool probe (palette-driven).
 
-    Rows are grouped by method (in the palette's order) with a separator between
-    groups, and carry the resolved binary path.
+    Rows are grouped by method (in the palette's order) and carry the resolved
+    binary path.
     """
     table = Table(title="skuggi tool doctor")
     for column in ("tool", "method", "status", "version", "source", "path"):
@@ -289,11 +289,7 @@ def doctor_table(statuses: list[ToolStatus]) -> Table:
     ordered = sorted(
         statuses, key=lambda st: (_method_rank(st.spec.method), st.spec.binary)
     )
-    prev_method: str | None = None
     for st in ordered:
-        if prev_method is not None and st.spec.method != prev_method:
-            table.add_section()
-        prev_method = st.spec.method
         table.add_row(
             st.spec.binary,
             palette.paint(st.spec.method, palette.method_style(st.spec.method)),
@@ -326,28 +322,62 @@ def available_installers() -> frozenset[str]:
     return frozenset(found)
 
 
-def doctor_hints(statuses: list[ToolStatus]) -> str:
-    """Install hints for the missing tools, filtered to installers on this host.
+def _hint_block(
+    header: str,
+    missing: list[tuple[str, dict[str, str]]],
+    available: frozenset[str],
+) -> list[str]:
+    """Lines for one group of missing things, each with a host-filtered hint.
 
-    Returns '' when nothing is missing. A tool whose only hints target absent
-    package managers is reported as having no installer available here, rather
-    than printing a command that cannot run.
+    A thing whose only hints target absent package managers is reported as
+    having no installer available here, rather than printing a command that
+    cannot run.
     """
-    missing = [st for st in statuses if not st.found]
-    if not missing:
-        return ""
-    available = available_installers()
-    header = ", ".join(sorted(available)) or "none"
-    lines = [f"Missing tools (installers on this host: {header}):"]
-    for st in missing:
-        usable = {k: v for k, v in st.spec.install.items() if k in available}
+    lines = [header]
+    for label, install in missing:
+        usable = {k: v for k, v in install.items() if k in available}
         if usable:
             hints = "; ".join(f"{k}: {v}" for k, v in usable.items())
-        elif st.spec.install:
+        elif install:
             hints = "no installer available on this host"
         else:
             hints = "no install hint"
-        lines.append(f"  - {st.spec.binary}: {hints}")
+        lines.append(f"  - {label}: {hints}")
+    return lines
+
+
+def doctor_hints(
+    statuses: list[ToolStatus], runtimes: list[RuntimeStatus] | None = None
+) -> str:
+    """Install hints for the missing tools and runtimes, filtered to this host.
+
+    Returns '' when nothing is missing. Tools and runtimes are reported in
+    separate blocks so the operator can tell a scoped tool from a host
+    capability; both are filtered to the package managers that actually exist.
+    """
+    missing_tools = [
+        (st.spec.binary, st.spec.install) for st in statuses if not st.found
+    ]
+    missing_runtimes = [
+        (st.spec.name, st.spec.install) for st in (runtimes or []) if not st.found
+    ]
+    if not missing_tools and not missing_runtimes:
+        return ""
+    available = available_installers()
+    header = ", ".join(sorted(available)) or "none"
+    lines: list[str] = []
+    if missing_tools:
+        lines += _hint_block(
+            f"Missing tools (installers on this host: {header}):",
+            missing_tools,
+            available,
+        )
+    if missing_runtimes:
+        lines += _hint_block(
+            f"Missing runtimes (installers on this host: {header}):",
+            missing_runtimes,
+            available,
+        )
     return "\n".join(lines)
 
 
@@ -365,7 +395,7 @@ def doctor_ansi(
         console.print(doctor_table(statuses))
         if runtimes:
             console.print(runtime_table(runtimes))
-    hints = doctor_hints(statuses)
+    hints = doctor_hints(statuses, runtimes)
     return capture.get() + (hints + "\n" if hints else "")
 
 
@@ -377,6 +407,9 @@ class RuntimeSpec:
     binary: str
     version_args: tuple[str, ...] = ()
     version_regex: str | None = None
+    # Host-verified install hints, keyed like ToolSpec.install (brew/apt/pip);
+    # shown in the doctor for a missing runtime, filtered to present installers.
+    install: dict[str, str] = field(default_factory=dict)
 
 
 class RuntimeStatus(NamedTuple):
@@ -392,15 +425,90 @@ class RuntimeStatus(NamedTuple):
 # build exploits. Distinct from the engagement tool registry: these are host
 # capabilities, not authorized-and-scoped commands.
 _RUNTIMES: tuple[RuntimeSpec, ...] = (
-    RuntimeSpec("ruby", "ruby", ("--version",), r"ruby ([0-9][0-9.]*)"),
-    RuntimeSpec("rustc", "rustc", ("--version",), r"rustc ([0-9][0-9.]*)"),
-    RuntimeSpec("cargo", "cargo", ("--version",), r"cargo ([0-9][0-9.]*)"),
-    RuntimeSpec("python3", "python3", ("--version",), r"Python ([0-9][0-9.]*)"),
-    RuntimeSpec("node", "node", ("--version",), r"v?([0-9][0-9.]*)"),
-    RuntimeSpec("php", "php", ("--version",), r"PHP ([0-9][0-9.]*)"),
-    RuntimeSpec("cc", "cc", ("--version",)),
-    RuntimeSpec("c++", "c++", ("--version",)),
-    RuntimeSpec("make", "make", ("--version",), r"[Mm]ake ([0-9][0-9.]*)"),
+    RuntimeSpec(
+        "ruby",
+        "ruby",
+        ("--version",),
+        r"ruby ([0-9][0-9.]*)",
+        {"brew": "brew install ruby", "apt": "apt install ruby"},
+    ),
+    RuntimeSpec(
+        "rustc",
+        "rustc",
+        ("--version",),
+        r"rustc ([0-9][0-9.]*)",
+        {"brew": "brew install rust", "apt": "apt install rustc"},
+    ),
+    RuntimeSpec(
+        "cargo",
+        "cargo",
+        ("--version",),
+        r"cargo ([0-9][0-9.]*)",
+        {"brew": "brew install rust", "apt": "apt install cargo"},
+    ),
+    RuntimeSpec(
+        "python3",
+        "python3",
+        ("--version",),
+        r"Python ([0-9][0-9.]*)",
+        {"brew": "brew install python", "apt": "apt install python3"},
+    ),
+    RuntimeSpec(
+        "node",
+        "node",
+        ("--version",),
+        r"v?([0-9][0-9.]*)",
+        {"brew": "brew install node", "apt": "apt install nodejs"},
+    ),
+    RuntimeSpec(
+        "php",
+        "php",
+        ("--version",),
+        r"PHP ([0-9][0-9.]*)",
+        {"brew": "brew install php", "apt": "apt install php"},
+    ),
+    RuntimeSpec(
+        "perl",
+        "perl",
+        ("--version",),
+        r"\(v([0-9][0-9.]*)\)",
+        {"brew": "brew install perl", "apt": "apt install perl"},
+    ),
+    RuntimeSpec(
+        "cc",
+        "cc",
+        ("--version",),
+        None,
+        {"brew": "xcode-select --install", "apt": "apt install build-essential"},
+    ),
+    RuntimeSpec(
+        "c++",
+        "c++",
+        ("--version",),
+        None,
+        {"brew": "xcode-select --install", "apt": "apt install build-essential"},
+    ),
+    RuntimeSpec(
+        "make",
+        "make",
+        ("--version",),
+        r"[Mm]ake ([0-9][0-9.]*)",
+        {"brew": "xcode-select --install", "apt": "apt install build-essential"},
+    ),
+    RuntimeSpec(
+        "powershell",
+        "pwsh",
+        ("--version",),
+        r"PowerShell ([0-9][0-9.]*)",
+        {"brew": "brew install --cask powershell", "apt": "apt install powershell"},
+    ),
+    RuntimeSpec(
+        ".net",
+        "dotnet",
+        ("--version",),
+        r"([0-9][0-9.]*)",
+        {"brew": "brew install --cask dotnet-sdk", "apt": "apt install dotnet-sdk-8.0"},
+    ),
 )
 
 

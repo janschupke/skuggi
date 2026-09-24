@@ -293,10 +293,10 @@ class Tui:
             statuses = self.core.doctor_statuses()
             runtimes = self.core.runtime_statuses()
         self.console.print(doctor_table(statuses))
-        hints = doctor_hints(statuses)
+        self.console.print(runtime_table(runtimes))
+        hints = doctor_hints(statuses, runtimes)
         if hints:
             self.console.print(hints)
-        self.console.print(runtime_table(runtimes))
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""
