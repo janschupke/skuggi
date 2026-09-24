@@ -56,13 +56,15 @@ def _safe_eval(node: ast.AST) -> float:
     if isinstance(node, ast.Constant):
         # bool is an int subclass; exclude it so `True+1` is not arithmetic.
         if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
-            raise _UnsafeExpressionError(f"constant {type(node.value).__name__}")
+            msg = f"constant {type(node.value).__name__}"
+            raise _UnsafeExpressionError(msg)
         return node.value
     if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
         left = _safe_eval(node.left)
         right = _safe_eval(node.right)
         if isinstance(node.op, ast.Pow) and abs(right) > _MAX_POW_EXPONENT:
-            raise _UnsafeExpressionError(f"exponent {right} exceeds the cap")
+            msg = f"exponent {right} exceeds the cap"
+            raise _UnsafeExpressionError(msg)
         return _check_numeric(_BIN_OPS[type(node.op)](left, right))
     if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
         return _check_numeric(_UNARY_OPS[type(node.op)](_safe_eval(node.operand)))
@@ -72,7 +74,8 @@ def _safe_eval(node: ast.AST) -> float:
 def _check_numeric(value: object) -> float:
     """Reject non-real results, such as the complex value of `(-8) ** 0.5`."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise _UnsafeExpressionError(f"non-real result {type(value).__name__}")
+        msg = f"non-real result {type(value).__name__}"
+        raise _UnsafeExpressionError(msg)
     return value
 
 

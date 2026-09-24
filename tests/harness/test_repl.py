@@ -196,7 +196,7 @@ def test_a_failing_turn_does_not_kill_the_repl(
     app, buffer = tui
 
     class Exploding:
-        def stream(self, *args: object, **kwargs: object) -> object:
+        def stream(self, *_args: object, **_kwargs: object) -> object:
             msg = "provider exploded"
             raise RuntimeError(msg)
 

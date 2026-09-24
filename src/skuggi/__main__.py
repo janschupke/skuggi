@@ -1,3 +1,5 @@
+"""Console entry point for the REPL."""
+
 from skuggi.config import Settings
 from skuggi.tui import Tui
 

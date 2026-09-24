@@ -63,6 +63,7 @@ class Store:
         return None
 
     def search(self, query: str, k: int = 4) -> list[Document]:
+        """Return the top-k matches, or nothing when no index exists yet."""
         if self._vs is None:
             return []
         return self._vs.similarity_search(query, k=k)
@@ -102,6 +103,7 @@ class Store:
         return len(docs)
 
     def persist(self) -> None:
+        """Write the index to disk; a no-op when nothing has been ingested."""
         if self._vs is None:
             return
         self.path.mkdir(parents=True, exist_ok=True)

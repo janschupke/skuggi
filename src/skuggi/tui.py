@@ -53,10 +53,12 @@ class DraftView:
         self.buffer = ""
 
     def reset(self) -> None:
+        """Start a new run, discarding anything buffered."""
         self._run_id = None
         self.buffer = ""
 
     def push(self, chunk: BaseMessage, node: str) -> None:
+        """Render one streamed item, ignoring anything that is not a token."""
         if node != "worker" or not isinstance(chunk, AIMessageChunk):
             return
         if chunk.id != self._run_id:
@@ -204,10 +206,10 @@ class Tui:
             return None
         return handler(parts[1].strip() if len(parts) > 1 else "")
 
-    def _cmd_quit(self, arg: str) -> bool:
+    def _cmd_quit(self, _arg: str) -> bool:
         return False
 
-    def _cmd_help(self, arg: str) -> None:
+    def _cmd_help(self, _arg: str) -> None:
         table = Table(show_header=False, box=None)
         for command, description in HELP:
             table.add_row(f"[cyan]{command}[/cyan]", description)
@@ -267,7 +269,7 @@ class Tui:
                 f"[bold]{labels.get(message.type, message.type)}:[/bold] {message.text}"
             )
 
-    def _cmd_trace(self, arg: str) -> None:
+    def _cmd_trace(self, _arg: str) -> None:
         """Show the worker's tool trail, which /history deliberately excludes."""
         shown = False
         for message in self._state().get("scratch", []):
@@ -285,7 +287,7 @@ class Tui:
             # so an emptiness check would print nothing at all on a tool-free turn.
             self.console.print("[dim](no tool activity on this thread)[/dim]")
 
-    def _cmd_clear(self, arg: str) -> None:
+    def _cmd_clear(self, _arg: str) -> None:
         self.console.clear()
 
     def _cmd_ingest(self, arg: str) -> None:

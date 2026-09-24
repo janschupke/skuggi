@@ -173,6 +173,8 @@ runtime-evaluated-base-classes = [
 [tool.ruff.lint.per-file-ignores]
 "src/skuggi/__init__.py" = ["D104"]
 "src/skuggi/ingest.py" = ["T201"]          # print() is this module's output
+# _get_request_payload's **kwargs: Any is fixed by the ChatOpenAI signature.
+"src/skuggi/codex_chat.py" = ["ANN401"]
 "tests/**" = [
     "S101",             # asserts are the point
     "S105", "S106",     # fake tokens in fixtures
@@ -180,4 +182,9 @@ runtime-evaluated-base-classes = [
     "PLR2004",          # `assert n == 42` is not a magic value
     "SLF001",           # tests legitimately inspect private helpers
     "ARG001",           # fixtures requested for a side effect
+    "D102",             # the test or fake method name is the documentation
 ]
+# The fakes subclass BaseChatModel, so their overrides must keep the base
+# signature (unused stop/run_manager, **kwargs: Any), and their mutable
+# defaults are pydantic fields, which pydantic copies per instance.
+"tests/fakes.py" = ["ARG002", "ANN401", "RUF012"]

@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from langchain_core.language_models import LanguageModelInput
 from langchain_openai import ChatOpenAI
 
 # Verified live: /backend-api/responses returns 404 and /backend-api/codex/responses
@@ -115,7 +116,7 @@ class CodexTokenStore:
                 json.dump(data, handle, indent=2)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(tmp, self.auth_path)
+            tmp.replace(self.auth_path)
         except BaseException:
             tmp.unlink(missing_ok=True)
             raise
@@ -197,6 +198,7 @@ class CodexAuth(httpx.Auth):
         self._store = store
 
     def sync_auth_flow(self, request: httpx.Request) -> Iterator[httpx.Request]:
+        """Sign the request, then refresh and replay it once on a 401."""
         request.headers["Authorization"] = f"Bearer {self._store.access_token()}"
         request.headers["x-codex-turn-state"] = str(uuid.uuid4())
         request.headers["x-codex-window-id"] = str(uuid.uuid4())
@@ -218,7 +220,7 @@ class CodexChatModel(ChatOpenAI):
 
     def _get_request_payload(
         self,
-        input_: Any,
+        input_: LanguageModelInput,
         *,
         stop: list[str] | None = None,
         **kwargs: Any,

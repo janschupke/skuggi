@@ -6,13 +6,11 @@ The two autouse fixtures here are load-bearing for isolation. Read the note in
 
 from __future__ import annotations
 
-import io
-from collections.abc import Iterator
+import os
 from pathlib import Path
 
 import httpx
 import pytest
-from rich.console import Console
 from tests.fakes import CountingFakeEmbeddings
 
 from skuggi import codex_chat
@@ -50,7 +48,7 @@ def isolate_credentials(
         return
     for name in _VENDOR_ENV:
         monkeypatch.delenv(name, raising=False)
-    for name in list(os_environ_keys()):
+    for name in list(os.environ):
         if name.startswith("SKUGGI_"):
             monkeypatch.delenv(name, raising=False)
     absent = tmp_path / "no-such-auth.json"
@@ -59,13 +57,6 @@ def isolate_credentials(
     workdir = tmp_path / "cwd"
     workdir.mkdir(exist_ok=True)
     monkeypatch.chdir(workdir)
-
-
-def os_environ_keys() -> list[str]:
-    """Snapshot env var names (indirection keeps the import list short)."""
-    import os
-
-    return list(os.environ)
 
 
 @pytest.fixture(autouse=True)
@@ -112,9 +103,3 @@ def sandbox(tmp_path: Path) -> Path:
     secrets.mkdir()
     (secrets / "leak.txt").write_text("SECRET", encoding="utf-8")
     return work
-
-
-@pytest.fixture
-def console_output() -> Iterator[tuple[Console, io.StringIO]]:
-    buffer = io.StringIO()
-    yield Console(file=buffer, width=100, force_terminal=False), buffer

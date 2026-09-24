@@ -78,7 +78,9 @@ def get_chat_model(settings: Settings, *, model: str | None = None) -> BaseChatM
     name = model or settings.model_for(provider)
 
     if provider == "chatgpt":
-        from skuggi.codex_chat import build_codex_chat_model
+        # Imported lazily: constructing a provider should not cost the import
+        # of every other provider's SDK at startup.
+        from skuggi.codex_chat import build_codex_chat_model  # noqa: PLC0415
 
         return build_codex_chat_model(
             name,
@@ -120,11 +122,11 @@ def get_embeddings(settings: Settings) -> Embeddings:
     """
     key = resolve_openai_key(settings)
     if key:
-        from langchain_openai import OpenAIEmbeddings
+        from langchain_openai import OpenAIEmbeddings  # noqa: PLC0415
 
         return OpenAIEmbeddings(model=settings.embedding_model, api_key=key)
 
-    from langchain_ollama import OllamaEmbeddings
+    from langchain_ollama import OllamaEmbeddings  # noqa: PLC0415
 
     return OllamaEmbeddings(
         model=settings.embedding_model_ollama, base_url=settings.ollama_base_url
