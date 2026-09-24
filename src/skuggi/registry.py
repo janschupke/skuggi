@@ -21,6 +21,7 @@ import re
 import shlex
 import shutil
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -35,7 +36,11 @@ from skuggi.execution import CommandResult
 # Injectable so a test drives probe/install without spawning anything.
 Runner = Callable[..., CommandResult]
 
-_VERSION_PROBE_TIMEOUT = 10.0
+# A single tool's version command must never stall the doctor: capped low, and
+# every probe runs concurrently (see `probe`), so the whole survey is bounded by
+# the slowest one, not their sum.
+_VERSION_PROBE_TIMEOUT = 5.0
+_PROBE_WORKERS = 8
 _INSTALL_TIMEOUT = 600.0
 
 
@@ -142,6 +147,18 @@ def _read_version(path: Path, spec: ToolSpec, runner: Runner) -> str | None:
     return _version_from(path, spec.version_args, spec.version_regex, runner)
 
 
+def _map_concurrently[T, R](fn: Callable[[T], R], items: tuple[T, ...]) -> list[R]:
+    """Apply `fn` to each item in a thread pool, preserving order.
+
+    Probing is I/O-bound (spawning version commands), so threads keep the whole
+    survey bounded by the slowest probe. An empty input avoids spinning up a pool.
+    """
+    if not items:
+        return []
+    with ThreadPoolExecutor(max_workers=min(_PROBE_WORKERS, len(items))) as pool:
+        return list(pool.map(fn, items))
+
+
 def probe(
     registry: ToolRegistry,
     *,
@@ -149,21 +166,25 @@ def probe(
     managed_dir: Path,
     runner: Runner = execution.run,
 ) -> list[ToolStatus]:
-    """Resolve every tool in the registry against this host."""
-    statuses: list[ToolStatus] = []
-    for spec in registry.tools:
+    """Resolve every tool in the registry against this host, concurrently.
+
+    Each tool's version command is a subprocess with its own timeout; running
+    them in a thread pool means the survey takes as long as the slowest single
+    probe, not the sum -- so one slow tool never hangs the doctor.
+    """
+
+    def one(spec: ToolSpec) -> ToolStatus:
         path, where = _resolve(spec, source=source, managed_dir=managed_dir)
         version = _read_version(path, spec, runner) if path is not None else None
-        statuses.append(
-            ToolStatus(
-                spec=spec,
-                found=path is not None,
-                path=path,
-                version=version,
-                source=where,
-            )
+        return ToolStatus(
+            spec=spec,
+            found=path is not None,
+            path=path,
+            version=version,
+            source=where,
         )
-    return statuses
+
+    return _map_concurrently(one, registry.tools)
 
 
 def select_install(spec: ToolSpec, *, source: str, system: str) -> InstallPlan | None:
@@ -366,9 +387,9 @@ _RUNTIMES: tuple[RuntimeSpec, ...] = (
 
 
 def probe_runtimes(runner: Runner = execution.run) -> list[RuntimeStatus]:
-    """Resolve and version every standard runtime/toolchain on this host."""
-    statuses: list[RuntimeStatus] = []
-    for spec in _RUNTIMES:
+    """Resolve and version every standard runtime/toolchain, concurrently."""
+
+    def one(spec: RuntimeSpec) -> RuntimeStatus:
         resolved = shutil.which(spec.binary)
         path = Path(resolved) if resolved is not None else None
         version = (
@@ -376,10 +397,11 @@ def probe_runtimes(runner: Runner = execution.run) -> list[RuntimeStatus]:
             if path is not None
             else None
         )
-        statuses.append(
-            RuntimeStatus(spec=spec, found=path is not None, path=path, version=version)
+        return RuntimeStatus(
+            spec=spec, found=path is not None, path=path, version=version
         )
-    return statuses
+
+    return _map_concurrently(one, _RUNTIMES)
 
 
 def runtime_table(statuses: list[RuntimeStatus]) -> Table:

@@ -36,7 +36,9 @@ def main() -> int:
     """Print the host tool report; return non-zero if the registry is missing."""
     console = Console()
     try:
-        statuses = probe_statuses(Settings())
+        with console.status("probing host tools and runtimes...", spinner="dots"):
+            statuses = probe_statuses(Settings())
+            runtimes = probe_runtimes()
     except ConfigError as exc:
         console.print(f"[red]doctor:[/red] {exc}")
         return 1
@@ -44,7 +46,7 @@ def main() -> int:
     hints = doctor_hints(statuses)
     if hints:
         console.print(hints)
-    console.print(runtime_table(probe_runtimes()))
+    console.print(runtime_table(runtimes))
     return 0
 
 

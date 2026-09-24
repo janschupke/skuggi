@@ -19,6 +19,7 @@ from prompt_toolkit.history import FileHistory
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
+from rich.spinner import Spinner
 from rich.table import Table
 
 from skuggi import palette
@@ -288,12 +289,14 @@ class Tui:
         if parts and parts[0] == "install":
             self._install_tool(parts[1] if len(parts) > 1 else "")
             return
-        statuses = self.core.doctor_statuses()
+        with self.console.status("probing host tools and runtimes...", spinner="dots"):
+            statuses = self.core.doctor_statuses()
+            runtimes = self.core.runtime_statuses()
         self.console.print(doctor_table(statuses))
         hints = doctor_hints(statuses)
         if hints:
             self.console.print(hints)
-        self.console.print(runtime_table(self.core.runtime_statuses()))
+        self.console.print(runtime_table(runtimes))
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""
@@ -395,8 +398,14 @@ class Tui:
     # ----- agent turn --------------------------------------------------------
 
     def turn(self, user_text: str) -> None:
-        """Run one agent turn, streaming the worker's answer."""
-        with Live("", console=self.console, refresh_per_second=20) as live:
+        """Run one agent turn, streaming the worker's answer.
+
+        The pane opens on a spinner so a slow planner/first token never looks
+        hung; the first streamed token or final draft replaces it.
+        """
+        with Live(
+            Spinner("dots", "thinking..."), console=self.console, refresh_per_second=20
+        ) as live:
             view = DraftView(live)
             for ev in self.core.turn(user_text):
                 if ev.kind == "reset":

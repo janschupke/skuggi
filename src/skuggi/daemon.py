@@ -91,6 +91,9 @@ class Daemon:
             described = self.core.describe_engagement()
             yield (described + "\n") if described else "no engagement loaded\n"
         elif name == "doctor":
+            # Emitted (and flushed) before the probe runs, so the client shows
+            # progress immediately rather than a silent wait.
+            yield "probing host tools and runtimes...\n"
             yield doctor_ansi(self.core.doctor_statuses(), self.core.runtime_statuses())
         elif name == "mode":
             yield self._set_mode(arg)

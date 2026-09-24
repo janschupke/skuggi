@@ -14,10 +14,48 @@ import json
 import os
 import socket
 import sys
+import threading
 from collections.abc import Iterator
 from typing import TextIO
 
 _EXIT_SHELL = 42
+
+
+class _Spinner:
+    """A stderr 'working...' spinner, active only on a real terminal.
+
+    Keeps ``/skuggi`` from looking hung while the daemon plans a turn or probes
+    the host. It writes to stderr (never the piped stdout) and erases itself
+    when the first response frame arrives. No-op off a tty, so tests are
+    unaffected.
+    """
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def maybe_start(self) -> None:
+        """Start spinning if stderr is a terminal."""
+        if sys.stderr.isatty():  # pragma: no cover -- needs a real terminal
+            self._thread = threading.Thread(target=self._spin, daemon=True)
+            self._thread.start()
+
+    def _spin(self) -> None:  # pragma: no cover -- needs a real terminal
+        frames = "|/-\\"
+        i = 0
+        while not self._stop.wait(0.12):
+            sys.stderr.write(f"\r{frames[i % 4]} working...")
+            sys.stderr.flush()
+            i += 1
+
+    def stop(self) -> None:
+        """Stop the spinner and erase its line (idempotent)."""
+        self._stop.set()
+        if self._thread is not None:  # pragma: no cover -- needs a real terminal
+            self._thread.join()
+            self._thread = None
+            sys.stderr.write("\r\x1b[K")
+            sys.stderr.flush()
 
 
 def build_message(text: str) -> dict[str, str]:
@@ -51,19 +89,25 @@ def run_over(conn: socket.socket, text: str, out: TextIO) -> int:
     Split from ``run`` so it is testable over a plain socket pair.
     """
     conn.sendall((json.dumps(build_message(text)) + "\n").encode())
+    spinner = _Spinner()
+    spinner.maybe_start()
     exit_shell = False
-    for line in _iter_lines(conn):
-        try:
-            resp = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        chunk = resp.get("chunk")
-        if chunk:
-            out.write(chunk)
-            out.flush()
-        if resp.get("end"):
-            exit_shell = bool(resp.get("exit"))
-            break
+    try:
+        for line in _iter_lines(conn):
+            spinner.stop()  # first frame arrived; stop looking busy
+            try:
+                resp = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            chunk = resp.get("chunk")
+            if chunk:
+                out.write(chunk)
+                out.flush()
+            if resp.get("end"):
+                exit_shell = bool(resp.get("exit"))
+                break
+    finally:
+        spinner.stop()
     return _EXIT_SHELL if exit_shell else 0
 
 
