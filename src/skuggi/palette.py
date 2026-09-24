@@ -8,9 +8,9 @@ front-end hardcodes a colour and every mapping is trivially unit-tested.
 
 from __future__ import annotations
 
-# The shield marks that skuggi is active in a session (the wrapped-shell prompt
-# and the REPL prompt both carry it).
-SHIELD = "🛡️"
+# Marks that skuggi is active in a session (the wrapped-shell prompt and the
+# REPL prompt both carry it).
+SHIELD = "🐐"
 
 # --- sentiment --------------------------------------------------------------
 SUCCESS = "green"

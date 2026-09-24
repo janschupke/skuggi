@@ -23,7 +23,7 @@ import threading
 from collections.abc import Iterator
 
 from skuggi.core import AgentCore
-from skuggi.registry import doctor_report
+from skuggi.registry import doctor_ansi
 
 _CONTROL_HELP = (
     "skuggi shell commands:\n"
@@ -91,7 +91,7 @@ class Daemon:
             described = self.core.describe_engagement()
             yield (described + "\n") if described else "no engagement loaded\n"
         elif name == "doctor":
-            yield doctor_report(self.core.doctor_statuses()) + "\n"
+            yield doctor_ansi(self.core.doctor_statuses())
         elif name == "mode":
             yield self._set_mode(arg)
         elif name == "autonomous":

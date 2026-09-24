@@ -7,7 +7,7 @@ own ``$SHELL`` as a child that inherits the real terminal -- ``ls``, ``cat``,
 skuggi. Only ``/skuggi …`` reaches the agent, via a shell hook.
 
 How the hook works: skuggi points the child shell at a temporary init file that
-sources the operator's own rc, prepends a 🛡️ to the prompt, and defines a shell
+sources the operator's own rc, prepends a 🐐 to the prompt, and defines a shell
 *function* literally named ``/skuggi`` (both bash and zsh resolve a function by
 that name before treating the word as a path). The function forwards its
 arguments to ``skuggi-client`` -- a thin client that talks to the warm
@@ -58,9 +58,9 @@ def build_shell_invocation(
     """Argv + env overrides that launch `shell_path` with the skuggi hook.
 
     The temp init file sources the operator's own rc first (preserving prompt,
-    aliases and colours), prepends the shield, and installs the ``/skuggi``
-    ``command_not_found`` hook. Shells other than bash/zsh get a degraded, hook-
-    free invocation (a printed note tells the operator ``/skuggi`` is disabled).
+    aliases and colours), prepends the shield, and defines the ``/skuggi`` shell
+    function. Shells other than bash/zsh get a degraded, hook-free invocation
+    (a printed note tells the operator ``/skuggi`` is disabled).
     """
     name = Path(shell_path).name
     env = {"SKUGGI_ACTIVE": "1"}

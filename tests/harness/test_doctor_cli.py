@@ -11,13 +11,12 @@ from skuggi import doctor
 from skuggi.config import Settings
 
 
-def test_render_probes_and_reports(
+def test_probe_statuses_reads_the_registry(
     pentest_configs: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pentest_configs()
     monkeypatch.setattr(doctor, "probe", lambda *_a, **_k: [])
-    report = doctor.render(Settings())
-    assert "# skuggi tool doctor" in report
+    assert doctor.probe_statuses(Settings()) == []
 
 
 def test_main_returns_zero_with_configs(

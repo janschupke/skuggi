@@ -1,40 +1,42 @@
 """``skuggi-doctor`` -- probe the host for the registry's tools and report.
 
 A standalone entry point (mirroring ``skuggi-ingest``) so the host survey can
-run without entering the REPL. ``render`` is the testable core; ``main`` wires
-it to real settings and prints the Markdown.
+run without entering the harness. ``probe_statuses`` is the testable core;
+``main`` renders the colour-coded table plus install hints filtered to the
+package managers actually present on this host.
 """
 
 from __future__ import annotations
 
 from rich.console import Console
-from rich.markdown import Markdown
 
 from skuggi.config import Settings
 from skuggi.configs import ConfigError, load_registry
-from skuggi.registry import doctor_report, probe
+from skuggi.registry import ToolStatus, doctor_hints, doctor_table, probe
 
 
-def render(settings: Settings) -> str:
-    """Probe the host per `settings` and return the Markdown doctor report."""
+def probe_statuses(settings: Settings) -> list[ToolStatus]:
+    """Probe the host per `settings` for every recognized tool."""
     reg = load_registry(settings.registry_path)
-    statuses = probe(
+    return probe(
         reg,
         source=settings.tool_source,
         managed_dir=settings.managed_tools_dir,
     )
-    return doctor_report(statuses)
 
 
 def main() -> int:
     """Print the host tool report; return non-zero if the registry is missing."""
     console = Console()
     try:
-        report = render(Settings())
+        statuses = probe_statuses(Settings())
     except ConfigError as exc:
         console.print(f"[red]doctor:[/red] {exc}")
         return 1
-    console.print(Markdown(report))
+    console.print(doctor_table(statuses))
+    hints = doctor_hints(statuses)
+    if hints:
+        console.print(hints)
     return 0
 
 

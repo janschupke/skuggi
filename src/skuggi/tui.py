@@ -26,7 +26,7 @@ from skuggi.config import Settings
 from skuggi.core import AgentCore
 from skuggi.engagement import EngagementConfig
 from skuggi.ledger import Ledger
-from skuggi.registry import ToolRegistry, ToolStatus
+from skuggi.registry import ToolRegistry, doctor_hints, doctor_table
 from skuggi.state import AgentState
 
 
@@ -288,25 +288,11 @@ class Tui:
         if parts and parts[0] == "install":
             self._install_tool(parts[1] if len(parts) > 1 else "")
             return
-        self.console.print(self._doctor_table(self.core.doctor_statuses()))
-
-    def _doctor_table(self, statuses: list[ToolStatus]) -> Table:
-        table = Table(title="tool doctor")
-        for column in ("tool", "method", "status", "version", "source"):
-            table.add_column(column)
-        for st in statuses:
-            status = palette.paint(
-                "found" if st.found else "missing",
-                palette.status_style(found=st.found),
-            )
-            table.add_row(
-                st.spec.binary,
-                palette.paint(st.spec.method, palette.method_style(st.spec.method)),
-                status,
-                st.version or "-",
-                palette.paint(st.source, palette.source_style(st.source)),
-            )
-        return table
+        statuses = self.core.doctor_statuses()
+        self.console.print(doctor_table(statuses))
+        hints = doctor_hints(statuses)
+        if hints:
+            self.console.print(hints)
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""

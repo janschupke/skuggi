@@ -11,12 +11,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 from skuggi.execution import CommandResult
 from skuggi.registry import (
     ToolRegistry,
     ToolSpec,
-    doctor_report,
+    ToolStatus,
+    available_installers,
+    doctor_hints,
+    doctor_table,
     install_tool,
     managed_bin,
     probe,
@@ -164,28 +168,69 @@ def test_unavailable_install_does_not_run_anything(tmp_path: Path) -> None:
     assert runner.calls == []
 
 
-# --- doctor_report ----------------------------------------------------------
+# --- doctor rendering -------------------------------------------------------
 
 
-def test_doctor_report_lists_missing_with_hints() -> None:
-    """Use a binary guaranteed absent from PATH so the row is always missing."""
+def _missing_ghost() -> list[ToolStatus]:
+    """A status list with one guaranteed-missing tool."""
     ghost = ToolSpec(
         name="ghost",
         binary="ghost-scanner-xyz",
         method="scan",
-        install={"brew": "brew install ghost"},
+        install={"brew": "brew install ghost", "apt": "apt-get install -y ghost"},
     )
-    runner = FakeRunner()
-    statuses = probe(
+    return probe(
         ToolRegistry(tools=(ghost,)),
         source="host",
         managed_dir=Path("/nonexistent"),
-        runner=runner,
+        runner=FakeRunner(),
     )
-    report = doctor_report(statuses)
-    assert "# skuggi tool doctor" in report
-    assert "Missing tools" in report
-    assert "brew install ghost" in report
+
+
+def test_doctor_table_shows_tool_status() -> None:
+    console = Console(force_terminal=True, width=100)
+    with console.capture() as cap:
+        console.print(doctor_table(_missing_ghost()))
+    rendered = cap.get()
+    assert "ghost-scanner-xyz" in rendered
+    assert "missing" in rendered
+
+
+def test_available_installers_is_host_verified(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only package managers actually on PATH are reported available."""
+    monkeypatch.setattr(
+        "skuggi.registry.shutil.which",
+        lambda name: "/usr/bin/x" if name == "brew" else None,
+    )
+    assert available_installers() == frozenset({"brew"})
+
+
+def test_doctor_hints_filters_to_available_installers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An apt-only hint is not shown on a host without apt (the bug reported)."""
+    # brew present, apt and pip absent
+    monkeypatch.setattr(
+        "skuggi.registry.shutil.which",
+        lambda name: "/usr/bin/brew" if name == "brew" else None,
+    )
+    hints = doctor_hints(_missing_ghost())
+    assert "brew install ghost" in hints
+    assert "apt-get install" not in hints
+
+
+def test_doctor_hints_reports_no_installer_when_none_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("skuggi.registry.shutil.which", lambda _name: None)
+    hints = doctor_hints(_missing_ghost())
+    assert "no installer available on this host" in hints
+
+
+def test_doctor_hints_empty_when_nothing_missing() -> None:
+    spec = ToolSpec(name="x", binary="x", method="scan")
+    status = ToolStatus(spec, found=True, path=Path("/x"), version="1", source="host")
+    assert doctor_hints([status]) == ""
 
 
 @pytest.mark.parametrize("missing_binary", ["localthing"])

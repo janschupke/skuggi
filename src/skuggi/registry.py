@@ -26,8 +26,10 @@ from pathlib import Path
 from typing import NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field
+from rich.console import Console
+from rich.table import Table
 
-from skuggi import execution
+from skuggi import execution, palette
 from skuggi.execution import CommandResult
 
 # Injectable so a test drives probe/install without spawning anything.
@@ -238,24 +240,77 @@ def _ensure_managed_venv(managed_dir: Path, runner: Runner) -> None:
     )
 
 
-def doctor_report(statuses: list[ToolStatus]) -> str:
-    """Render a Markdown status table plus install hints for missing tools."""
-    lines = [
-        "# skuggi tool doctor",
-        "",
-        "| tool | method | status | version | source |",
-        "|---|---|---|---|---|",
-    ]
+def doctor_table(statuses: list[ToolStatus]) -> Table:
+    """A colour-coded Rich table of the host tool probe (palette-driven)."""
+    table = Table(title="skuggi tool doctor")
+    for column in ("tool", "method", "status", "version", "source"):
+        table.add_column(column)
     for st in statuses:
-        mark = "found" if st.found else "**missing**"
-        lines.append(
-            f"| {st.spec.binary} | {st.spec.method} | {mark} | "
-            f"{st.version or '-'} | {st.source} |"
+        table.add_row(
+            st.spec.binary,
+            palette.paint(st.spec.method, palette.method_style(st.spec.method)),
+            palette.paint(
+                "found" if st.found else "missing",
+                palette.status_style(found=st.found),
+            ),
+            st.version or "-",
+            palette.paint(st.source, palette.source_style(st.source)),
         )
+    return table
+
+
+def available_installers() -> frozenset[str]:
+    """The package managers actually present on this host.
+
+    Install hints are host-agnostic in the registry; this is what makes the
+    doctor's advice host-*verified* -- an ``apt`` hint is only shown where
+    ``apt`` exists, a ``brew`` hint only where ``brew`` does. ``pip`` counts
+    when a Python is present (the managed venv bootstraps its own pip).
+    """
+    found: set[str] = set()
+    if shutil.which("brew"):
+        found.add("brew")
+    if shutil.which("apt-get") or shutil.which("apt"):
+        found.add("apt")
+    if shutil.which("pip") or shutil.which("pip3") or shutil.which("python3"):
+        found.add("pip")
+    return frozenset(found)
+
+
+def doctor_hints(statuses: list[ToolStatus]) -> str:
+    """Install hints for the missing tools, filtered to installers on this host.
+
+    Returns '' when nothing is missing. A tool whose only hints target absent
+    package managers is reported as having no installer available here, rather
+    than printing a command that cannot run.
+    """
     missing = [st for st in statuses if not st.found]
-    if missing:
-        lines += ["", "## Missing tools", ""]
-        for st in missing:
-            hints = ", ".join(f"`{k}`: `{v}`" for k, v in st.spec.install.items())
-            lines.append(f"- **{st.spec.binary}** — {hints or 'no install hint'}")
+    if not missing:
+        return ""
+    available = available_installers()
+    header = ", ".join(sorted(available)) or "none"
+    lines = [f"Missing tools (installers on this host: {header}):"]
+    for st in missing:
+        usable = {k: v for k, v in st.spec.install.items() if k in available}
+        if usable:
+            hints = "; ".join(f"{k}: {v}" for k, v in usable.items())
+        elif st.spec.install:
+            hints = "no installer available on this host"
+        else:
+            hints = "no install hint"
+        lines.append(f"  - {st.spec.binary}: {hints}")
     return "\n".join(lines)
+
+
+def doctor_ansi(statuses: list[ToolStatus]) -> str:
+    """Render the doctor table + host-verified hints to an ANSI string.
+
+    For the shell daemon: it renders on a non-terminal (the socket) while the
+    client writes the result to the operator's real terminal, so colour must be
+    forced on here.
+    """
+    console = Console(force_terminal=True, width=100)
+    with console.capture() as capture:
+        console.print(doctor_table(statuses))
+    hints = doctor_hints(statuses)
+    return capture.get() + (hints + "\n" if hints else "")

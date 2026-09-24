@@ -47,17 +47,17 @@ mkdir -p engagements/acme-2026
 cp configs/scope.example.json engagements/acme-2026/scope.json
 export SKUGGI_ENGAGEMENT=acme-2026
 
-uv run skuggi         # the native shell wrapper (🛡️ prompt)
+uv run skuggi         # the native shell wrapper (🐐 prompt)
 ```
 
 Inside the wrapped shell your normal commands run natively; `/skuggi` reaches
 the agent:
 
 ```
-🛡️ ~ %  ls              # your real shell, native colours
-🛡️ ~ %  /skuggi scan the web host      # -> agent proposes an in-scope command
-🛡️ ~ %  /skuggi /findings               # -> harness control
-🛡️ ~ %  /skuggi exit                    # -> leave the harness
+🐐 ~ %  ls              # your real shell, native colours
+🐐 ~ %  /skuggi scan the web host      # -> agent proposes an in-scope command
+🐐 ~ %  /skuggi /findings               # -> harness control
+🐐 ~ %  /skuggi exit                    # -> leave the harness
 ```
 
 For the pure agent chat instead, `uv run skuggi-repl` (`python -m skuggi` also
@@ -220,7 +220,7 @@ lands in the workspace. Everything under `engagements/` is gitignored.
 The default `skuggi` command runs your **real** `$SHELL` as a child that inherits
 the terminal, so `ls`, `cat`, `nmap` colours, completion, history and `Ctrl+C`
 are all handled natively by the shell -- skuggi never sits in the keystroke path.
-It injects a temporary rc that sources your own rc, prepends 🛡️ to the prompt,
+It injects a temporary rc that sources your own rc, prepends 🐐 to the prompt,
 and installs a `command_not_found` hook: because `/skuggi` is not a real command,
 the shell calls the hook, which forwards the rest of the line to the thin
 `skuggi-client`. The client talks to a **warm in-process agent daemon**
