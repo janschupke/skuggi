@@ -84,5 +84,5 @@ run is the normal outcome.
 
 If a chatgpt case skips with `400 - The '<model>' model is not supported when
 using Codex with a ChatGPT account`, that is a stale model name, not an
-account problem -- see the Codex auth section of the README. The skip is
+account problem -- see docs/codex-auth.md. The skip is
 matched narrowly on that phrase so every other provider error still fails.

@@ -4,7 +4,7 @@ It is deliberately tiny -- only ``json``, ``os``, ``socket``, ``sys`` -- so that
 starting it per ``/skuggi`` invocation is cheap; the warm agent lives in the
 daemon, not here. It reads ``$SKUGGI_SOCK`` (set by the shell wrapper), sends the
 operator's input as one request, streams the reply to stdout, and exits ``42``
-when the daemon says to leave -- the shell's ``command_not_found`` hook turns
+when the daemon says to leave -- the shell's ``/skuggi`` function hook turns
 that into a shell ``exit``. ``Ctrl+C`` during a turn just returns to the prompt.
 """
 
