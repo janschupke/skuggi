@@ -14,6 +14,7 @@ from typing import Any, cast
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from prompt_toolkit import PromptSession
@@ -23,9 +24,14 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.table import Table
 
-from skuggi import memory, providers, tools
+from skuggi import ledger as ledger_mod
+from skuggi import memory, pentest_tools, providers, registry, reports, tools
 from skuggi.config import Provider, Settings
+from skuggi.configs import ConfigError, load_engagement, load_registry
+from skuggi.engagement import EngagementConfig
 from skuggi.graph import GraphDeps, build_graph, recursion_limit
+from skuggi.modes import MODES, Mode, prompt_set
+from skuggi.registry import ToolRegistry
 from skuggi.state import AgentState
 from skuggi.vectorstore import Store
 
@@ -90,13 +96,18 @@ class Tui:
         self.settings = settings or Settings()
         self.console = console or Console()
         self.model: str | None = None
+        self.mode: Mode = self.settings.mode
         self.thread_id = str(uuid.uuid4())
+        self.session_id = str(uuid.uuid4())
 
         history_file = self.settings.history_path
         history_file.parent.mkdir(parents=True, exist_ok=True)
         self.session: PromptSession[str] = session or PromptSession(
             history=FileHistory(str(history_file))
         )
+
+        self.engagement = self._load_engagement()
+        self.registry = self._load_registry()
 
         self._embeddings = providers.get_embeddings(self.settings)
         self.store = Store(
@@ -105,25 +116,71 @@ class Tui:
             chunk_size=self.settings.chunk_size,
             chunk_overlap=self.settings.chunk_overlap,
         )
-        self.tools_list = tools.build_tools(self.store, k=self.settings.retrieve_k)
         self.llm = providers.get_chat_model(self.settings, model=self.model)
 
         self._saver_ctx = memory.open_checkpointer(self.settings.sqlite_path)
         self.saver = self._saver_ctx.__enter__()
+        self._ledger_ctx = ledger_mod.open_ledger(self.settings.ledger_path)
+        self.ledger = self._ledger_ctx.__enter__()
+        self.ledger.start_session(
+            self.session_id,
+            engagement_name=self.engagement.name if self.engagement else "(none)",
+            mode=self.mode,
+        )
+
+        self.tools_list = self._build_tools()
         self.graph = self._build()
 
         self._commands: dict[str, Callable[[str], bool | None]] = {
             "/help": self._cmd_help,
             "/provider": self._cmd_provider,
             "/model": self._cmd_model,
+            "/mode": self._cmd_mode,
             "/thread": self._cmd_thread,
             "/history": self._cmd_history,
             "/trace": self._cmd_trace,
+            "/engagement": self._cmd_engagement,
+            "/doctor": self._cmd_doctor,
+            "/findings": self._cmd_findings,
+            "/report": self._cmd_report,
+            "/autonomous": self._cmd_autonomous,
             "/clear": self._cmd_clear,
             "/ingest": self._cmd_ingest,
             "/quit": self._cmd_quit,
             "/exit": self._cmd_quit,
         }
+
+    # ----- config + tool assembly -----
+
+    def _load_engagement(self) -> EngagementConfig | None:
+        """Load the engagement scope, or warn and return None if unavailable."""
+        try:
+            return load_engagement(self.settings.engagement_path)
+        except ConfigError as exc:
+            self.console.print(f"[yellow]no engagement loaded:[/yellow] {exc}")
+            return None
+
+    def _load_registry(self) -> ToolRegistry:
+        """Load the tool registry, or warn and return an empty one."""
+        try:
+            return load_registry(self.settings.registry_path)
+        except ConfigError as exc:
+            self.console.print(f"[yellow]no tool registry loaded:[/yellow] {exc}")
+            return ToolRegistry()
+
+    def _build_tools(self) -> list[BaseTool]:
+        """Base tools plus the pentest tools when an engagement is loaded."""
+        built = tools.build_tools(self.store, k=self.settings.retrieve_k)
+        if self.engagement is not None:
+            built += pentest_tools.build_pentest_tools(
+                engagement=self.engagement,
+                registry=self.registry,
+                ledger=self.ledger,
+                session_id=self.session_id,
+                thread_id=lambda: self.thread_id,
+                settings=self.settings,
+            )
+        return built
 
     # ----- properties -----
 
@@ -145,6 +202,7 @@ class Tui:
             bind_tools=self.settings.supports_tools(),
             max_tool_rounds=self.settings.max_tool_rounds,
             retrieve_k=self.settings.retrieve_k,
+            prompts=prompt_set(self.mode),
         )
 
     def _build(self) -> CompiledStateGraph[AgentState]:
@@ -173,23 +231,43 @@ class Tui:
                 else:
                     self.turn(line)
         finally:
-            self._saver_ctx.__exit__(None, None, None)
+            self.close()
             self.console.print("[dim]bye.[/dim]")
+
+    def close(self) -> None:
+        """Close the ledger and checkpointer connections held for the session."""
+        self._ledger_ctx.__exit__(None, None, None)
+        self._saver_ctx.__exit__(None, None, None)
 
     # ----- UI helpers -----
 
     def _prompt(self) -> str:
         model = self.model or "(default)"
-        return f"[skuggi:{self.provider}/{model} thread={self.thread_id[:8]}] > "
+        auto = "!" if self.engagement and self.engagement.autonomous else ""
+        # The shield marks that skuggi is active in the session (req #8); the
+        # `!` warns that autonomous execution is armed.
+        return (
+            f"🛡️ [skuggi:{self.mode}/{self.provider}/{model}"
+            f"{auto} thread={self.thread_id[:8]}] > "
+        )
 
     def _banner(self) -> None:
         self.console.rule("[bold]skuggi[/bold]")
-        self.console.print(
-            f"provider=[cyan]{self.provider}[/cyan]  "
-            f"sqlite=[dim]{self.settings.sqlite_path}[/dim]  "
-            f"faiss=[dim]{self.settings.faiss_path}[/dim]  "
-            f"max_revisions=[dim]{self.max_revisions}[/dim]"
+        engagement = self.engagement.name if self.engagement else "[red](none)[/red]"
+        autonomous = (
+            "[red]ON[/red]" if self.engagement and self.engagement.autonomous else "off"
         )
+        self.console.print(
+            f"mode=[cyan]{self.mode}[/cyan]  "
+            f"provider=[cyan]{self.provider}[/cyan]  "
+            f"engagement=[cyan]{engagement}[/cyan]  "
+            f"autonomous={autonomous}"
+        )
+        if self.provider == "chatgpt":
+            self.console.print(
+                "[yellow]note:[/yellow] the chatgpt provider cannot call tools, "
+                "so run_command is unavailable in this session"
+            )
         self.console.print("type /help for commands\n")
 
     def _line(self, node: str, text: str | None) -> None:
@@ -241,6 +319,95 @@ class Tui:
         self.console.print(
             f"[dim]switched to[/dim] {self.provider}/{self.model or '(default)'}"
         )
+
+    def _cmd_mode(self, arg: str) -> None:
+        if arg not in MODES:
+            self.console.print(
+                f"[red]unknown mode:[/red] {arg!r} (choose {', '.join(MODES)})"
+            )
+            return
+        self.mode = arg
+        self.graph = self._build()
+        self.console.print(f"[dim]mode:[/dim] {self.mode}")
+
+    def _cmd_engagement(self, _arg: str) -> None:
+        if self.engagement is None:
+            self.console.print("[yellow]no engagement loaded[/yellow]")
+            return
+        self.console.print(self.engagement.describe())
+
+    def _cmd_doctor(self, arg: str) -> None:
+        parts = arg.split()
+        if parts and parts[0] == "install":
+            self._install_tool(parts[1] if len(parts) > 1 else "")
+            return
+        statuses = registry.probe(
+            self.registry,
+            source=self.settings.tool_source,
+            managed_dir=self.settings.managed_tools_dir,
+        )
+        self.console.print(Markdown(registry.doctor_report(statuses)))
+
+    def _install_tool(self, binary: str) -> None:
+        """Install one recognized tool. Issuing this command is the confirm."""
+        spec = self.registry.spec_for(binary)
+        if spec is None:
+            self.console.print(f"[red]unknown tool:[/red] {binary!r}")
+            return
+        self.console.print(f"[dim]installing {binary}...[/dim]")
+        status = registry.install_tool(
+            spec,
+            source=self.settings.tool_source,
+            managed_dir=self.settings.managed_tools_dir,
+        )
+        if status.found:
+            self.console.print(
+                f"[green]installed[/green] {binary} "
+                f"({status.version or '?'}) via {status.source}"
+            )
+        else:
+            self.console.print(f"[red]install failed or unavailable[/red] for {binary}")
+
+    def _cmd_findings(self, _arg: str) -> None:
+        rows = self.ledger.findings_for(self.session_id)
+        if not rows:
+            self.console.print("[dim](no findings yet)[/dim]")
+            return
+        for finding in rows:
+            src = (
+                f" (cmd:{finding.command_id})" if finding.command_id is not None else ""
+            )
+            self.console.print(
+                f"[bold]{finding.severity.upper()}[/bold] "
+                f"[{finding.id}] {finding.title}{src}"
+            )
+
+    def _cmd_report(self, _arg: str) -> None:
+        path = reports.write_report(
+            self.session_id,
+            self.ledger,
+            self.settings.reports_dir,
+            engagement=self.engagement,
+        )
+        self.console.print(f"[green]report written:[/green] {path}")
+
+    def _cmd_autonomous(self, arg: str) -> None:
+        if self.engagement is None:
+            self.console.print("[yellow]no engagement loaded[/yellow]")
+            return
+        want = {"on": True, "off": False}.get(
+            arg.lower(), not self.engagement.autonomous
+        )
+        self.engagement = self.engagement.model_copy(update={"autonomous": want})
+        self.tools_list = self._build_tools()
+        self.graph = self._build()
+        if want:
+            self.console.print(
+                "[red]autonomous execution is now ON[/red] -- proposed commands "
+                "will EXECUTE within scope"
+            )
+        else:
+            self.console.print("autonomous execution is now off")
 
     def _cmd_thread(self, arg: str) -> None:
         if arg in ("new", ""):
@@ -361,9 +528,15 @@ HELP: list[tuple[str, str]] = [
     ("/help", "show this help"),
     ("/provider <openai|chatgpt|anthropic|ollama>", "switch LLM provider"),
     ("/model <name>", "switch model (current provider)"),
+    ("/mode <pentest|redteam|blueteam>", "switch operating mode (prompts)"),
     ("/thread new|list|<id>", "new/list/switch session thread"),
     ("/history [n]", "show last n messages on the current thread"),
     ("/trace", "show the worker's tool calls on the current thread"),
+    ("/engagement", "show the loaded engagement scope"),
+    ("/doctor [install <tool>]", "probe host tools; install a missing one"),
+    ("/findings", "list findings recorded this session"),
+    ("/report", "write a Markdown engagement report"),
+    ("/autonomous [on|off]", "toggle autonomous command execution"),
     ("/clear", "clear the screen"),
     ("/ingest <path>", "index a file or directory into FAISS"),
     ("/quit", "exit (alias /exit)"),

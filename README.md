@@ -1,8 +1,17 @@
 # skuggi
 
-A locally-hosted agent harness exercise. LangChain + LangGraph, a multi-node
-`planner → worker → critic` graph, SQLite-backed session history, FAISS
-embeddings, and a small Rich + prompt_toolkit TUI with slash commands.
+A locally-hosted **pentesting harness** prototype, built on a LangChain +
+LangGraph agent substrate: a multi-node `planner → worker → critic` graph,
+SQLite-backed session history, FAISS retrieval, and a Rich + prompt_toolkit TUI.
+You drive an engagement through skuggi; it evaluates each request and either
+advises, **proposes a shell command** (gated by a strict engagement boundary),
+or summarizes. Findings and commands are persisted to a file DB, traceable back
+to the command that produced them, and exportable as Markdown reports.
+
+See **[The pentest harness](#the-pentest-harness)** for modes, the engagement
+boundary, `run_command`, the tool registry / `skuggi-doctor`, findings and
+reports, and the shell wrapper. The sections after it document the agent
+substrate the harness is built on.
 
 Four LLM providers, switchable at runtime:
 
@@ -53,11 +62,109 @@ In the REPL:
 | `/thread list`                                | List thread ids stored in `sessions.db`           |
 | `/thread <id>`                                | Resume a prior thread (state loaded by `SqliteSaver`) |
 | `/history [n]`                                | Show the last `n` messages on the current thread  |
+| `/mode <pentest\|redteam\|blueteam>`          | Switch operating mode (swaps the prompt set)      |
+| `/engagement`                                 | Show the loaded engagement scope                  |
+| `/doctor [install <tool>]`                    | Probe host tools; install a missing one on request |
+| `/findings`                                   | List findings recorded this session               |
+| `/report`                                     | Write a Markdown engagement report                |
+| `/autonomous [on\|off]`                       | Toggle autonomous command execution               |
 | `/clear`                                      | Clear the screen                                  |
 | `/ingest <path>`                              | Index a file or directory of `*.md` / `*.txt`     |
 | `/quit` / `/exit`                             | Close cleanly                                     |
 
 Anything not starting with `/` is sent to the agent.
+
+## The pentest harness
+
+skuggi layers pentest concerns onto the agent graph below rather than forking
+it. The worker gets two extra bounded tools -- `run_command` and
+`record_finding` -- and everything they do passes through one guard.
+
+### Modes
+
+`/mode pentest|redteam|blueteam` swaps the planner/worker/critic prompt set
+([src/skuggi/modes.py](src/skuggi/modes.py)); the graph, tools and guard are
+identical across modes. Set the default with `SKUGGI_MODE`.
+
+### The engagement boundary
+
+The authorized scope for one engagement is a JSON *case file*
+([configs/engagement.example.json](configs/engagement.example.json)), loaded at
+start and never committed (real files are gitignored; only `.example` templates
+are tracked):
+
+```json
+{
+  "name": "acme-external-2026",
+  "timezone": "Europe/Helsinki",
+  "authorized_start": "2026-09-01T00:00:00+03:00",
+  "authorized_end": "2026-12-31T23:59:59+02:00",
+  "daily_windows": [{ "start": "09:00:00", "end": "17:00:00" }],
+  "target_networks": ["192.0.2.0/24"],
+  "allowed_hosts": ["scanme.example.com"],
+  "allowed_tools": ["nmap", "curl"],
+  "allowed_methods": ["recon", "scan"],
+  "autonomous": false
+}
+```
+
+Every command the agent proposes is parsed and checked against this by the
+single guard `check_command` ([src/skuggi/engagement.py](src/skuggi/engagement.py)),
+in order: recognized tool → authorized tool → authorized method → inside the
+date window → inside the daily clock window → every extracted target inside an
+allowed network/host. The rule is conservative: a target-requiring command with
+no in-scope target is denied, and anything the guard cannot prove in scope is
+denied. This mirrors the tool layer's discipline (*"every bound exists because
+the model supplies the arguments"*) -- `parse_command` is the analogue of
+`file_read`'s `_resolve_within`.
+
+### run_command: suggest by default, autonomous on request
+
+`run_command` never runs a blocked command. For an in-scope command:
+
+- **suggest mode (default)** — it records the command as `proposed` and hands it
+  back for you to run manually. This is `autonomous: false`.
+- **autonomous mode** — enabled only by `autonomous: true` in the case file or
+  `/autonomous on`, it executes the command (`shell=False`, argv exec'd
+  directly, output byte-capped, wall-clock timeout) and records the captured
+  result. The prompt shows a `!` and the banner shows `autonomous ON` while it
+  is armed.
+
+Blocked, proposed and executed commands are all persisted with timestamps.
+
+### The tool registry and `skuggi-doctor`
+
+Recognized tools live in a JSON registry
+([configs/tools.example.json](configs/tools.example.json)): each tool's binary,
+its engagement method, how to read its version, which flags carry targets, and
+per-installer install commands. `skuggi-doctor` (or `/doctor`) probes the host
+`PATH` and/or a skuggi-managed venv (per `SKUGGI_TOOL_SOURCE=host|managed|combine`),
+captures versions, and reports what is missing with install hints.
+`/doctor install <tool>` installs a missing one -- issuing the subcommand is the
+confirmation; a pip tool goes into the managed venv, a system tool through the
+detected OS package manager.
+
+### Findings, the ledger and reports
+
+The harness persists to its own SQLite **ledger**
+([src/skuggi/ledger.py](src/skuggi/ledger.py), `./data/ledger.db`) -- separate
+from the checkpointer -- with `sessions`, `commands` and `findings` tables. A
+finding links to its session and, by default, to the most recent command, so it
+is always traceable to the command and payload that produced it. `/report`
+writes a Markdown report (`./data/reports/<engagement>-<session>-<ts>.md`) with
+the scope, findings grouped by severity, and the timestamped command log.
+
+### Shell wrapper (`skuggi-shell`)
+
+`skuggi-shell` runs your `$SHELL` inside a pseudo-terminal, so its normal
+coloured, prompted output is preserved verbatim; the prompt is prefixed with 🛡️
+to mark that skuggi is active. A line beginning with `/skuggi ` is intercepted
+and routed to the agent or a harness command; everything else passes through to
+the shell and is logged to the ledger. Feasibility note: boundary *enforcement*
+applies to agent-proposed commands (`run_command`); operator free-typed commands
+in the wrapped shell are logged but not vetoed, because pre-exec interception of
+a live interactive shell is not reliable across shells. The emoji-prompt
+injection is best-effort per shell family (bash/zsh) and degrades otherwise.
 
 ## The graph
 
@@ -199,10 +306,22 @@ and the suite on 3.12, 3.13 and 3.14.
 
 ## Storage layout
 
+- `./configs/*.json` — engagement + tool-registry case files (gitignored; only
+  the `.example` templates are committed)
+- `./data/ledger.db` — the harness's SQLite ledger (sessions, commands, findings)
+- `./data/reports/*.md` — generated Markdown engagement reports
+- `./data/toolbox/` — the managed tool venv (`SKUGGI_TOOL_SOURCE=managed|combine`)
 - `./data/sessions.db` — LangGraph SqliteSaver checkpoint store
 - `./data/faiss_index/` — FAISS index (`index.faiss` + `index.pkl`)
 - `./data/.repl_history` — prompt_toolkit input history
 - `./docs/*.md` — your knowledge base (you create this)
+
+## Entry points
+
+- `skuggi` — the REPL
+- `skuggi-doctor` — probe the host for the registry's tools and report
+- `skuggi-shell` — the PTY-backed wrapped shell
+- `skuggi-ingest` — index files/directories into the FAISS store
 
 ## Known limitations
 

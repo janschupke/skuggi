@@ -46,6 +46,8 @@ dependencies = [
 [project.scripts]
 skuggi = "skuggi.__main__:main"
 skuggi-ingest = "skuggi.ingest:main"
+skuggi-doctor = "skuggi.doctor:main"
+skuggi-shell = "skuggi.shell:main"
 
 [tool.hatch.version]
 path = "src/skuggi/__init__.py"
@@ -98,12 +100,16 @@ markers = [
     "eval: talks to a real LLM provider; needs credentials, deselected by default",
     "slow: builds a real FAISS index or exercises the sqlite saver end to end",
     "mock_http: drives a mocked HTTP transport; the blanket network block is lifted",
+    "runs_commands: spawns a real subprocess; the blanket subprocess block is lifted",
 ]
 
 [tool.coverage.run]
 source = ["src/skuggi"]
 branch = true
-omit = ["src/skuggi/__main__.py"]
+# __main__ and shell are thin/interactive entry points: shell.py's core routing
+# (ShellHarness, build_shell_invocation) is unit tested, but its PTY event loop
+# needs a real terminal and is exercised by hand.
+omit = ["src/skuggi/__main__.py", "src/skuggi/shell.py"]
 
 [tool.coverage.report]
 show_missing = true
@@ -175,6 +181,9 @@ runtime-evaluated-base-classes = [
 "src/skuggi/ingest.py" = ["T201"]          # print() is this module's output
 # _get_request_payload's **kwargs: Any is fixed by the ChatOpenAI signature.
 "src/skuggi/codex_chat.py" = ["ANN401"]
+# The PTY loop and entry point import platform-only modules (pty/termios/tty)
+# lazily, so importing shell.py for its helpers stays cheap and portable.
+"src/skuggi/shell.py" = ["PLC0415"]
 "tests/**" = [
     "S101",             # asserts are the point
     "S105", "S106",     # fake tokens in fixtures
@@ -182,6 +191,7 @@ runtime-evaluated-base-classes = [
     "PLR2004",          # `assert n == 42` is not a magic value
     "SLF001",           # tests legitimately inspect private helpers
     "ARG001",           # fixtures requested for a side effect
+    "ARG002",           # fake methods match a real signature they don't all use
     "D102",             # the test or fake method name is the documentation
     # Test helpers take heterogeneous kwargs to forward into a real constructor.
     "ANN401",

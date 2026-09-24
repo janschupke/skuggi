@@ -23,7 +23,10 @@ from typing import Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from skuggi.modes import Mode
+
 Provider = Literal["openai", "chatgpt", "anthropic", "ollama"]
+ToolSource = Literal["host", "managed", "combine"]
 
 
 class Settings(BaseSettings):
@@ -68,6 +71,21 @@ class Settings(BaseSettings):
 
     max_revisions: int = 2
     max_tool_rounds: int = 4
+
+    # --- pentest harness ---
+    # The operating mode selects the agent's prompt set (pentest/redteam/blueteam).
+    mode: Mode = "pentest"
+    # Case files: JSON, committed only as `.example`, gitignored otherwise.
+    engagement_path: Path = Path("./configs/engagement.json")
+    registry_path: Path = Path("./configs/tools.json")
+    # File DB + outputs, all under the gitignored ./data.
+    ledger_path: Path = Path("./data/ledger.db")
+    reports_dir: Path = Path("./data/reports")
+    managed_tools_dir: Path = Path("./data/toolbox")
+    # Where to look for / install tools: host PATH, the managed venv, or both.
+    tool_source: ToolSource = "combine"
+    # Wall-clock cap on any single autonomously executed command.
+    command_timeout_s: float = 120.0
 
     codex_auth_path: Path = Path("~/.codex/auth.json")
     codex_responses_base: str = "https://chatgpt.com/backend-api/codex"

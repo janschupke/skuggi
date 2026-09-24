@@ -1,0 +1,61 @@
+{
+  "tools": [
+    {
+      "name": "nmap",
+      "binary": "nmap",
+      "method": "scan",
+      "version_args": ["--version"],
+      "version_regex": "Nmap version ([0-9.]+)",
+      "requires_target": true,
+      "install": { "brew": "brew install nmap", "apt": "apt-get install -y nmap" }
+    },
+    {
+      "name": "nikto",
+      "binary": "nikto",
+      "method": "scan",
+      "version_args": ["-Version"],
+      "target_flags": ["-h"],
+      "requires_target": true,
+      "install": { "brew": "brew install nikto", "apt": "apt-get install -y nikto" }
+    },
+    {
+      "name": "curl",
+      "binary": "curl",
+      "method": "recon",
+      "version_args": ["--version"],
+      "version_regex": "curl ([0-9.]+)",
+      "requires_target": true,
+      "install": { "brew": "brew install curl", "apt": "apt-get install -y curl" }
+    },
+    {
+      "name": "gobuster",
+      "binary": "gobuster",
+      "method": "enumerate",
+      "version_args": ["version"],
+      "target_flags": ["-u"],
+      "requires_target": true,
+      "install": {
+        "brew": "brew install gobuster",
+        "apt": "apt-get install -y gobuster"
+      }
+    },
+    {
+      "name": "sqlmap",
+      "binary": "sqlmap",
+      "method": "enumerate",
+      "version_args": ["--version"],
+      "version_regex": "([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "target_flags": ["-u"],
+      "requires_target": true,
+      "install": { "pip": "pip install sqlmap" }
+    },
+    {
+      "name": "whatweb",
+      "binary": "whatweb",
+      "method": "recon",
+      "version_args": ["--version"],
+      "requires_target": true,
+      "install": { "apt": "apt-get install -y whatweb" }
+    }
+  ]
+}

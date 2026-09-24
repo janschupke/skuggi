@@ -34,6 +34,7 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 
+from skuggi.modes import PromptSet, prompt_set
 from skuggi.state import (
     AgentState,
     ContextUpdate,
@@ -46,22 +47,6 @@ from skuggi.state import (
 )
 from skuggi.vectorstore import Store, format_hits
 
-_PLANNER_PROMPT = (
-    "You are the planner. Given the conversation so far and the latest request "
-    "(plus any prior critique), produce a short numbered plan (3-6 steps) "
-    "describing exactly what the worker should do. Reply with the plan only."
-)
-_WORKER_PROMPT = (
-    "You are the worker. Follow the plan and answer the user. "
-    "Call tools when useful. Reply with the final draft answer."
-)
-_CRITIC_PROMPT = (
-    "You are the critic. Evaluate the worker's draft against the user's "
-    "original request. If it is good, reply exactly:\n"
-    "  APPROVED: <one-line reason>\n"
-    "Otherwise reply:\n"
-    "  REVISE: <specific actionable issue>"
-)
 _APPROVED = "APPROVED"
 _BUDGET_EXHAUSTED = (
     "(the worker used its whole tool budget without producing an answer)"
@@ -80,6 +65,9 @@ class GraphDeps:
     retrieve_k: int = 4
     history_messages: int = 8
     history_chars: int = 4_000
+    # The mode's prompts. Defaults to pentest so an unset caller still gets a
+    # coherent (and role-dispatchable) set; the REPL passes the active mode's.
+    prompts: PromptSet = field(default_factory=lambda: prompt_set("pentest"))
 
 
 # --- prompt assembly --------------------------------------------------------
@@ -202,7 +190,7 @@ def build_graph(
 
     def plan_node(state: AgentState) -> PlanUpdate:
         prompt = [
-            SystemMessage(content=_PLANNER_PROMPT),
+            SystemMessage(content=deps.prompts.planner),
             HumanMessage(
                 content=_compose(
                     _block("Conversation so far", history(state)),
@@ -231,7 +219,7 @@ def build_graph(
         scratch = state["scratch"]
         if not scratch:
             seed: list[BaseMessage] = [
-                SystemMessage(content=_WORKER_PROMPT),
+                SystemMessage(content=deps.prompts.worker),
                 HumanMessage(
                     content=_compose(
                         _block("Conversation so far", history(state)),
@@ -252,7 +240,7 @@ def build_graph(
 
     def critique_node(state: AgentState) -> CritiqueUpdate:
         prompt = [
-            SystemMessage(content=_CRITIC_PROMPT),
+            SystemMessage(content=deps.prompts.critic),
             HumanMessage(
                 content=_compose(
                     _block("Conversation so far", history(state, divisor=2)),

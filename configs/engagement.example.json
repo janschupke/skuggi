@@ -1,0 +1,12 @@
+{
+  "name": "acme-external-2026",
+  "timezone": "Europe/Helsinki",
+  "authorized_start": "2026-09-01T00:00:00+03:00",
+  "authorized_end": "2026-12-31T23:59:59+02:00",
+  "daily_windows": [{ "start": "09:00:00", "end": "17:00:00" }],
+  "target_networks": ["192.0.2.0/24", "198.51.100.0/24"],
+  "allowed_hosts": ["scanme.example.com"],
+  "allowed_tools": ["nmap", "nikto", "curl", "gobuster", "sqlmap", "whatweb"],
+  "allowed_methods": ["recon", "scan", "enumerate"],
+  "autonomous": false
+}

@@ -1,0 +1,213 @@
+"""L1: the engagement boundary guard and command parsing.
+
+The allow/deny matrix is the pentest analogue of the file_read prefix-escape
+regression: the guard must be conservative, and target extraction must not miss
+the host a command acts on.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, time
+
+import pytest
+
+from skuggi.engagement import (
+    EngagementConfig,
+    TimeWindow,
+    check_command,
+    parse_command,
+)
+from skuggi.registry import ToolRegistry, ToolSpec
+
+REGISTRY = ToolRegistry(
+    tools=(
+        ToolSpec(name="nmap", binary="nmap", method="scan"),
+        ToolSpec(name="curl", binary="curl", method="recon"),
+        ToolSpec(name="nikto", binary="nikto", method="scan", target_flags=("-h",)),
+        ToolSpec(
+            name="sqlmap", binary="sqlmap", method="enumerate", target_flags=("-u",)
+        ),
+        ToolSpec(name="hydra", binary="hydra", method="scan", target_flags=("-t",)),
+    )
+)
+
+
+def _engagement(**overrides: object) -> EngagementConfig:
+    base: dict[str, object] = {
+        "name": "e",
+        "timezone": "UTC",
+        "authorized_start": datetime(2026, 1, 1, tzinfo=UTC),
+        "authorized_end": datetime(2026, 12, 31, 23, 59, tzinfo=UTC),
+        "target_networks": ("10.0.0.0/8", "192.168.0.0/16"),
+        "allowed_hosts": frozenset({"scanme.example.com"}),
+        "allowed_tools": frozenset({"nmap", "curl", "sqlmap", "hydra"}),
+        "allowed_methods": frozenset({"scan", "recon"}),
+    }
+    base.update(overrides)
+    return EngagementConfig.model_validate(base)
+
+
+NOW = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+
+
+# --- parsing / target extraction --------------------------------------------
+
+
+def test_parses_binary_and_method() -> None:
+    cmd = parse_command("nmap -sV 10.0.0.5", REGISTRY)
+    assert cmd.binary == "nmap"
+    assert cmd.method == "scan"
+
+
+def test_strips_a_path_from_the_binary() -> None:
+    assert parse_command("/usr/bin/nmap 10.0.0.5", REGISTRY).binary == "nmap"
+
+
+def test_extracts_an_ip_target() -> None:
+    assert parse_command("nmap -p 80 10.0.0.5", REGISTRY).targets == ("10.0.0.5",)
+
+
+def test_a_port_number_is_not_a_target() -> None:
+    """`80` following `-p` must not be mistaken for a target host."""
+    assert "80" not in parse_command("nmap -p 80 10.0.0.5", REGISTRY).targets
+
+
+def test_extracts_a_cidr_target() -> None:
+    assert parse_command("nmap 10.0.0.0/24", REGISTRY).targets == ("10.0.0.0/24",)
+
+
+def test_extracts_the_host_from_a_url() -> None:
+    cmd = parse_command("curl https://scanme.example.com/path", REGISTRY)
+    assert cmd.targets == ("scanme.example.com",)
+
+
+def test_a_target_flag_forces_a_bare_word() -> None:
+    """`-t localhost` is a target even though `localhost` has no dot."""
+    assert parse_command("hydra -t localhost", REGISTRY).targets == ("localhost",)
+
+
+def test_unparseable_command_yields_empty_binary() -> None:
+    assert parse_command('nmap "', REGISTRY).binary == ""
+
+
+# --- the allow/deny matrix --------------------------------------------------
+
+
+def test_in_scope_command_is_allowed() -> None:
+    verdict = check_command(
+        parse_command("nmap 10.0.0.5", REGISTRY), _engagement(), now=NOW
+    )
+    assert verdict.allowed
+
+
+def test_unknown_tool_is_denied() -> None:
+    verdict = check_command(
+        parse_command("foobar 10.0.0.5", REGISTRY), _engagement(), now=NOW
+    )
+    assert not verdict.allowed
+    assert "registry" in verdict.reason
+
+
+def test_unauthorized_tool_is_denied() -> None:
+    """Nikto is in the registry but not this engagement's allowed_tools."""
+    verdict = check_command(
+        parse_command("nikto -h 10.0.0.5", REGISTRY), _engagement(), now=NOW
+    )
+    assert not verdict.allowed
+    assert "not authorized" in verdict.reason
+
+
+def test_unauthorized_method_is_denied() -> None:
+    """Sqlmap is allowed, but its method 'enumerate' is not."""
+    verdict = check_command(
+        parse_command("sqlmap -u https://scanme.example.com", REGISTRY),
+        _engagement(),
+        now=NOW,
+    )
+    assert not verdict.allowed
+    assert "method" in verdict.reason
+
+
+def test_before_the_window_is_denied() -> None:
+    verdict = check_command(
+        parse_command("nmap 10.0.0.5", REGISTRY),
+        _engagement(),
+        now=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+    assert not verdict.allowed
+    assert "date/time" in verdict.reason
+
+
+def test_outside_the_daily_window_is_denied() -> None:
+    eng = _engagement(daily_windows=(TimeWindow(start=time(9), end=time(17)),))
+    verdict = check_command(
+        parse_command("nmap 10.0.0.5", REGISTRY),
+        eng,
+        now=datetime(2026, 6, 1, 20, 0, tzinfo=UTC),
+    )
+    assert not verdict.allowed
+    assert "daily" in verdict.reason
+
+
+def test_inside_the_daily_window_is_allowed() -> None:
+    eng = _engagement(daily_windows=(TimeWindow(start=time(9), end=time(17)),))
+    verdict = check_command(parse_command("nmap 10.0.0.5", REGISTRY), eng, now=NOW)
+    assert verdict.allowed
+
+
+def test_out_of_scope_ip_is_denied() -> None:
+    verdict = check_command(
+        parse_command("nmap 8.8.8.8", REGISTRY), _engagement(), now=NOW
+    )
+    assert not verdict.allowed
+    assert "8.8.8.8" in verdict.reason
+
+
+def test_a_target_requiring_tool_with_no_target_is_denied() -> None:
+    verdict = check_command(parse_command("nmap -sV", REGISTRY), _engagement(), now=NOW)
+    assert not verdict.allowed
+    assert "no in-scope target" in verdict.reason
+
+
+def test_allowed_hostname_is_in_scope() -> None:
+    verdict = check_command(
+        parse_command("curl https://scanme.example.com", REGISTRY),
+        _engagement(),
+        now=NOW,
+    )
+    assert verdict.allowed
+
+
+def test_unlisted_hostname_is_denied() -> None:
+    verdict = check_command(
+        parse_command("curl https://evil.example.com", REGISTRY), _engagement(), now=NOW
+    )
+    assert not verdict.allowed
+    assert "evil.example.com" in verdict.reason
+
+
+def test_empty_command_is_denied() -> None:
+    verdict = check_command(parse_command("", REGISTRY), _engagement(), now=NOW)
+    assert not verdict.allowed
+
+
+# --- config validation ------------------------------------------------------
+
+
+def test_naive_datetime_is_rejected() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _engagement(authorized_start=datetime(2026, 1, 1))  # noqa: DTZ001
+
+
+def test_unknown_timezone_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unknown timezone"):
+        _engagement(timezone="Mars/Olympus")
+
+
+@pytest.mark.parametrize(
+    ("moment", "inside"),
+    [("23:00", True), ("01:00", True), ("12:00", False)],
+)
+def test_midnight_spanning_window(moment: str, inside: bool) -> None:
+    window = TimeWindow(start=time(22), end=time(2))
+    assert window.contains(time.fromisoformat(moment)) is inside

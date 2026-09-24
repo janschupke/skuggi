@@ -12,3 +12,6 @@ coverage.xml
 htmlcov/
 dist/
 *.egg-info/
+# Engagement case files hold live target data: commit only the .example templates.
+configs/*.json
+!configs/*.example.json

@@ -7,6 +7,8 @@ The two autouse fixtures here are load-bearing for isolation. Read the note in
 from __future__ import annotations
 
 import os
+import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -17,6 +19,35 @@ from skuggi.vectorstore import Store
 from tests.fakes import CountingFakeEmbeddings
 
 _VENDOR_ENV = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_BASE_URL")
+
+_ENGAGEMENT_JSON = """
+{{
+  "name": "test-eng",
+  "timezone": "UTC",
+  "authorized_start": "2000-01-01T00:00:00+00:00",
+  "authorized_end": "2999-12-31T23:59:59+00:00",
+  "target_networks": ["10.0.0.0/8", "192.168.0.0/16"],
+  "allowed_hosts": ["localhost", "scanme.example.com"],
+  "allowed_tools": ["nmap", "curl", "echo"],
+  "allowed_methods": ["recon", "scan"],
+  "autonomous": {autonomous}
+}}
+"""
+
+_REGISTRY_JSON = """
+{
+  "tools": [
+    {"name": "nmap", "binary": "nmap", "method": "scan",
+     "version_args": ["--version"], "requires_target": true,
+     "install": {"brew": "brew install nmap"}},
+    {"name": "curl", "binary": "curl", "method": "recon",
+     "version_args": ["--version"], "requires_target": true,
+     "install": {"apt": "apt-get install -y curl"}},
+    {"name": "echo", "binary": "echo", "method": "recon",
+     "requires_target": false, "install": {}}
+  ]
+}
+"""
 
 
 def _is_eval(request: pytest.FixtureRequest) -> bool:
@@ -76,6 +107,48 @@ def no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(httpx.Client, "send", _blocked)
     monkeypatch.setattr(httpx, "post", _blocked)
     monkeypatch.setattr(httpx, "get", _blocked)
+
+
+@pytest.fixture(autouse=True)
+def no_subprocess(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Block real command execution unless a test opts in with `runs_commands`.
+
+    Modeled on `no_network`: the harness's subject matter is running shell
+    commands, so a forgotten stub must fail loudly rather than spawn a real
+    process. A test that genuinely needs to exec marks itself `runs_commands`.
+    """
+    if _is_eval(request) or request.node.get_closest_marker("runs_commands"):
+        return
+
+    def _blocked(*args: object, **kwargs: object) -> object:
+        msg = "subprocess execution is not allowed in this test layer"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(subprocess, "run", _blocked)
+    monkeypatch.setattr("skuggi.execution.run", _blocked)
+
+
+@pytest.fixture
+def pentest_configs() -> Callable[..., Path]:
+    """Return a writer that drops engagement.json + tools.json into ./configs.
+
+    Relative to the temp cwd `isolate_credentials` chdirs into, so a `Settings()`
+    built afterwards finds them at their default paths.
+    """
+
+    def write(*, autonomous: bool = False) -> Path:
+        configs = Path("configs")
+        configs.mkdir(exist_ok=True)
+        (configs / "engagement.json").write_text(
+            _ENGAGEMENT_JSON.format(autonomous="true" if autonomous else "false"),
+            encoding="utf-8",
+        )
+        (configs / "tools.json").write_text(_REGISTRY_JSON, encoding="utf-8")
+        return configs
+
+    return write
 
 
 @pytest.fixture
