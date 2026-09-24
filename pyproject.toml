@@ -83,6 +83,7 @@ addopts = [
     "-m", "not eval",
     "--cov=skuggi",
     "--cov-branch",
+    "--cov-fail-under=90",
     "--cov-report=term-missing:skip-covered",
     "--cov-report=xml",
 ]

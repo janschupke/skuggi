@@ -11,36 +11,18 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from skuggi.config import Settings
-from skuggi.tools import build_tools
 from skuggi.tui import HELP, Tui
-from skuggi.vectorstore import Store
-from tests.fakes import (
-    CountingFakeEmbeddings,
-    FakePromptSession,
-    RoleScriptedChatModel,
-)
+from tests.conftest import offline_settings, wire_offline_core
+from tests.fakes import FakePromptSession
 
 
 @pytest.fixture
 def tui(tmp_path: Path) -> tuple[Tui, io.StringIO]:
     """A REPL wired to a scripted model, with no network anywhere."""
     buffer = io.StringIO()
-    settings = Settings(
-        provider="ollama",  # constructs without credentials or network
-        sqlite_path=tmp_path / "sessions.db",
-        faiss_path=tmp_path / "faiss",
-        history_path=tmp_path / ".repl_history",
-    )
-    app = Tui(settings, console=Console(file=buffer, width=100))
-    # Swap in offline doubles: the real ollama embeddings would try to reach
-    # localhost:11434 the moment anything is ingested.
-    app.core.store = Store(settings.faiss_path, CountingFakeEmbeddings())
-    app.core.tools_list = build_tools(app.core.store, root=tmp_path)
-    app.core.llm = RoleScriptedChatModel(
-        worker_replies=["the answer"], critic_replies=["APPROVED: ok"]
-    )
-    app.core.graph = app.core._build()
+    app = Tui(offline_settings(tmp_path), console=Console(file=buffer, width=100))
+    # Offline doubles, with base tools rooted at tmp_path (no engagement here).
+    wire_offline_core(app.core, base_tools_root=tmp_path)
     return app, buffer
 
 

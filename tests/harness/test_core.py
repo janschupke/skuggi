@@ -12,28 +12,14 @@ from pathlib import Path
 import pytest
 
 from skuggi import probe as probe_mod
-from skuggi.config import Settings
 from skuggi.core import AgentCore
 from skuggi.registry import ToolSpec, ToolStatus
-from skuggi.vectorstore import Store
-from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
+from tests.conftest import offline_settings, wire_offline_core
 
 
 def _build_core(tmp_path: Path, *, engagement: str | None = "test-eng") -> AgentCore:
-    settings = Settings(
-        provider="ollama",
-        sqlite_path=tmp_path / "sessions.db",
-        faiss_path=tmp_path / "faiss",
-        history_path=tmp_path / ".repl_history",
-        engagement=engagement,
-    )
-    core = AgentCore(settings)
-    core.store = Store(settings.faiss_path, CountingFakeEmbeddings())
-    core.llm = RoleScriptedChatModel(
-        worker_replies=["the answer"], critic_replies=["APPROVED: ok"]
-    )
-    core.tools_list = core.build_tools()
-    core.graph = core._build()
+    core = AgentCore(offline_settings(tmp_path, engagement=engagement))
+    wire_offline_core(core)
     return core
 
 

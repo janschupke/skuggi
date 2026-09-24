@@ -18,11 +18,9 @@ from langchain_core.messages import AIMessageChunk, SystemMessage
 from rich.console import Console
 from rich.live import Live
 
-from skuggi.config import Settings
 from skuggi.core import AgentCore, TurnEvent
 from skuggi.tui import DraftView
-from skuggi.vectorstore import Store
-from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
+from tests.conftest import offline_settings, wire_offline_core
 
 
 class _FakeGraph:
@@ -36,15 +34,8 @@ class _FakeGraph:
 
 
 def _core(tmp_path: Path) -> AgentCore:
-    settings = Settings(
-        provider="ollama",
-        sqlite_path=tmp_path / "sessions.db",
-        faiss_path=tmp_path / "faiss",
-        history_path=tmp_path / ".repl_history",
-    )
-    core = AgentCore(settings)
-    core.store = Store(settings.faiss_path, CountingFakeEmbeddings())
-    core.llm = RoleScriptedChatModel()
+    core = AgentCore(offline_settings(tmp_path))
+    wire_offline_core(core)
     return core
 
 

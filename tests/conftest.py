@@ -1,7 +1,13 @@
-"""Shared fixtures. Layers L1-L3 run fully offline; L4 (eval) is exempt.
+"""Shared fixtures and offline-session factories.
 
-The two autouse fixtures here are load-bearing for isolation. Read the note in
-`isolate_credentials` before changing it.
+The suite is four layers: L1 = tests/unit (pure functions/models), L2 =
+tests/integration (real subsystems), L3 = tests/harness (front-ends + AgentCore
+offline), L4 = tests/eval (real providers). L1-L3 run fully offline; L4 (eval)
+is exempt from the isolation fixtures below.
+
+The three autouse fixtures here are load-bearing for isolation. Read the note in
+`isolate_credentials` before changing it. `offline_settings` / `wire_offline_core`
+are the shared builders the L3 harness tests use instead of hand-rolling a core.
 """
 
 from __future__ import annotations
@@ -15,8 +21,11 @@ import httpx
 import pytest
 
 from skuggi import codex_chat
+from skuggi.config import Settings
+from skuggi.core import AgentCore
+from skuggi.tools import build_tools
 from skuggi.vectorstore import Store
-from tests.fakes import CountingFakeEmbeddings
+from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
 
 _VENDOR_ENV = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_BASE_URL")
 
@@ -50,6 +59,48 @@ _REGISTRY_JSON = """
   ]
 }
 """
+
+
+def offline_settings(tmp_path: Path, *, engagement: str | None = None) -> Settings:
+    """Settings that construct without credentials or network (provider=ollama).
+
+    The one place the harness tests describe an offline session: a fake-provider
+    Settings with all state redirected under `tmp_path`. `engagement` opts the
+    session into a loaded scope (paired with `pentest_configs`).
+    """
+    return Settings(
+        provider="ollama",
+        sqlite_path=tmp_path / "sessions.db",
+        faiss_path=tmp_path / "faiss",
+        history_path=tmp_path / ".repl_history",
+        engagement=engagement,
+    )
+
+
+def wire_offline_core(
+    core: AgentCore,
+    *,
+    worker: RoleScriptedChatModel | None = None,
+    base_tools_root: Path | None = None,
+) -> None:
+    """Swap a core's live parts for offline doubles and rebuild tools + graph.
+
+    Replaces the embeddings-backed store and the real LLM with fakes so no test
+    reaches localhost:11434 or a provider. `worker` overrides the scripted model
+    (default: one plan-worker-critic pass); `base_tools_root` builds only the
+    base tools rooted there (for an engagement-less REPL) instead of the pentest
+    tool set.
+    """
+    core.store = Store(core.settings.faiss_path, CountingFakeEmbeddings())
+    core.llm = worker or RoleScriptedChatModel(
+        worker_replies=["the answer"], critic_replies=["APPROVED: ok"]
+    )
+    core.tools_list = (
+        build_tools(core.store, root=base_tools_root)
+        if base_tools_root is not None
+        else core.build_tools()
+    )
+    core.graph = core._build()
 
 
 def _is_eval(request: pytest.FixtureRequest) -> bool:
