@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "skuggi"
+dynamic = ["version"]
+description = "Locally-hosted LangGraph agent harness with a planner-worker-critic loop"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Jan Schupke", email = "jan.schupke@gmail.com" }]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    # Current majors. Capped at the next major so a breaking bump is a resolver
+    # error rather than a silent break -- the failure mode this repo already had
+    # (declared langgraph~=0.2 against an installed 0.6.11).
+    "langchain>=1.4.2,<2",
+    "langchain-core>=1.6.4,<2",
+    "langchain-openai>=1.6.5,<2",
+    "langchain-anthropic>=1.7.4,<2",
+    "langchain-ollama>=1.1,<2",
+    "langchain-text-splitters>=1.1.2,<2",
+    # community still ships 0.x; it is the line aligned with core 1.x.
+    "langchain-community>=0.4.2,<0.5",
+    "langgraph>=1.2.12,<2",
+    "langgraph-checkpoint-sqlite>=3.1.1,<4",
+    # >=1.12 is load-bearing: cp314 wheels first appear in 1.12.0, so an older
+    # floor makes 3.13/3.14 attempt a source build needing SWIG and a BLAS.
+    "faiss-cpu>=1.12",
+    # rich ships breaking majors (13 -> 15 here) and the TUI depends
+    # structurally on Live/Markdown/Table rendering.
+    "rich>=15,<16",
+    "prompt-toolkit>=3.0.53",
+    "python-dotenv>=1.0",
+    "pydantic>=2.9",
+    "httpx>=0.28",
+]
+
+[project.scripts]
+skuggi = "skuggi.__main__:main"
+skuggi-ingest = "skuggi.ingest:main"
+
+[tool.hatch.version]
+path = "src/skuggi/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skuggi"]

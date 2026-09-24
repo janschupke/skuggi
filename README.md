@@ -18,19 +18,17 @@ Four LLM providers, switchable at runtime:
 
 ## Quickstart
 
-Python 3.12 or 3.14 (Homebrew default on darwin-arm64) both work; all
-required wheels (`faiss-cpu`, `numpy`, etc.) had 3.14 builds at the time
-this was scaffolded.
+Requires Python >=3.12 and [uv](https://docs.astral.sh/uv/). Developed on
+3.14; CI covers 3.12, 3.13 and 3.14. Exact versions come from `uv.lock`.
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+uv sync --all-groups
 cp .env.example .env
 # edit .env: set ANTHROPIC_API_KEY (easiest) or arrange OpenAI auth (below)
-python -m skuggi
+uv run skuggi
 ```
+
+`python -m skuggi` also works once the package is installed.
 
 In the REPL:
 

@@ -1,26 +1,24 @@
-"""Standalone CLI ingester. Usage:
+"""Standalone CLI ingester.
 
-    python scripts/ingest.py ./docs
-    python scripts/ingest.py file1.md file2.md
+Usage:
+    skuggi-ingest ./docs
+    skuggi-ingest file1.md file2.md
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
-
-from skuggi import providers  # noqa: E402
-from skuggi.vectorstore import Store  # noqa: E402
+from skuggi import providers
+from skuggi.vectorstore import Store
 
 
 def main() -> int:
+    """Embed the given files or directories into the local FAISS index."""
     load_dotenv()
     ap = argparse.ArgumentParser(description="Ingest markdown/text into FAISS.")
     ap.add_argument("paths", nargs="+", help="files or directories to ingest")
