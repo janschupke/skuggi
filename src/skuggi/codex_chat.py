@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -84,9 +85,28 @@ class CodexChatModel(BaseChatModel):
         return json.loads(self.auth_path.read_text())
 
     def _save_auth(self, data: dict[str, Any]) -> None:
-        tmp = self.auth_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2))
-        tmp.replace(self.auth_path)
+        """Atomically rewrite auth.json, keeping it private to the owner.
+
+        Writing a temp file with `write_text` creates it at the process umask
+        (typically 0644) and `replace` carries that mode onto the target, so the
+        naive version widened the user's OAuth tokens to world-readable on the
+        first refresh. `mkstemp` creates at 0600 instead, which also repairs a
+        file that was already widened. The fsync is so a crash between write and
+        replace cannot leave a truncated credential file.
+        """
+        directory = self.auth_path.parent
+        directory.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=".auth-", suffix=".tmp")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, self.auth_path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def _access_token(self) -> tuple[str, str | None]:
         """Return (access_token, account_id), refreshing if expired."""
