@@ -75,12 +75,16 @@ class Settings(BaseSettings):
     # --- pentest harness ---
     # The operating mode selects the agent's prompt set (pentest/redteam/blueteam).
     mode: Mode = "pentest"
-    # Case files: JSON, committed only as `.example`, gitignored otherwise.
-    engagement_path: Path = Path("./configs/engagement.json")
+    # Harness config (shared across engagements): the recognized-tool registry and
+    # the optional workspace-layout override. Committed only as `.example`.
     registry_path: Path = Path("./configs/tools.json")
-    # File DB + outputs, all under the gitignored ./data.
-    ledger_path: Path = Path("./data/ledger.db")
-    reports_dir: Path = Path("./data/reports")
+    layout_path: Path = Path("./configs/layout.json")
+    # Engagement setup lives in a per-engagement workspace under this root; the
+    # active engagement selects the directory (engagements/<engagement>/). Its
+    # scope.json, ledger and reports live inside that workspace. With no active
+    # engagement the harness runs agent-only and falls back to ./data.
+    engagements_dir: Path = Path("./engagements")
+    engagement: str | None = None
     managed_tools_dir: Path = Path("./data/toolbox")
     # Where to look for / install tools: host PATH, the managed venv, or both.
     tool_source: ToolSource = "combine"

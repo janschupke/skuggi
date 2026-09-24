@@ -59,6 +59,12 @@ def test_both_console_scripts_resolve() -> None:
         for entry in metadata.entry_points(group="console_scripts")
         if entry.name.startswith("skuggi")
     }
-    assert set(entries) == {"skuggi", "skuggi-ingest", "skuggi-doctor", "skuggi-shell"}
+    assert set(entries) == {
+        "skuggi",
+        "skuggi-repl",
+        "skuggi-ingest",
+        "skuggi-doctor",
+        "skuggi-client",
+    }
     for entry in entries.values():
         assert callable(entry.load())

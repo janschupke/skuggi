@@ -7,32 +7,32 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.configs import ConfigError, load_engagement, load_registry
+from skuggi.configs import ConfigError, load_layout, load_registry, load_scope
 
 
-def test_loads_a_valid_engagement(pentest_configs: Callable[..., Path]) -> None:
-    configs = pentest_configs()
-    eng = load_engagement(configs / "engagement.json")
+def test_loads_a_valid_scope(pentest_configs: Callable[..., Path]) -> None:
+    workspace = pentest_configs()
+    eng = load_scope(workspace / "scope.json")
     assert eng.name == "test-eng"
     assert "nmap" in eng.allowed_tools
 
 
 def test_loads_a_valid_registry(pentest_configs: Callable[..., Path]) -> None:
-    configs = pentest_configs()
-    registry = load_registry(configs / "tools.json")
+    pentest_configs()
+    registry = load_registry(Path("configs") / "tools.json")
     assert registry.method_for("nmap") == "scan"
 
 
-def test_missing_engagement_raises_config_error(tmp_path: Path) -> None:
+def test_missing_scope_raises_config_error(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="cannot read"):
-        load_engagement(tmp_path / "nope.json")
+        load_scope(tmp_path / "nope.json")
 
 
-def test_invalid_engagement_json_raises_config_error(tmp_path: Path) -> None:
-    bad = tmp_path / "engagement.json"
+def test_invalid_scope_json_raises_config_error(tmp_path: Path) -> None:
+    bad = tmp_path / "scope.json"
     bad.write_text("{ not json", encoding="utf-8")
-    with pytest.raises(ConfigError, match="invalid engagement"):
-        load_engagement(bad)
+    with pytest.raises(ConfigError, match="invalid scope"):
+        load_scope(bad)
 
 
 def test_invalid_registry_raises_config_error(tmp_path: Path) -> None:
@@ -40,3 +40,24 @@ def test_invalid_registry_raises_config_error(tmp_path: Path) -> None:
     bad.write_text('{"tools": [{"binary": "x"}]}', encoding="utf-8")
     with pytest.raises(ConfigError, match="invalid tool registry"):
         load_registry(bad)
+
+
+def test_missing_layout_returns_defaults(tmp_path: Path) -> None:
+    layout = load_layout(tmp_path / "absent.json")
+    assert layout.scope_file == "scope.json"
+    assert layout.recon_subdirs == ("nmap", "web")
+
+
+def test_layout_override_is_loaded(tmp_path: Path) -> None:
+    path = tmp_path / "layout.json"
+    path.write_text('{"reports": "out", "recon_subdirs": ["dns"]}', encoding="utf-8")
+    layout = load_layout(path)
+    assert layout.reports == "out"
+    assert layout.recon_subdirs == ("dns",)
+
+
+def test_invalid_layout_raises_config_error(tmp_path: Path) -> None:
+    bad = tmp_path / "layout.json"
+    bad.write_text('{"recon_subdirs": "not-a-list"', encoding="utf-8")
+    with pytest.raises(ConfigError, match="invalid workspace layout"):
+        load_layout(bad)

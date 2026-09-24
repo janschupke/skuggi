@@ -1,22 +1,19 @@
-"""Rich + prompt_toolkit REPL with slash commands.
+"""Rich + prompt_toolkit REPL: a console front-end over ``AgentCore``.
 
-Non-slash input goes through the agent graph against the current
-checkpointed thread; the worker's tokens stream into a `rich.live.Live` pane
-while the planner and critic report one line each.
+Non-slash input goes through the agent graph (``core.turn``) and the worker's
+tokens stream into a ``rich.live.Live`` pane while the planner and critic report
+one line each. All agent state and behavior live in ``AgentCore``; this module
+only renders. The wrapped-shell daemon is the other front-end over the same core.
 """
 
 from __future__ import annotations
 
-import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
 
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
-from langchain_core.runnables import RunnableConfig
+from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import StreamMode
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from rich.console import Console
@@ -24,57 +21,30 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.table import Table
 
-from skuggi import ledger as ledger_mod
-from skuggi import memory, pentest_tools, providers, registry, reports, tools
-from skuggi.config import Provider, Settings
-from skuggi.configs import ConfigError, load_engagement, load_registry
+from skuggi import palette
+from skuggi.config import Settings
+from skuggi.core import AgentCore
 from skuggi.engagement import EngagementConfig
-from skuggi.graph import GraphDeps, build_graph, recursion_limit
-from skuggi.modes import MODES, Mode, prompt_set
-from skuggi.registry import ToolRegistry
+from skuggi.ledger import Ledger
+from skuggi.registry import ToolRegistry, ToolStatus
 from skuggi.state import AgentState
-from skuggi.vectorstore import Store
-
-_STREAM_MODES: list[StreamMode] = ["updates", "messages"]
-_PROVIDERS = ("openai", "chatgpt", "anthropic", "ollama")
 
 
 class DraftView:
-    """Accumulates the worker's tokens for one LLM run and renders them.
-
-    Two things have to be filtered, and they are different problems:
-
-    `stream_mode="messages"` emits every BaseMessage a node writes to state, not
-    just tokens -- so without the AIMessageChunk check the worker's own system
-    prompt and seeded request render into the visible answer.
-
-    Within the worker, each tool round is a separate LLM run. A model that
-    narrates before calling a tool ("Let me compute that.") would otherwise have
-    that preamble concatenated with the final answer, so the buffer resets when
-    the run id changes.
-    """
+    """Accumulates streamed worker tokens and renders them into a Live pane."""
 
     def __init__(self, live: Live) -> None:
         self._live = live
-        self._run_id: str | None = None
         self.buffer = ""
 
     def reset(self) -> None:
-        """Start a new run, discarding anything buffered."""
-        self._run_id = None
+        """Start a new pass, discarding anything buffered."""
         self.buffer = ""
 
-    def push(self, chunk: BaseMessage, node: str) -> None:
-        """Render one streamed item, ignoring anything that is not a token."""
-        if node != "worker" or not isinstance(chunk, AIMessageChunk):
-            return
-        if chunk.id != self._run_id:
-            self._run_id = chunk.id
-            self.buffer = ""
-        text = chunk.text
-        if text:
-            self.buffer += text
-            self._live.update(Markdown(self.buffer))
+    def push_text(self, text: str) -> None:
+        """Append one incremental token and re-render."""
+        self.buffer += text
+        self._live.update(Markdown(self.buffer))
 
     def show(self, final: str) -> None:
         """Render the authoritative draft, as judged by the critic."""
@@ -83,7 +53,7 @@ class DraftView:
 
 
 class Tui:
-    """The interactive REPL."""
+    """The interactive REPL (``skuggi-repl``)."""
 
     def __init__(
         self,
@@ -93,43 +63,19 @@ class Tui:
         session: PromptSession[str] | None = None,
     ) -> None:
         """Wire up a session. `console` and `session` are injectable for tests."""
-        self.settings = settings or Settings()
         self.console = console or Console()
-        self.model: str | None = None
-        self.mode: Mode = self.settings.mode
-        self.thread_id = str(uuid.uuid4())
-        self.session_id = str(uuid.uuid4())
+        self.core = AgentCore(settings)
 
-        history_file = self.settings.history_path
+        history_file = self.core.settings.history_path
         history_file.parent.mkdir(parents=True, exist_ok=True)
         self.session: PromptSession[str] = session or PromptSession(
             history=FileHistory(str(history_file))
         )
 
-        self.engagement = self._load_engagement()
-        self.registry = self._load_registry()
-
-        self._embeddings = providers.get_embeddings(self.settings)
-        self.store = Store(
-            self.settings.faiss_path,
-            self._embeddings,
-            chunk_size=self.settings.chunk_size,
-            chunk_overlap=self.settings.chunk_overlap,
-        )
-        self.llm = providers.get_chat_model(self.settings, model=self.model)
-
-        self._saver_ctx = memory.open_checkpointer(self.settings.sqlite_path)
-        self.saver = self._saver_ctx.__enter__()
-        self._ledger_ctx = ledger_mod.open_ledger(self.settings.ledger_path)
-        self.ledger = self._ledger_ctx.__enter__()
-        self.ledger.start_session(
-            self.session_id,
-            engagement_name=self.engagement.name if self.engagement else "(none)",
-            mode=self.mode,
-        )
-
-        self.tools_list = self._build_tools()
-        self.graph = self._build()
+        # Surface any config-degrade warnings at construction (tests read these
+        # straight after building the app, before run()/the banner).
+        for warning in self.core.warnings:
+            self.console.print(f"[yellow]{warning}[/yellow]")
 
         self._commands: dict[str, Callable[[str], bool | None]] = {
             "/help": self._cmd_help,
@@ -150,65 +96,58 @@ class Tui:
             "/exit": self._cmd_quit,
         }
 
-    # ----- config + tool assembly -----
-
-    def _load_engagement(self) -> EngagementConfig | None:
-        """Load the engagement scope, or warn and return None if unavailable."""
-        try:
-            return load_engagement(self.settings.engagement_path)
-        except ConfigError as exc:
-            self.console.print(f"[yellow]no engagement loaded:[/yellow] {exc}")
-            return None
-
-    def _load_registry(self) -> ToolRegistry:
-        """Load the tool registry, or warn and return an empty one."""
-        try:
-            return load_registry(self.settings.registry_path)
-        except ConfigError as exc:
-            self.console.print(f"[yellow]no tool registry loaded:[/yellow] {exc}")
-            return ToolRegistry()
-
-    def _build_tools(self) -> list[BaseTool]:
-        """Base tools plus the pentest tools when an engagement is loaded."""
-        built = tools.build_tools(self.store, k=self.settings.retrieve_k)
-        if self.engagement is not None:
-            built += pentest_tools.build_pentest_tools(
-                engagement=self.engagement,
-                registry=self.registry,
-                ledger=self.ledger,
-                session_id=self.session_id,
-                thread_id=lambda: self.thread_id,
-                settings=self.settings,
-            )
-        return built
-
-    # ----- properties -----
+    # ----- delegated read state ----------------------------------------------
 
     @property
-    def provider(self) -> Provider:
+    def engagement(self) -> EngagementConfig | None:
+        """The loaded engagement scope (or None)."""
+        return self.core.engagement
+
+    @property
+    def registry(self) -> ToolRegistry:
+        """The loaded tool registry."""
+        return self.core.registry
+
+    @property
+    def ledger(self) -> Ledger:
+        """The session ledger."""
+        return self.core.ledger
+
+    @property
+    def session_id(self) -> str:
+        """The ledger session id."""
+        return self.core.session_id
+
+    @property
+    def thread_id(self) -> str:
+        """The active conversation thread id."""
+        return self.core.thread_id
+
+    @property
+    def mode(self) -> str:
+        """The active operating mode."""
+        return self.core.mode
+
+    @property
+    def provider(self) -> str:
         """The active provider name."""
-        return self.settings.provider
+        return self.core.provider
 
     @property
-    def max_revisions(self) -> int:
-        """Critic revision budget for one turn."""
-        return self.settings.max_revisions
+    def tools_list(self) -> list[BaseTool]:
+        """The bound tool list."""
+        return self.core.tools_list
 
-    def _deps(self) -> GraphDeps:
-        return GraphDeps(
-            llm=self.llm,
-            tools=self.tools_list,
-            store=self.store,
-            bind_tools=self.settings.supports_tools(),
-            max_tool_rounds=self.settings.max_tool_rounds,
-            retrieve_k=self.settings.retrieve_k,
-            prompts=prompt_set(self.mode),
-        )
+    @property
+    def graph(self) -> CompiledStateGraph[AgentState]:
+        """The compiled agent graph."""
+        return self.core.graph
 
-    def _build(self) -> CompiledStateGraph[AgentState]:
-        return build_graph(self._deps(), self.saver)
+    def close(self) -> None:
+        """Release the core's ledger and checkpointer connections."""
+        self.core.close()
 
-    # ----- lifecycle -----
+    # ----- lifecycle ---------------------------------------------------------
 
     def run(self) -> None:
         """Read, dispatch, repeat until the user leaves."""
@@ -234,29 +173,23 @@ class Tui:
             self.close()
             self.console.print("[dim]bye.[/dim]")
 
-    def close(self) -> None:
-        """Close the ledger and checkpointer connections held for the session."""
-        self._ledger_ctx.__exit__(None, None, None)
-        self._saver_ctx.__exit__(None, None, None)
-
-    # ----- UI helpers -----
+    # ----- UI helpers --------------------------------------------------------
 
     def _prompt(self) -> str:
-        model = self.model or "(default)"
-        auto = "!" if self.engagement and self.engagement.autonomous else ""
-        # The shield marks that skuggi is active in the session (req #8); the
-        # `!` warns that autonomous execution is armed.
+        model = self.core.model or "(default)"
+        auto = "!" if self.core.autonomous else ""
+        # The shield marks that skuggi is active; the `!` warns autonomous
+        # execution is armed.
         return (
-            f"🛡️ [skuggi:{self.mode}/{self.provider}/{model}"
+            f"{palette.SHIELD} [skuggi:{self.mode}/{self.provider}/{model}"
             f"{auto} thread={self.thread_id[:8]}] > "
         )
 
     def _banner(self) -> None:
         self.console.rule("[bold]skuggi[/bold]")
-        engagement = self.engagement.name if self.engagement else "[red](none)[/red]"
-        autonomous = (
-            "[red]ON[/red]" if self.engagement and self.engagement.autonomous else "off"
-        )
+        core = self.core
+        engagement = core.engagement.name if core.engagement else "[red](none)[/red]"
+        autonomous = palette.paint("ON", palette.DANGER) if core.autonomous else "off"
         self.console.print(
             f"mode=[cyan]{self.mode}[/cyan]  "
             f"provider=[cyan]{self.provider}[/cyan]  "
@@ -270,11 +203,13 @@ class Tui:
             )
         self.console.print("type /help for commands\n")
 
-    def _line(self, node: str, text: str | None) -> None:
-        if text:
-            self.console.print(f"[dim]({node})[/dim] {text.splitlines()[0][:100]}")
+    def _status(self, node: str, text: str) -> None:
+        if not text:
+            return
+        style = "red" if node == "error" else "dim"
+        self.console.print(f"[{style}]({node})[/{style}] {text.splitlines()[0][:100]}")
 
-    # ----- dispatch -----
+    # ----- dispatch ----------------------------------------------------------
 
     def dispatch(self, line: str) -> bool | None:
         """Run a slash command. Returns False to end the session."""
@@ -295,72 +230,91 @@ class Tui:
         self.console.print(table)
 
     def _cmd_provider(self, arg: str) -> None:
-        if arg not in _PROVIDERS:
-            self.console.print(f"[red]unknown provider:[/red] {arg!r}")
-            return
-        self.settings = self.settings.model_copy(update={"provider": arg})
-        self.model = None
-        self._rebuild()
-
-    def _cmd_model(self, arg: str) -> None:
-        if not arg:
-            self.console.print("[red]usage:[/red] /model <name>")
-            return
-        self.model = arg
-        self._rebuild()
-
-    def _rebuild(self) -> None:
         try:
-            self.llm = providers.get_chat_model(self.settings, model=self.model)
+            self.core.set_provider(arg)
+        except ValueError as e:
+            self.console.print(f"[red]{e}[/red]")
+            return
         except (RuntimeError, ImportError) as e:
             self.console.print(f"[red]provider error:[/red] {e}")
             return
-        self.graph = self._build()
         self.console.print(
-            f"[dim]switched to[/dim] {self.provider}/{self.model or '(default)'}"
+            f"[dim]switched to[/dim] {self.provider}/{self.core.model or '(default)'}"
         )
 
-    def _cmd_mode(self, arg: str) -> None:
-        if arg not in MODES:
-            self.console.print(
-                f"[red]unknown mode:[/red] {arg!r} (choose {', '.join(MODES)})"
-            )
+    def _cmd_model(self, arg: str) -> None:
+        try:
+            self.core.set_model(arg)
+        except ValueError:
+            self.console.print("[red]usage:[/red] /model <name>")
             return
-        self.mode = arg
-        self.graph = self._build()
+        except (RuntimeError, ImportError) as e:
+            self.console.print(f"[red]provider error:[/red] {e}")
+            return
+        self.console.print(f"[dim]switched to[/dim] {self.provider}/{self.core.model}")
+
+    def _cmd_mode(self, arg: str) -> None:
+        try:
+            self.core.set_mode(arg)
+        except ValueError as e:
+            self.console.print(f"[red]{e}[/red]")
+            return
         self.console.print(f"[dim]mode:[/dim] {self.mode}")
 
     def _cmd_engagement(self, _arg: str) -> None:
-        if self.engagement is None:
+        described = self.core.describe_engagement()
+        if described is None:
             self.console.print("[yellow]no engagement loaded[/yellow]")
             return
-        self.console.print(self.engagement.describe())
+        self.console.print(self._colour_scope(described))
+
+    def _colour_scope(self, described: str) -> str:
+        """Tint the method line of a scope summary with the method palette."""
+        out: list[str] = []
+        for line in described.splitlines():
+            if line.strip().startswith("methods:"):
+                label, _, rest = line.partition(":")
+                names = [n.strip() for n in rest.split(",") if n.strip()]
+                painted = ", ".join(
+                    palette.paint(n, palette.method_style(n)) for n in names
+                )
+                out.append(f"{label}: {painted}")
+            else:
+                out.append(line)
+        return "\n".join(out)
 
     def _cmd_doctor(self, arg: str) -> None:
         parts = arg.split()
         if parts and parts[0] == "install":
             self._install_tool(parts[1] if len(parts) > 1 else "")
             return
-        statuses = registry.probe(
-            self.registry,
-            source=self.settings.tool_source,
-            managed_dir=self.settings.managed_tools_dir,
-        )
-        self.console.print(Markdown(registry.doctor_report(statuses)))
+        self.console.print(self._doctor_table(self.core.doctor_statuses()))
+
+    def _doctor_table(self, statuses: list[ToolStatus]) -> Table:
+        table = Table(title="tool doctor")
+        for column in ("tool", "method", "status", "version", "source"):
+            table.add_column(column)
+        for st in statuses:
+            status = palette.paint(
+                "found" if st.found else "missing",
+                palette.status_style(found=st.found),
+            )
+            table.add_row(
+                st.spec.binary,
+                palette.paint(st.spec.method, palette.method_style(st.spec.method)),
+                status,
+                st.version or "-",
+                palette.paint(st.source, palette.source_style(st.source)),
+            )
+        return table
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""
-        spec = self.registry.spec_for(binary)
-        if spec is None:
-            self.console.print(f"[red]unknown tool:[/red] {binary!r}")
-            return
         self.console.print(f"[dim]installing {binary}...[/dim]")
-        status = registry.install_tool(
-            spec,
-            source=self.settings.tool_source,
-            managed_dir=self.settings.managed_tools_dir,
-        )
-        if status.found:
+        status = self.core.install_tool(binary)
+        if status is None:
+            self.console.print(f"[red]unknown tool:[/red] {binary!r}")
+        elif status.found:
             self.console.print(
                 f"[green]installed[/green] {binary} "
                 f"({status.version or '?'}) via {status.source}"
@@ -369,7 +323,7 @@ class Tui:
             self.console.print(f"[red]install failed or unavailable[/red] for {binary}")
 
     def _cmd_findings(self, _arg: str) -> None:
-        rows = self.ledger.findings_for(self.session_id)
+        rows = self.core.findings()
         if not rows:
             self.console.print("[dim](no findings yet)[/dim]")
             return
@@ -377,44 +331,36 @@ class Tui:
             src = (
                 f" (cmd:{finding.command_id})" if finding.command_id is not None else ""
             )
-            self.console.print(
-                f"[bold]{finding.severity.upper()}[/bold] "
-                f"[{finding.id}] {finding.title}{src}"
+            sev = palette.paint(
+                finding.severity.upper(), palette.severity_style(finding.severity)
             )
+            self.console.print(f"{sev} [{finding.id}] {finding.title}{src}")
 
     def _cmd_report(self, _arg: str) -> None:
-        path = reports.write_report(
-            self.session_id,
-            self.ledger,
-            self.settings.reports_dir,
-            engagement=self.engagement,
-        )
+        path = self.core.write_report()
         self.console.print(f"[green]report written:[/green] {path}")
 
     def _cmd_autonomous(self, arg: str) -> None:
-        if self.engagement is None:
-            self.console.print("[yellow]no engagement loaded[/yellow]")
+        want = {"on": True, "off": False}.get(arg.lower())
+        try:
+            state = self.core.set_autonomous(want)
+        except ValueError as e:
+            self.console.print(f"[yellow]{e}[/yellow]")
             return
-        want = {"on": True, "off": False}.get(
-            arg.lower(), not self.engagement.autonomous
-        )
-        self.engagement = self.engagement.model_copy(update={"autonomous": want})
-        self.tools_list = self._build_tools()
-        self.graph = self._build()
-        if want:
+        if state:
             self.console.print(
-                "[red]autonomous execution is now ON[/red] -- proposed commands "
-                "will EXECUTE within scope"
+                palette.paint("autonomous execution is now ON", palette.DANGER)
+                + " -- proposed commands will EXECUTE within scope"
             )
         else:
             self.console.print("autonomous execution is now off")
 
     def _cmd_thread(self, arg: str) -> None:
         if arg in ("new", ""):
-            self.thread_id = str(uuid.uuid4())
-            self.console.print(f"[dim]new thread:[/dim] {self.thread_id}")
+            new_id = self.core.new_thread()
+            self.console.print(f"[dim]new thread:[/dim] {new_id}")
         elif arg == "list":
-            ids = memory.list_threads(self.saver)
+            ids = self.core.list_threads()
             if not ids:
                 self.console.print("[dim](no threads)[/dim]")
                 return
@@ -422,19 +368,13 @@ class Tui:
                 marker = " *" if thread_id == self.thread_id else ""
                 self.console.print(f"  {thread_id}{marker}")
         else:
-            self.thread_id = arg
+            self.core.set_thread(arg)
             self.console.print(f"[dim]switched to thread:[/dim] {arg}")
-
-    def _state(self) -> AgentState:
-        values = self.graph.get_state(self._config()).values
-        if isinstance(values, dict) and values:
-            return cast("AgentState", values)
-        return {"messages": [], "scratch": []}
 
     def _cmd_history(self, arg: str) -> None:
         count = int(arg) if arg.isdigit() else 20
         labels = {"human": "you", "ai": "bot", "system": "sys", "tool": "tool"}
-        for message in self._state().get("messages", [])[-count:]:
+        for message in self.core.state().get("messages", [])[-count:]:
             self.console.print(
                 f"[bold]{labels.get(message.type, message.type)}:[/bold] {message.text}"
             )
@@ -442,7 +382,7 @@ class Tui:
     def _cmd_trace(self, _arg: str) -> None:
         """Show the worker's tool trail, which /history deliberately excludes."""
         shown = False
-        for message in self._state().get("scratch", []):
+        for message in self.core.state().get("scratch", []):
             if isinstance(message, AIMessage) and message.tool_calls:
                 for call in message.tool_calls:
                     self.console.print(
@@ -453,8 +393,6 @@ class Tui:
                 self.console.print(f"[green]result[/green] {message.text[:200]}")
                 shown = True
         if not shown:
-            # Scratch is usually non-empty (the worker's prompt seed lives there),
-            # so an emptiness check would print nothing at all on a tool-free turn.
             self.console.print("[dim](no tool activity on this thread)[/dim]")
 
     def _cmd_clear(self, _arg: str) -> None:
@@ -464,64 +402,24 @@ class Tui:
         if not arg:
             self.console.print("[red]usage:[/red] /ingest <path>")
             return
-        added = self.store.ingest([Path(arg)])
-        self.store.persist()
+        added = self.core.ingest(Path(arg))
         self.console.print(f"[dim]indexed {added} chunk(s)[/dim]")
 
-    # ----- agent turn -----
-
-    def _config(self) -> RunnableConfig:
-        return {
-            "configurable": {"thread_id": self.thread_id},
-            "recursion_limit": recursion_limit(
-                max_revisions=self.settings.max_revisions,
-                max_tool_rounds=self.settings.max_tool_rounds,
-            ),
-        }
+    # ----- agent turn --------------------------------------------------------
 
     def turn(self, user_text: str) -> None:
         """Run one agent turn, streaming the worker's answer."""
-        initial: AgentState = {
-            "messages": [HumanMessage(content=user_text)],
-            "scratch": [],
-            "revision_count": 0,
-            "max_revisions": self.settings.max_revisions,
-            "tool_rounds": 0,
-        }
-        try:
-            with Live("", console=self.console, refresh_per_second=20) as live:
-                view = DraftView(live)
-                # A multi-mode stream is heterogeneous -- (mode, payload) pairs
-                # whose payload shape depends on the mode -- so it is typed
-                # loosely upstream and narrowed here.
-                stream: Iterator[Any] = self.graph.stream(
-                    initial, self._config(), stream_mode=_STREAM_MODES
-                )
-                for item in stream:
-                    event, payload = cast("tuple[str, Any]", item)
-                    if event == "messages":
-                        chunk, meta = payload
-                        view.push(chunk, (meta or {}).get("langgraph_node", ""))
-                    elif event == "updates":
-                        self._handle_update(payload, view)
-        except Exception as e:  # noqa: BLE001 -- a bad turn must not kill the REPL
-            self.console.print(f"[red]turn error:[/red] {type(e).__name__}: {e}")
-
-    def _handle_update(self, payload: dict[str, object], view: DraftView) -> None:
-        for node, update in payload.items():
-            values = update if isinstance(update, dict) else {}
-            if node == "planner":
-                view.reset()
-                self._line("planner", values.get("plan"))
-            elif node == "retriever":
-                if values.get("context"):
-                    self._line("retriever", "inlined retrieved context")
-            elif node == "tools":
-                view.reset()
-            elif node == "finalize":
-                view.show(str(values.get("draft") or ""))
-            elif node == "critic":
-                self._line("critic", values.get("critique"))
+        with Live("", console=self.console, refresh_per_second=20) as live:
+            view = DraftView(live)
+            for ev in self.core.turn(user_text):
+                if ev.kind == "reset":
+                    view.reset()
+                elif ev.kind == "status":
+                    self._status(ev.node, ev.text)
+                elif ev.kind == "token":
+                    view.push_text(ev.text)
+                elif ev.kind == "final":
+                    view.show(ev.text)
 
 
 HELP: list[tuple[str, str]] = [

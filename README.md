@@ -8,10 +8,14 @@ advises, **proposes a shell command** (gated by a strict engagement boundary),
 or summarizes. Findings and commands are persisted to a file DB, traceable back
 to the command that produced them, and exportable as Markdown reports.
 
+The default `skuggi` command wraps your **real shell**: you keep your prompt,
+colours, completion, history and signals, and only `/skuggi <prompt>` reaches
+the agent (a warm in-process daemon). `skuggi-repl` is the pure agent chat.
+
 See **[The pentest harness](#the-pentest-harness)** for modes, the engagement
 boundary, `run_command`, the tool registry / `skuggi-doctor`, findings and
-reports, and the shell wrapper. The sections after it document the agent
-substrate the harness is built on.
+reports, the per-engagement workspace, and the shell wrapper. The sections after
+it document the agent substrate the harness is built on.
 
 Four LLM providers, switchable at runtime:
 
@@ -34,20 +38,35 @@ Requires Python >=3.12 and [uv](https://docs.astral.sh/uv/). Developed on
 uv sync --all-groups
 cp .env.example .env
 # edit .env: set ANTHROPIC_API_KEY (easiest) or arrange OpenAI auth (below)
-uv run skuggi
+
+# harness config (shared): the recognized-tool registry (+ optional layout)
+cp configs/tools.example.json configs/tools.json
+
+# an engagement: a workspace with its scope. Edit the scope to your targets.
+mkdir -p engagements/acme-2026
+cp configs/scope.example.json engagements/acme-2026/scope.json
+export SKUGGI_ENGAGEMENT=acme-2026
+
+uv run skuggi         # the native shell wrapper (🛡️ prompt)
 ```
 
-`python -m skuggi` also works once the package is installed.
+Inside the wrapped shell your normal commands run natively; `/skuggi` reaches
+the agent:
 
-In the REPL:
+```
+🛡️ ~ %  ls              # your real shell, native colours
+🛡️ ~ %  /skuggi scan the web host      # -> agent proposes an in-scope command
+🛡️ ~ %  /skuggi /findings               # -> harness control
+🛡️ ~ %  /skuggi exit                    # -> leave the harness
+```
+
+For the pure agent chat instead, `uv run skuggi-repl` (`python -m skuggi` also
+works):
 
 ```
 > What is 17 * 23?
 > /provider anthropic
-> /model claude-sonnet-4-5-20250929
 > /ingest docs
-> Who is the skuggi mascot?
-> /thread list
 > /quit
 ```
 
@@ -72,7 +91,10 @@ In the REPL:
 | `/ingest <path>`                              | Index a file or directory of `*.md` / `*.txt`     |
 | `/quit` / `/exit`                             | Close cleanly                                     |
 
-Anything not starting with `/` is sent to the agent.
+Anything not starting with `/` is sent to the agent. This table is the
+`skuggi-repl` surface; inside the wrapped `skuggi` shell the same reach the agent
+as `/skuggi <prompt>` and the controls as `/skuggi /findings`, `/skuggi /report`,
+etc. (see [Shell wrapper](#shell-wrapper-skuggi)).
 
 ## The pentest harness
 
@@ -86,12 +108,22 @@ it. The worker gets two extra bounded tools -- `run_command` and
 ([src/skuggi/modes.py](src/skuggi/modes.py)); the graph, tools and guard are
 identical across modes. Set the default with `SKUGGI_MODE`.
 
+### Config split: harness vs engagement
+
+Harness config is shared across engagements and lives in `configs/` (plus
+`.env`/`Settings`): the recognized-tool registry
+([configs/tools.example.json](configs/tools.example.json)) and the optional
+workspace-layout override ([configs/layout.example.json](configs/layout.example.json)).
+Engagement setup is per-case and lives in a **workspace** (see below): its
+`scope.json` is the boundary. Point skuggi at the active engagement with
+`SKUGGI_ENGAGEMENT=<name>`; with none set it runs agent-only.
+
 ### The engagement boundary
 
-The authorized scope for one engagement is a JSON *case file*
-([configs/engagement.example.json](configs/engagement.example.json)), loaded at
-start and never committed (real files are gitignored; only `.example` templates
-are tracked):
+The authorized scope for one engagement is the workspace's `scope.json`
+(template: [configs/scope.example.json](configs/scope.example.json)), loaded at
+start and never committed (real workspaces under `engagements/` are gitignored;
+only `.example` templates are tracked):
 
 ```json
 {
@@ -117,6 +149,13 @@ no in-scope target is denied, and anything the guard cannot prove in scope is
 denied. This mirrors the tool layer's discipline (*"every bound exists because
 the model supplies the arguments"*) -- `parse_command` is the analogue of
 `file_read`'s `_resolve_within`.
+
+**How `allowed_methods` is enforced (coarse, by design).** A method is a *static
+per-tool category*: each registry entry declares one method (nmap→`scan`,
+curl→`recon`), so `allowed_methods` gates tool *categories*, largely reinforcing
+`allowed_tools` (the real per-tool control). It does **not** distinguish how a
+tool is invoked -- `nmap -sn` and `nmap -A` are both `scan`. Each method has a
+defined colour in the palette so scope and command logs read consistently.
 
 ### run_command: suggest by default, autonomous on request
 
@@ -146,25 +185,57 @@ detected OS package manager.
 
 ### Findings, the ledger and reports
 
-The harness persists to its own SQLite **ledger**
-([src/skuggi/ledger.py](src/skuggi/ledger.py), `./data/ledger.db`) -- separate
-from the checkpointer -- with `sessions`, `commands` and `findings` tables. A
-finding links to its session and, by default, to the most recent command, so it
-is always traceable to the command and payload that produced it. `/report`
-writes a Markdown report (`./data/reports/<engagement>-<session>-<ts>.md`) with
-the scope, findings grouped by severity, and the timestamped command log.
+The harness persists to a SQLite **ledger**
+([src/skuggi/ledger.py](src/skuggi/ledger.py), inside the workspace as
+`ledger.db`) -- separate from the checkpointer -- with `sessions`, `commands` and
+`findings` tables. A finding links to its session and, by default, to the most
+recent command, so it is always traceable to the command and payload that
+produced it. `/report` writes a Markdown report into the workspace's `reports/`
+(`<engagement>-<session>-<ts>.md`) with the scope, findings grouped by severity
+(palette-coloured), and the timestamped command log.
 
-### Shell wrapper (`skuggi-shell`)
+### The per-engagement workspace
 
-`skuggi-shell` runs your `$SHELL` inside a pseudo-terminal, so its normal
-coloured, prompted output is preserved verbatim; the prompt is prefixed with 🛡️
-to mark that skuggi is active. A line beginning with `/skuggi ` is intercepted
-and routed to the agent or a harness command; everything else passes through to
-the shell and is logged to the ledger. Feasibility note: boundary *enforcement*
-applies to agent-proposed commands (`run_command`); operator free-typed commands
-in the wrapped shell are logged but not vetoed, because pre-exec interception of
-a live interactive shell is not reliable across shells. The emoji-prompt
-injection is best-effort per shell family (bash/zsh) and degrades otherwise.
+Each engagement operates in its own directory,
+`engagements/<name>/` ([src/skuggi/workspace.py](src/skuggi/workspace.py)),
+created on startup:
+
+```
+engagements/<name>/
+  scope.json            # the engagement boundary (this is the engagement setup)
+  findings/  notes/
+  recon/nmap/  recon/web/
+  reports/              # /report output
+  scripts/   tests/
+  ledger.db             # this engagement's ledger
+```
+
+The layout is configurable (`configs/layout.json`; see
+[configs/layout.example.json](configs/layout.example.json)). Autonomous
+`run_command` execution uses `recon/` as its working directory, so tool output
+lands in the workspace. Everything under `engagements/` is gitignored.
+
+### Shell wrapper (`skuggi`)
+
+The default `skuggi` command runs your **real** `$SHELL` as a child that inherits
+the terminal, so `ls`, `cat`, `nmap` colours, completion, history and `Ctrl+C`
+are all handled natively by the shell -- skuggi never sits in the keystroke path.
+It injects a temporary rc that sources your own rc, prepends 🛡️ to the prompt,
+and installs a `command_not_found` hook: because `/skuggi` is not a real command,
+the shell calls the hook, which forwards the rest of the line to the thin
+`skuggi-client`. The client talks to a **warm in-process agent daemon**
+([src/skuggi/daemon.py](src/skuggi/daemon.py)) over a Unix socket, so a `/skuggi`
+prompt reaches a graph/ledger/engagement that are already loaded -- no per-call
+cold start. `/skuggi <prompt>` asks the agent; `/skuggi /findings`,
+`/skuggi /report`, `/skuggi /doctor`, `/skuggi /mode <m>`, `/skuggi /autonomous`
+are controls; `/skuggi exit` leaves. The launcher ignores `SIGINT`, so a stray
+`Ctrl+C` never tears the harness down.
+
+bash and zsh get the hook; other shells degrade to a plain child (a note says
+`/skuggi` is disabled). Feasibility note: boundary *enforcement* applies to
+agent-proposed commands (`run_command`); commands you free-type in the shell are
+your own and are not vetoed, because pre-exec interception of a live interactive
+shell is not reliable across shells.
 
 ## The graph
 
@@ -306,21 +377,24 @@ and the suite on 3.12, 3.13 and 3.14.
 
 ## Storage layout
 
-- `./configs/*.json` — engagement + tool-registry case files (gitignored; only
-  the `.example` templates are committed)
-- `./data/ledger.db` — the harness's SQLite ledger (sessions, commands, findings)
-- `./data/reports/*.md` — generated Markdown engagement reports
+- `./configs/*.json` — harness config: the tool registry and optional workspace
+  layout (gitignored; only the `.example` templates are committed)
+- `./engagements/<name>/` — per-engagement workspace (gitignored): `scope.json`,
+  `ledger.db`, `reports/`, `recon/`, `findings/`, `notes/`, `scripts/`, `tests/`
 - `./data/toolbox/` — the managed tool venv (`SKUGGI_TOOL_SOURCE=managed|combine`)
 - `./data/sessions.db` — LangGraph SqliteSaver checkpoint store
 - `./data/faiss_index/` — FAISS index (`index.faiss` + `index.pkl`)
 - `./data/.repl_history` — prompt_toolkit input history
+- `./data/ledger.db`, `./data/reports/` — agent-only fallback when no engagement
+  is selected
 - `./docs/*.md` — your knowledge base (you create this)
 
 ## Entry points
 
-- `skuggi` — the REPL
+- `skuggi` — the native shell wrapper (warm agent daemon + your real `$SHELL`)
+- `skuggi-repl` — the pure agent REPL
+- `skuggi-client` — thin client the shell's `/skuggi` hook calls (not run directly)
 - `skuggi-doctor` — probe the host for the registry's tools and report
-- `skuggi-shell` — the PTY-backed wrapped shell
 - `skuggi-ingest` — index files/directories into the FAISS store
 
 ## Known limitations

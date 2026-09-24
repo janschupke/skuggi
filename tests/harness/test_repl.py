@@ -35,12 +35,12 @@ def tui(tmp_path: Path) -> tuple[Tui, io.StringIO]:
     app = Tui(settings, console=Console(file=buffer, width=100))
     # Swap in offline doubles: the real ollama embeddings would try to reach
     # localhost:11434 the moment anything is ingested.
-    app.store = Store(settings.faiss_path, CountingFakeEmbeddings())
-    app.tools_list = build_tools(app.store, root=tmp_path)
-    app.llm = RoleScriptedChatModel(
+    app.core.store = Store(settings.faiss_path, CountingFakeEmbeddings())
+    app.core.tools_list = build_tools(app.core.store, root=tmp_path)
+    app.core.llm = RoleScriptedChatModel(
         worker_replies=["the answer"], critic_replies=["APPROVED: ok"]
     )
-    app.graph = app._build()
+    app.core.graph = app.core._build()
     return app, buffer
 
 
@@ -200,11 +200,12 @@ def test_a_failing_turn_does_not_kill_the_repl(
             msg = "provider exploded"
             raise RuntimeError(msg)
 
-    app.graph = Exploding()  # type: ignore[assignment]
+    app.core.graph = Exploding()  # type: ignore[assignment]
     app.turn("boom")
 
-    assert "turn error" in _out(buffer)
-    assert "provider exploded" in _out(buffer)
+    output = _out(buffer)
+    assert "(error)" in output
+    assert "provider exploded" in output
 
 
 def test_run_loops_until_end_of_input(tui: tuple[Tui, io.StringIO]) -> None:

@@ -1,0 +1,11 @@
+{
+  "scope_file": "scope.json",
+  "ledger_file": "ledger.db",
+  "findings": "findings",
+  "notes": "notes",
+  "recon": "recon",
+  "recon_subdirs": ["nmap", "web"],
+  "reports": "reports",
+  "scripts": "scripts",
+  "tests": "tests"
+}

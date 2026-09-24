@@ -15,6 +15,7 @@ from pathlib import Path
 
 from skuggi.engagement import EngagementConfig
 from skuggi.registry import ToolRegistry
+from skuggi.workspace import WorkspaceLayout
 
 
 class ConfigError(RuntimeError):
@@ -30,12 +31,12 @@ def _read(path: Path, *, what: str) -> str:
         raise ConfigError(msg) from exc
 
 
-def load_engagement(path: Path) -> EngagementConfig:
-    """Load and validate the engagement boundary from JSON."""
+def load_scope(path: Path) -> EngagementConfig:
+    """Load and validate one engagement's scope (``scope.json``) from JSON."""
     try:
-        return EngagementConfig.model_validate_json(_read(path, what="engagement"))
+        return EngagementConfig.model_validate_json(_read(path, what="scope"))
     except ValueError as exc:
-        msg = f"invalid engagement config at {path}: {exc}"
+        msg = f"invalid scope config at {path}: {exc}"
         raise ConfigError(msg) from exc
 
 
@@ -45,4 +46,21 @@ def load_registry(path: Path) -> ToolRegistry:
         return ToolRegistry.model_validate_json(_read(path, what="tool registry"))
     except ValueError as exc:
         msg = f"invalid tool registry at {path}: {exc}"
+        raise ConfigError(msg) from exc
+
+
+def load_layout(path: Path) -> WorkspaceLayout:
+    """Load the workspace layout override, or return defaults when absent.
+
+    The layout is harness-level and optional: a missing file is not an error,
+    it just means the default folder structure. A present-but-malformed file
+    fails loudly like the other loaders.
+    """
+    resolved = path.expanduser()
+    if not resolved.is_file():
+        return WorkspaceLayout()
+    try:
+        return WorkspaceLayout.model_validate_json(resolved.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        msg = f"invalid workspace layout at {path}: {exc}"
         raise ConfigError(msg) from exc

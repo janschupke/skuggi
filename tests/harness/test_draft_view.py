@@ -1,26 +1,123 @@
-"""L3: the streaming pane, fed the event shapes the graph really emits.
+"""L3: the turn event stream (core) and the Live pane (DraftView).
 
-`stream_mode="messages"` emits every BaseMessage a node writes to state, not just
-tokens, and each tool round is a separate LLM run. Both facts were observed on
-the real graph; this pins the rendering consequences.
+`stream_mode="messages"` emits every BaseMessage a node writes to state, not
+just tokens, and each tool round is a separate LLM run. `AgentCore.turn` filters
+that into reset/status/token/final events; `DraftView` renders them. Both facts
+were observed on the real graph; this pins the consequences without a provider.
 """
 
 from __future__ import annotations
 
 import io
 from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import pytest
-from langchain_core.messages import (
-    AIMessage,
-    AIMessageChunk,
-    HumanMessage,
-    SystemMessage,
-)
+from langchain_core.messages import AIMessageChunk, SystemMessage
 from rich.console import Console
 from rich.live import Live
 
+from skuggi.config import Settings
+from skuggi.core import AgentCore, TurnEvent
 from skuggi.tui import DraftView
+from skuggi.vectorstore import Store
+from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
+
+
+class _FakeGraph:
+    """Replays a fixed (event, payload) stream, as langgraph would emit it."""
+
+    def __init__(self, items: list[tuple[str, Any]]) -> None:
+        self._items = items
+
+    def stream(self, *_a: object, **_k: object) -> Iterator[tuple[str, Any]]:
+        return iter(self._items)
+
+
+def _core(tmp_path: Path) -> AgentCore:
+    settings = Settings(
+        provider="ollama",
+        sqlite_path=tmp_path / "sessions.db",
+        faiss_path=tmp_path / "faiss",
+        history_path=tmp_path / ".repl_history",
+    )
+    core = AgentCore(settings)
+    core.store = Store(settings.faiss_path, CountingFakeEmbeddings())
+    core.llm = RoleScriptedChatModel()
+    return core
+
+
+def _worker(text: str, run_id: str) -> tuple[str, Any]:
+    chunk = AIMessageChunk(content=text, id=run_id)
+    return ("messages", (chunk, {"langgraph_node": "worker"}))
+
+
+def test_turn_filters_the_stream_into_events(tmp_path: Path) -> None:
+    core = _core(tmp_path)
+    try:
+        core.graph = _FakeGraph(  # type: ignore[assignment]
+            [
+                ("updates", {"planner": {"plan": "1. do"}}),
+                _worker("Hel", "r1"),
+                _worker("lo", "r1"),
+                # A non-worker chunk and a non-chunk message are both ignored.
+                (
+                    "messages",
+                    (
+                        AIMessageChunk(content="x", id="rp"),
+                        {"langgraph_node": "planner"},
+                    ),
+                ),
+                (
+                    "messages",
+                    (
+                        SystemMessage(content="You are the worker."),
+                        {"langgraph_node": "worker"},
+                    ),
+                ),
+                ("updates", {"retriever": {"context": "ctx"}}),
+                ("updates", {"tools": {}}),
+                _worker("answer", "r2"),
+                ("updates", {"critic": {"critique": "APPROVED: ok"}}),
+                ("updates", {"finalize": {"draft": "the final answer"}}),
+            ]
+        )
+        events = list(core.turn("q"))
+    finally:
+        core.close()
+
+    tokens = [e.text for e in events if e.kind == "token"]
+    assert tokens == ["Hel", "lo", "answer"]
+    finals = [e.text for e in events if e.kind == "final"]
+    assert finals == ["the final answer"]
+    statuses = {e.node for e in events if e.kind == "status"}
+    assert {"planner", "retriever", "critic"} <= statuses
+    # A reset precedes the first token of each run (id change) plus planner/tools.
+    assert sum(1 for e in events if e.kind == "reset") >= 3
+
+
+def test_turn_flattens_block_content(tmp_path: Path) -> None:
+    core = _core(tmp_path)
+    try:
+        core.graph = _FakeGraph(  # type: ignore[assignment]
+            [
+                (
+                    "messages",
+                    (
+                        AIMessageChunk(
+                            content=[{"type": "text", "text": "blocky", "index": 0}],
+                            id="r",
+                        ),
+                        {"langgraph_node": "worker"},
+                    ),
+                ),
+            ]
+        )
+        tokens = [e.text for e in core.turn("q") if e.kind == "token"]
+    finally:
+        core.close()
+    assert tokens == ["blocky"]
 
 
 @pytest.fixture
@@ -30,69 +127,20 @@ def view() -> Iterator[DraftView]:
         yield DraftView(live)
 
 
-def _chunks(run_id: str, *pieces: str) -> list[AIMessageChunk]:
-    return [AIMessageChunk(content=piece, id=run_id) for piece in pieces]
-
-
-def test_tokens_accumulate(view: DraftView) -> None:
-    for chunk in _chunks("run-1", "Hel", "lo"):
-        view.push(chunk, "worker")
+def test_draft_view_accumulates_and_resets(view: DraftView) -> None:
+    view.push_text("Hel")
+    view.push_text("lo")
     assert view.buffer == "Hello"
-
-
-def test_state_writes_are_not_rendered(view: DraftView) -> None:
-    """The worker writes its own system prompt and seed into state.
-
-    Those arrive on the messages stream as concrete messages, so without the
-    AIMessageChunk guard they would be spliced into the visible answer.
-    """
-    view.push(SystemMessage(content="You are the worker."), "worker")
-    view.push(HumanMessage(content="Request:\nsecret plan"), "worker")
-    view.push(AIMessage(content="a full state write"), "worker")
-
-    assert view.buffer == ""
-
-
-def test_other_nodes_are_ignored(view: DraftView) -> None:
-    for chunk in _chunks("run-p", "planning..."):
-        view.push(chunk, "planner")
-    assert view.buffer == ""
-
-
-def test_preamble_before_a_tool_call_is_dropped(view: DraftView) -> None:
-    """Round 1's narration must not be concatenated with round 2's answer.
-
-    A model that says "Let me compute that." before calling a tool would
-    otherwise leave that text glued to the front of the real reply.
-    """
-    for chunk in _chunks("run-1", "Let me ", "compute that."):
-        view.push(chunk, "worker")
-    for chunk in _chunks("run-2", "The answer ", "is 391."):
-        view.push(chunk, "worker")
-
-    assert view.buffer == "The answer is 391."
-
-
-def test_explicit_reset_clears_the_buffer(view: DraftView) -> None:
-    for chunk in _chunks("run-1", "partial"):
-        view.push(chunk, "worker")
     view.reset()
     assert view.buffer == ""
 
 
-def test_show_makes_the_finalized_draft_authoritative(view: DraftView) -> None:
-    for chunk in _chunks("run-1", "streamed guess"):
-        view.push(chunk, "worker")
+def test_draft_view_show_is_authoritative(view: DraftView) -> None:
+    view.push_text("streamed guess")
     view.show("the draft the critic judged")
     assert view.buffer == "the draft the critic judged"
 
 
-def test_block_content_is_flattened(view: DraftView) -> None:
-    """Responses-API and Anthropic chunks carry content blocks, not strings."""
-    view.push(
-        AIMessageChunk(
-            content=[{"type": "text", "text": "blocky", "index": 0}], id="r"
-        ),
-        "worker",
-    )
-    assert view.buffer == "blocky"
+def test_turn_event_defaults() -> None:
+    assert TurnEvent("reset").text == ""
+    assert TurnEvent("token", "x").node == ""

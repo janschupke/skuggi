@@ -20,7 +20,9 @@ from tests.fakes import CountingFakeEmbeddings
 
 _VENDOR_ENV = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_BASE_URL")
 
-_ENGAGEMENT_JSON = """
+ENGAGEMENT_NAME = "test-eng"
+
+_SCOPE_JSON = """
 {{
   "name": "test-eng",
   "timezone": "UTC",
@@ -132,21 +134,25 @@ def no_subprocess(
 
 @pytest.fixture
 def pentest_configs() -> Callable[..., Path]:
-    """Return a writer that drops engagement.json + tools.json into ./configs.
+    """Write a workspace scope.json + the harness tool registry.
 
-    Relative to the temp cwd `isolate_credentials` chdirs into, so a `Settings()`
-    built afterwards finds them at their default paths.
+    Drops ``engagements/test-eng/scope.json`` and ``configs/tools.json`` under
+    the temp cwd `isolate_credentials` chdirs into, so a ``Settings(engagement=
+    "test-eng")`` built afterwards finds them at their default paths. Returns the
+    workspace directory.
     """
 
     def write(*, autonomous: bool = False) -> Path:
-        configs = Path("configs")
-        configs.mkdir(exist_ok=True)
-        (configs / "engagement.json").write_text(
-            _ENGAGEMENT_JSON.format(autonomous="true" if autonomous else "false"),
+        workspace = Path("engagements") / ENGAGEMENT_NAME
+        workspace.mkdir(parents=True, exist_ok=True)
+        (workspace / "scope.json").write_text(
+            _SCOPE_JSON.format(autonomous="true" if autonomous else "false"),
             encoding="utf-8",
         )
+        configs = Path("configs")
+        configs.mkdir(exist_ok=True)
         (configs / "tools.json").write_text(_REGISTRY_JSON, encoding="utf-8")
-        return configs
+        return workspace
 
     return write
 

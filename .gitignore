@@ -12,6 +12,9 @@ coverage.xml
 htmlcov/
 dist/
 *.egg-info/
-# Engagement case files hold live target data: commit only the .example templates.
+# Harness case files hold live target data: commit only the .example templates.
 configs/*.json
 !configs/*.example.json
+# Per-engagement workspaces (scope.json, ledger, reports, recon output) are live
+# engagement data -- never committed.
+engagements/
