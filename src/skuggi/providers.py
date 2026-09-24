@@ -124,7 +124,13 @@ def get_embeddings(settings: Settings) -> Embeddings:
     if key:
         from langchain_openai import OpenAIEmbeddings  # noqa: PLC0415
 
-        return OpenAIEmbeddings(model=settings.embedding_model, api_key=key)
+        # api_key is OpenAIEmbeddings' documented (aliased) argument; the
+        # pydantic mypy plugin synthesises __init__ from field names and so does
+        # not know the alias exists.
+        return OpenAIEmbeddings(
+            model=settings.embedding_model,
+            api_key=key,  # type: ignore[call-arg]
+        )
 
     from langchain_ollama import OllamaEmbeddings  # noqa: PLC0415
 

@@ -100,7 +100,9 @@ def prior_turns(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
     trailing human turn(s) are dropped. Only human and assistant messages are
     kept, so nothing from the worker's scratch can reach a prompt.
     """
-    kept = [m for m in messages if isinstance(m, (HumanMessage, AIMessage))]
+    kept: list[BaseMessage] = [
+        m for m in messages if isinstance(m, (HumanMessage, AIMessage))
+    ]
     while kept and isinstance(kept[-1], HumanMessage):
         kept.pop()
     return kept

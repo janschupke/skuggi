@@ -11,9 +11,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from tests.eval.conftest import answer, require, tool_names
 
 from skuggi.state import AgentState
+from tests.eval.conftest import answer, require, tool_names
 
 pytestmark = [
     pytest.mark.eval,

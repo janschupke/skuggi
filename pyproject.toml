@@ -183,8 +183,38 @@ runtime-evaluated-base-classes = [
     "SLF001",           # tests legitimately inspect private helpers
     "ARG001",           # fixtures requested for a side effect
     "D102",             # the test or fake method name is the documentation
+    # Test helpers take heterogeneous kwargs to forward into a real constructor.
+    "ANN401",
 ]
 # The fakes subclass BaseChatModel, so their overrides must keep the base
 # signature (unused stop/run_manager, **kwargs: Any), and their mutable
 # defaults are pydantic fields, which pydantic copies per instance.
 "tests/fakes.py" = ["ARG002", "ANN401", "RUF012"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+strict = true
+# tests/ is a real package (it has several conftest.py files and tests import
+# tests.fakes by name), which is what keeps those module names distinct.
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+extra_checks = true
+enable_error_code = [
+    # Makes a bare `# type: ignore` an error, so every suppression names a code.
+    "ignore-without-code",
+    "redundant-expr",
+    "possibly-undefined",
+    "truthy-bool",
+    "truthy-iterable",
+    "unused-awaitable",
+]
+pretty = true
+
+[tool.pydantic-mypy]
+# Left off deliberately: ChatOpenAI and OpenAIEmbeddings take aliased
+# constructor arguments (model -> model_name, api_key -> openai_api_key), which
+# the plugin cannot see, so enabling this rejects every documented call.
+init_forbid_extra = false
+init_typed = true
+warn_required_dynamic_aliases = true

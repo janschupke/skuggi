@@ -11,10 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import httpx
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 
 from skuggi.config import Provider, Settings
@@ -76,7 +78,7 @@ def run_turn(tmp_path: Path) -> Callable[..., AgentState]:
             max_tool_rounds=settings.max_tool_rounds,
         )
         app = build_graph(deps, InMemorySaver())
-        config = {
+        config: RunnableConfig = {
             "configurable": {"thread_id": "eval"},
             "recursion_limit": recursion_limit(
                 max_revisions=max_revisions,
@@ -85,17 +87,15 @@ def run_turn(tmp_path: Path) -> Callable[..., AgentState]:
         }
         state: AgentState = {"messages": [], "scratch": []}
         for prompt in prompts:
+            turn: AgentState = {
+                "messages": [HumanMessage(content=prompt)],
+                "scratch": [],
+                "revision_count": 0,
+                "max_revisions": max_revisions,
+                "tool_rounds": 0,
+            }
             try:
-                state = app.invoke(
-                    {
-                        "messages": [HumanMessage(content=prompt)],
-                        "scratch": [],
-                        "revision_count": 0,
-                        "max_revisions": max_revisions,
-                        "tool_rounds": 0,
-                    },
-                    config,
-                )
+                state = cast("AgentState", app.invoke(turn, config))
             except Exception as exc:
                 if _NOT_ENTITLED in str(exc):
                     pytest.skip(f"{settings.provider}: {exc}")

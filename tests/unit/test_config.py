@@ -31,12 +31,12 @@ def test_constructor_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_unknown_provider_rejected() -> None:
     with pytest.raises(ValidationError):
-        Settings(provider="nope")
+        Settings(provider="nope")  # type: ignore[arg-type]
 
 
 def test_frozen() -> None:
     with pytest.raises(ValidationError):
-        Settings().provider = "ollama"
+        Settings().provider = "ollama"  # type: ignore[misc]
 
 
 def test_chatgpt_cannot_bind_tools() -> None:

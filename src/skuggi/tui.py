@@ -8,8 +8,9 @@ while the planner and critic report one line each.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any, cast
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -258,8 +259,10 @@ class Tui:
             self.console.print(f"[dim]switched to thread:[/dim] {arg}")
 
     def _state(self) -> AgentState:
-        snapshot = self.graph.get_state(self._config())
-        return snapshot.values or {"messages": [], "scratch": []}
+        values = self.graph.get_state(self._config()).values
+        if isinstance(values, dict) and values:
+            return cast("AgentState", values)
+        return {"messages": [], "scratch": []}
 
     def _cmd_history(self, arg: str) -> None:
         count = int(arg) if arg.isdigit() else 20
@@ -321,9 +324,14 @@ class Tui:
         try:
             with Live("", console=self.console, refresh_per_second=20) as live:
                 view = DraftView(live)
-                for event, payload in self.graph.stream(
+                # A multi-mode stream is heterogeneous -- (mode, payload) pairs
+                # whose payload shape depends on the mode -- so it is typed
+                # loosely upstream and narrowed here.
+                stream: Iterator[Any] = self.graph.stream(
                     initial, self._config(), stream_mode=_STREAM_MODES
-                ):
+                )
+                for item in stream:
+                    event, payload = cast("tuple[str, Any]", item)
                     if event == "messages":
                         chunk, meta = payload
                         view.push(chunk, (meta or {}).get("langgraph_node", ""))

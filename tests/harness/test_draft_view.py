@@ -8,6 +8,7 @@ the real graph; this pins the rendering consequences.
 from __future__ import annotations
 
 import io
+from collections.abc import Iterator
 
 import pytest
 from langchain_core.messages import (
@@ -23,7 +24,7 @@ from skuggi.tui import DraftView
 
 
 @pytest.fixture
-def view() -> DraftView:
+def view() -> Iterator[DraftView]:
     console = Console(file=io.StringIO(), width=80)
     with Live("", console=console) as live:
         yield DraftView(live)

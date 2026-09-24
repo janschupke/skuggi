@@ -26,7 +26,7 @@ import os
 import tempfile
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -197,7 +197,9 @@ class CodexAuth(httpx.Auth):
     def __init__(self, store: CodexTokenStore) -> None:
         self._store = store
 
-    def sync_auth_flow(self, request: httpx.Request) -> Iterator[httpx.Request]:
+    def sync_auth_flow(
+        self, request: httpx.Request
+    ) -> Generator[httpx.Request, httpx.Response, None]:
         """Sign the request, then refresh and replay it once on a 401."""
         request.headers["Authorization"] = f"Bearer {self._store.access_token()}"
         request.headers["x-codex-turn-state"] = str(uuid.uuid4())

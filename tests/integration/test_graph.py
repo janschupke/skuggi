@@ -9,16 +9,21 @@ loop is a genuine graph cycle.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
-from tests.fakes import RoleScriptedChatModel
+from langgraph.graph.state import CompiledStateGraph
 
 from skuggi.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.state import AgentState
 from skuggi.tools import build_tools
 from skuggi.vectorstore import Store
+from tests.fakes import RoleScriptedChatModel
+
+CompiledGraph = CompiledStateGraph[AgentState]
 
 TOOL_CALL = AIMessage(
     content="",
@@ -30,7 +35,7 @@ TOOL_CALL = AIMessage(
 
 
 def _turn(
-    app: object, text: str, thread: str = "t1", **overrides: object
+    app: CompiledGraph, text: str, thread: str = "t1", **overrides: object
 ) -> AgentState:
     initial: AgentState = {
         "messages": [HumanMessage(content=text)],
@@ -40,15 +45,15 @@ def _turn(
         "tool_rounds": 0,
     }
     initial.update(overrides)  # type: ignore[typeddict-item]
-    config = {
+    config: RunnableConfig = {
         "configurable": {"thread_id": thread},
         "recursion_limit": recursion_limit(max_revisions=4, max_tool_rounds=4),
     }
-    return app.invoke(initial, config)  # type: ignore[attr-defined]
+    return cast("AgentState", app.invoke(initial, config))
 
 
-def _app(model: RoleScriptedChatModel, **deps: object) -> object:
-    return build_graph(GraphDeps(llm=model, **deps), InMemorySaver())  # type: ignore[arg-type]
+def _app(model: RoleScriptedChatModel, **deps: Any) -> CompiledGraph:
+    return build_graph(GraphDeps(llm=model, **deps), InMemorySaver())
 
 
 # --- the revision loop ------------------------------------------------------
@@ -288,7 +293,7 @@ def test_declared_routes_match_the_real_edges(store: Store, tmp_path: Path) -> N
     model = RoleScriptedChatModel()
     app = _app(model, tools=build_tools(store, root=tmp_path), store=store)
 
-    drawn = app.get_graph().draw_mermaid()  # type: ignore[attr-defined]
+    drawn = app.get_graph().draw_mermaid()
 
     for edge in ("critic", "bump", "respond", "tools", "worker", "retriever"):
         assert edge in drawn
@@ -298,4 +303,4 @@ def test_declared_routes_match_the_real_edges(store: Store, tmp_path: Path) -> N
 def test_no_tools_node_without_tool_support(store: Store) -> None:
     model = RoleScriptedChatModel()
     app = _app(model, store=store, bind_tools=False)
-    assert "tools" not in app.get_graph().nodes  # type: ignore[attr-defined]
+    assert "tools" not in app.get_graph().nodes

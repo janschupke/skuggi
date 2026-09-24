@@ -6,15 +6,15 @@ from importlib import metadata
 from pathlib import Path
 
 import pytest
-from tests.fakes import CountingFakeEmbeddings
 
-from skuggi import ingest
+from skuggi import ingest, providers
+from tests.fakes import CountingFakeEmbeddings
 
 
 @pytest.fixture(autouse=True)
 def offline_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        ingest.providers, "get_embeddings", lambda _settings: CountingFakeEmbeddings()
+        providers, "get_embeddings", lambda _settings: CountingFakeEmbeddings()
     )
 
 

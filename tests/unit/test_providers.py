@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
 
 from skuggi import providers
 from skuggi.config import Settings
@@ -27,7 +28,7 @@ def _settings(tmp_path: Path, **kwargs: object) -> Settings:
 
 def test_key_from_auth_json_wins(tmp_path: Path) -> None:
     path = _auth(tmp_path, {"OPENAI_API_KEY": "sk-from-auth"})
-    settings = Settings(codex_auth_path=path, openai_api_key="sk-from-env")
+    settings = Settings(codex_auth_path=path, openai_api_key=SecretStr("sk-from-env"))
     assert providers.resolve_openai_key(settings) == "sk-from-auth"
 
 
@@ -38,26 +39,28 @@ def test_null_key_in_auth_json_falls_through(tmp_path: Path) -> None:
     the env fallback on every machine logged in through the browser flow.
     """
     path = _auth(tmp_path, {"auth_mode": "chatgpt", "OPENAI_API_KEY": None})
-    settings = Settings(codex_auth_path=path, openai_api_key="sk-from-env")
+    settings = Settings(codex_auth_path=path, openai_api_key=SecretStr("sk-from-env"))
     assert providers.resolve_openai_key(settings) == "sk-from-env"
 
 
 def test_non_sk_value_is_ignored(tmp_path: Path) -> None:
     path = _auth(tmp_path, {"OPENAI_API_KEY": "not-a-key"})
-    settings = Settings(codex_auth_path=path, openai_api_key="sk-good")
+    settings = Settings(codex_auth_path=path, openai_api_key=SecretStr("sk-good"))
     assert providers.resolve_openai_key(settings) == "sk-good"
 
 
 def test_malformed_auth_json_falls_back(tmp_path: Path) -> None:
     path = tmp_path / "auth.json"
     path.write_text("{not json", encoding="utf-8")
-    settings = Settings(codex_auth_path=path, openai_api_key="sk-env")
+    settings = Settings(codex_auth_path=path, openai_api_key=SecretStr("sk-env"))
     assert providers.resolve_openai_key(settings) == "sk-env"
 
 
 def test_missing_auth_json_falls_back(tmp_path: Path) -> None:
     assert (
-        providers.resolve_openai_key(_settings(tmp_path, openai_api_key="sk-e"))
+        providers.resolve_openai_key(
+            _settings(tmp_path, openai_api_key=SecretStr("sk-e"))
+        )
         == "sk-e"
     )
 
@@ -70,7 +73,7 @@ def test_unreadable_auth_json_falls_back(tmp_path: Path) -> None:
     path = _auth(tmp_path, {"OPENAI_API_KEY": "sk-secret"})
     path.chmod(0o000)
     try:
-        settings = Settings(codex_auth_path=path, openai_api_key="sk-env")
+        settings = Settings(codex_auth_path=path, openai_api_key=SecretStr("sk-env"))
         assert providers.resolve_openai_key(settings) == "sk-env"
     finally:
         path.chmod(0o600)
@@ -136,7 +139,7 @@ def test_chatgpt_builds_the_codex_model(tmp_path: Path) -> None:
 
 
 def test_embeddings_prefer_openai_when_a_key_exists(tmp_path: Path) -> None:
-    settings = _settings(tmp_path, openai_api_key="sk-x")
+    settings = _settings(tmp_path, openai_api_key=SecretStr("sk-x"))
     assert type(providers.get_embeddings(settings)).__name__ == "OpenAIEmbeddings"
 
 

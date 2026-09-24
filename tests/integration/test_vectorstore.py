@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.fakes import CountingFakeEmbeddings
-
 from skuggi.vectorstore import Store, format_hits
+from tests.fakes import CountingFakeEmbeddings
 
 
 def _corpus(tmp_path: Path) -> Path:
