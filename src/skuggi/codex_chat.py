@@ -33,7 +33,10 @@ from typing import Any
 import httpx
 from langchain_openai import ChatOpenAI
 
-CODEX_RESPONSES_BASE = "https://chatgpt.com/backend-api"
+# Verified live: /backend-api/responses returns 404 and /backend-api/codex/responses
+# returns a semantic 400, so the route is under /codex. The previous value here
+# was missing that segment, which means the chatgpt provider never worked.
+CODEX_RESPONSES_BASE = "https://chatgpt.com/backend-api/codex"
 CODEX_REFRESH_URL = "https://auth.openai.com/oauth/token"
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_OPENAI_BETA = "responses=experimental"

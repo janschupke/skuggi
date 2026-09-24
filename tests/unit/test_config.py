@@ -46,7 +46,7 @@ def test_chatgpt_cannot_bind_tools() -> None:
 def test_model_for_each_provider() -> None:
     settings = Settings()
     assert settings.model_for("openai") == "gpt-4o-mini"
-    assert settings.model_for("chatgpt") == "gpt-5"
+    assert settings.model_for("chatgpt") == "gpt-5-codex"
     assert settings.model_for("anthropic").startswith("claude-")
     assert settings.model_for("ollama") == "llama3.2"
 

@@ -39,7 +39,9 @@ class Settings(BaseSettings):
 
     provider: Provider = "openai"
     model_openai: str = "gpt-4o-mini"
-    model_chatgpt: str = "gpt-5"
+    # Codex-over-ChatGPT accepts only models the account is entitled to, and
+    # rejects plain chat model names such as "gpt-5" outright.
+    model_chatgpt: str = "gpt-5-codex"
     model_anthropic: str = "claude-sonnet-4-5-20250929"
     model_ollama: str = "llama3.2"
 
@@ -58,7 +60,7 @@ class Settings(BaseSettings):
     max_tool_rounds: int = 4
 
     codex_auth_path: Path = Path("~/.codex/auth.json")
-    codex_responses_base: str = "https://chatgpt.com/backend-api"
+    codex_responses_base: str = "https://chatgpt.com/backend-api/codex"
     codex_refresh_url: str = "https://auth.openai.com/oauth/token"
     # Retreat switch: if the codex endpoint rejects the OpenAI SDK's payload,
     # flipping this is an env change rather than a revert.

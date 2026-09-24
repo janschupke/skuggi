@@ -23,7 +23,7 @@ from skuggi.codex_chat import (
 
 pytestmark = pytest.mark.mock_http
 
-RESPONSES_URL = "https://chatgpt.com/backend-api/responses"
+RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 REFRESH_URL = "https://auth.openai.com/oauth/token"
 
 
@@ -85,7 +85,7 @@ def test_request_lands_on_the_codex_url_with_codex_headers(tmp_path: Path) -> No
 
     assert route.called
     request = route.calls.last.request
-    assert str(request.url) == RESPONSES_URL, "no /v1 should be inserted"
+    assert str(request.url) == RESPONSES_URL, "route is under /codex, no /v1 inserted"
     assert request.headers["authorization"] == "Bearer tok-initial"
     assert request.headers["accept"] == "text/event-stream"
     assert request.headers["originator"] == "codex_cli_rs"

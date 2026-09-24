@@ -133,14 +133,29 @@ It can be in one of two shapes:
    }
    ```
    These tokens **do not** authenticate against `api.openai.com`. They route
-   to `https://chatgpt.com/backend-api/responses` with the codex-specific
-   `x-codex-*` headers. Use the `chatgpt` provider, which is implemented in
-   `codex_chat.py` and:
-   - reads the tokens from auth.json,
-   - posts a Responses-API body to the chatgpt.com endpoint,
-   - on a 401 (or near-expiry id_token), POSTs an OAuth2 refresh to
-     `https://auth.openai.com/oauth/token` with the codex client_id, writes
-     the new tokens back to auth.json, and retries.
+   to `https://chatgpt.com/backend-api/codex/responses` with the
+   codex-specific `x-codex-*` headers. Use the `chatgpt` provider, which is a
+   thin `ChatOpenAI` subclass over that endpoint and:
+   - reads the tokens from auth.json (`CodexTokenStore`),
+   - shapes the Responses body the way codex expects (`instructions` rather
+     than a system entry in `input`; explicit `store`/`tools`/`tool_choice`),
+   - on a 401 (or near-expiry id_token) POSTs an OAuth2 refresh to
+     `https://auth.openai.com/oauth/token` with the codex client_id, writes the
+     new tokens back to auth.json at mode 0600, and replays the request
+     (`CodexAuth`).
+
+   **Model entitlement.** This endpoint accepts only models your ChatGPT
+   account is licensed for through Codex, and rejects ordinary chat model
+   names outright:
+
+   ```
+   400 {"detail": "The 'gpt-5' model is not supported when using Codex
+        with a ChatGPT account."}
+   ```
+
+   A 400 like that means auth succeeded and only the model is wrong -- set
+   `SKUGGI_MODEL_CHATGPT` to one your plan includes. A 404 instead means the
+   route is wrong.
 
 If the `chatgpt` path stops working after an `OAuth refresh failed` error,
 run `codex login` again.
