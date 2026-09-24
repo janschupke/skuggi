@@ -107,8 +107,9 @@ omit = ["src/skuggi/__main__.py"]
 
 [tool.coverage.report]
 show_missing = true
-# Raised to its real target once the suite is filled out (phase 7).
-fail_under = 0
+# Measured at 93% with branch coverage; 90 leaves headroom for a refactor
+# without letting the graph or tool logic rot uncovered.
+fail_under = 90
 exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
