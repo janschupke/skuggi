@@ -94,7 +94,11 @@ class Daemon:
             # Emitted (and flushed) before the probe runs, so the client shows
             # progress immediately rather than a silent wait.
             yield "probing host tools and runtimes...\n"
-            yield doctor_ansi(self.core.doctor_statuses(), self.core.runtime_statuses())
+            yield doctor_ansi(
+                self.core.doctor_statuses(),
+                self.core.runtime_statuses(),
+                self.core.net_tool_statuses(),
+            )
         elif name == "mode":
             yield self._set_mode(arg)
         elif name == "autonomous":

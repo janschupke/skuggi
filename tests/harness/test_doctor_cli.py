@@ -25,6 +25,7 @@ def test_main_returns_zero_with_configs(
     pentest_configs()
     monkeypatch.setattr(doctor, "probe", lambda *_a, **_k: [])
     monkeypatch.setattr(doctor, "probe_runtimes", lambda *_a, **_k: [])
+    monkeypatch.setattr(doctor, "probe_net_tools", lambda *_a, **_k: [])
     assert doctor.main() == 0
 
 

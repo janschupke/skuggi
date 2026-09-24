@@ -74,6 +74,10 @@ def test_example_registry_includes_the_new_tools() -> None:
     assert registry.method_for("msfconsole") == "exploit"
     assert registry.method_for("ldapsearch") == "enumerate"
     assert registry.method_for("tcpdump") == "recon"
+    assert registry.method_for("cewl") == "recon"
+    assert registry.method_for("burpsuite") == "scan"
+    assert registry.method_for("wireshark") == "recon"
+    assert registry.method_for("bloodhound") == "enumerate"
     # File/interface tools do not require a network target.
     john = registry.spec_for("john")
     hydra = registry.spec_for("hydra")

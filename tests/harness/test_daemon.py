@@ -93,6 +93,7 @@ def test_slash_doctor(daemon: Daemon, monkeypatch: pytest.MonkeyPatch) -> None:
         ],
     )
     monkeypatch.setattr(registry_mod, "probe_runtimes", lambda *_a, **_k: [])
+    monkeypatch.setattr(registry_mod, "probe_net_tools", lambda *_a, **_k: [])
     assert "nmap" in _chunks(daemon, {"op": "input", "text": "/doctor"})
 
 

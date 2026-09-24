@@ -27,7 +27,13 @@ from skuggi.config import Settings
 from skuggi.core import AgentCore
 from skuggi.engagement import EngagementConfig
 from skuggi.ledger import Ledger
-from skuggi.registry import ToolRegistry, doctor_hints, doctor_table, runtime_table
+from skuggi.registry import (
+    ToolRegistry,
+    doctor_hints,
+    doctor_table,
+    net_tool_table,
+    runtime_table,
+)
 from skuggi.state import AgentState
 
 
@@ -292,9 +298,11 @@ class Tui:
         with self.console.status("probing host tools and runtimes...", spinner="dots"):
             statuses = self.core.doctor_statuses()
             runtimes = self.core.runtime_statuses()
+            net_tools = self.core.net_tool_statuses()
         self.console.print(doctor_table(statuses))
         self.console.print(runtime_table(runtimes))
-        hints = doctor_hints(statuses, runtimes)
+        self.console.print(net_tool_table(net_tools))
+        hints = doctor_hints(statuses, runtimes, net_tools)
         if hints:
             self.console.print(hints)
 

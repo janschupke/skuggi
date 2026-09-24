@@ -4,35 +4,56 @@
       "name": "nmap",
       "binary": "nmap",
       "method": "scan",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_regex": "Nmap version ([0-9.]+)",
       "requires_target": true,
-      "install": { "brew": "brew install nmap", "apt": "apt-get install -y nmap" }
+      "install": {
+        "brew": "brew install nmap",
+        "apt": "apt-get install -y nmap"
+      }
     },
     {
       "name": "nikto",
       "binary": "nikto",
       "method": "scan",
-      "version_args": ["-Version"],
-      "target_flags": ["-h"],
+      "version_args": [
+        "-Version"
+      ],
+      "target_flags": [
+        "-h"
+      ],
       "requires_target": true,
-      "install": { "brew": "brew install nikto", "apt": "apt-get install -y nikto" }
+      "install": {
+        "brew": "brew install nikto",
+        "apt": "apt-get install -y nikto"
+      }
     },
     {
       "name": "curl",
       "binary": "curl",
       "method": "recon",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_regex": "curl ([0-9.]+)",
       "requires_target": true,
-      "install": { "brew": "brew install curl", "apt": "apt-get install -y curl" }
+      "install": {
+        "brew": "brew install curl",
+        "apt": "apt-get install -y curl"
+      }
     },
     {
       "name": "gobuster",
       "binary": "gobuster",
       "method": "enumerate",
-      "version_args": ["version"],
-      "target_flags": ["-u"],
+      "version_args": [
+        "version"
+      ],
+      "target_flags": [
+        "-u"
+      ],
       "requires_target": true,
       "install": {
         "brew": "brew install gobuster",
@@ -43,37 +64,58 @@
       "name": "ffuf",
       "binary": "ffuf",
       "method": "enumerate",
-      "version_args": ["-V"],
+      "version_args": [
+        "-V"
+      ],
       "version_regex": "v?([0-9]+\\.[0-9]+\\.[0-9]+)",
-      "target_flags": ["-u"],
+      "target_flags": [
+        "-u"
+      ],
       "requires_target": true,
-      "install": { "brew": "brew install ffuf", "apt": "apt-get install -y ffuf" }
+      "install": {
+        "brew": "brew install ffuf",
+        "apt": "apt-get install -y ffuf"
+      }
     },
     {
       "name": "sqlmap",
       "binary": "sqlmap",
       "method": "enumerate",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_regex": "([0-9]+\\.[0-9]+\\.[0-9]+)",
-      "target_flags": ["-u"],
+      "target_flags": [
+        "-u"
+      ],
       "requires_target": true,
-      "install": { "pip": "pip install sqlmap" }
+      "install": {
+        "pip": "pip install sqlmap"
+      }
     },
     {
       "name": "whatweb",
       "binary": "whatweb",
       "method": "recon",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "requires_target": true,
-      "install": { "apt": "apt-get install -y whatweb" }
+      "install": {
+        "apt": "apt-get install -y whatweb"
+      }
     },
     {
       "name": "ldapsearch",
       "binary": "ldapsearch",
       "method": "enumerate",
-      "version_args": ["-VV"],
+      "version_args": [
+        "-VV"
+      ],
       "version_regex": "ldapsearch ([0-9.]+)",
-      "target_flags": ["-H"],
+      "target_flags": [
+        "-H"
+      ],
       "requires_target": true,
       "install": {
         "brew": "brew install openldap",
@@ -85,25 +127,36 @@
       "binary": "enum4linux-ng",
       "method": "enumerate",
       "requires_target": true,
-      "install": { "pip": "pip install enum4linux-ng" }
+      "install": {
+        "pip": "pip install enum4linux-ng"
+      }
     },
     {
       "name": "nxc",
       "binary": "nxc",
       "method": "bruteforce",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_regex": "([0-9]+\\.[0-9]+\\.[0-9]+)",
       "requires_target": true,
-      "install": { "pip": "pip install netexec" }
+      "install": {
+        "pip": "pip install netexec"
+      }
     },
     {
       "name": "hydra",
       "binary": "hydra",
       "method": "bruteforce",
-      "version_args": ["-h"],
+      "version_args": [
+        "-h"
+      ],
       "version_regex": "[Hh]ydra v([0-9.]+)",
       "requires_target": true,
-      "install": { "brew": "brew install hydra", "apt": "apt-get install -y hydra" }
+      "install": {
+        "brew": "brew install hydra",
+        "apt": "apt-get install -y hydra"
+      }
     },
     {
       "name": "john",
@@ -149,7 +202,9 @@
       "name": "hashcat",
       "binary": "hashcat",
       "method": "crack",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_regex": "v?([0-9]+\\.[0-9]+\\.[0-9]+)",
       "requires_target": false,
       "install": {
@@ -161,7 +216,9 @@
       "name": "metasploit",
       "binary": "msfconsole",
       "method": "exploit",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_regex": "([0-9]+\\.[0-9]+\\.[0-9]+)",
       "requires_target": false,
       "install": {
@@ -193,12 +250,62 @@
       "name": "tcpdump",
       "binary": "tcpdump",
       "method": "recon",
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "version_regex": "([0-9]+\\.[0-9]+\\.[0-9]+)",
       "requires_target": false,
       "install": {
         "brew": "brew install tcpdump",
         "apt": "apt-get install -y tcpdump"
+      }
+    },
+    {
+      "name": "cewl",
+      "binary": "cewl",
+      "method": "recon",
+      "version_args": [
+        "--version"
+      ],
+      "version_regex": "CeWL ([0-9.]+)",
+      "requires_target": true,
+      "install": {
+        "brew": "brew install cewl",
+        "apt": "apt-get install -y cewl"
+      }
+    },
+    {
+      "name": "burpsuite",
+      "binary": "burpsuite",
+      "method": "scan",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install --cask burp-suite",
+        "apt": "apt-get install -y burpsuite"
+      }
+    },
+    {
+      "name": "wireshark",
+      "binary": "wireshark",
+      "method": "recon",
+      "version_args": [
+        "--version"
+      ],
+      "version_regex": "Wireshark ([0-9.]+)",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install --cask wireshark",
+        "apt": "apt-get install -y wireshark"
+      }
+    },
+    {
+      "name": "bloodhound",
+      "binary": "bloodhound",
+      "method": "enumerate",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install --cask bloodhound",
+        "apt": "apt-get install -y bloodhound"
       }
     }
   ]

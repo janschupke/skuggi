@@ -23,7 +23,9 @@ from skuggi.registry import (
     doctor_table,
     install_tool,
     managed_bin,
+    net_tool_table,
     probe,
+    probe_net_tools,
     probe_runtimes,
     runtime_table,
     select_install,
@@ -291,6 +293,47 @@ def test_doctor_hints_lists_missing_runtimes(
     assert "Missing runtimes" in hints
     assert "brew install perl" in hints
     assert "apt install perl" not in hints  # apt absent on this fake host
+
+
+def test_probe_net_tools_reports_found_and_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only ssh is on PATH; its version parses, the rest are missing."""
+    monkeypatch.setattr(
+        "skuggi.registry.shutil.which",
+        lambda name: "/usr/bin/ssh" if name == "ssh" else None,
+    )
+    statuses = probe_net_tools(runner=FakeRunner(stdout="OpenSSH_9.9p1, LibreSSL"))
+    by_name = {s.spec.name: s for s in statuses}
+    assert by_name["ssh"].found
+    assert by_name["ssh"].version == "9.9p1"
+    assert {"dig", "nslookup", "ifconfig", "ip", "wget"} <= set(by_name)
+    assert not by_name["dig"].found
+
+
+def test_net_tool_table_renders_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("skuggi.registry.shutil.which", lambda _name: None)
+    console = Console(force_terminal=True, width=100)
+    with console.capture() as cap:
+        console.print(net_tool_table(probe_net_tools(runner=FakeRunner())))
+    rendered = cap.get()
+    assert "dig" in rendered
+    assert "missing" in rendered
+
+
+def test_doctor_hints_lists_missing_net_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing net tool gets its own host-filtered install-hint block."""
+    monkeypatch.setattr(
+        "skuggi.registry.shutil.which",
+        lambda name: "/usr/bin/apt" if name in ("apt", "apt-get") else None,
+    )
+    net_tools = probe_net_tools(runner=FakeRunner())
+    hints = doctor_hints([], None, net_tools)
+    assert "Missing net tools" in hints
+    assert "apt install iproute2" in hints
+    assert "brew install" not in hints  # brew absent on this fake host
 
 
 def test_doctor_table_sorts_by_method_and_shows_path() -> None:

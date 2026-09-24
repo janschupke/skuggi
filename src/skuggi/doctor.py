@@ -16,7 +16,9 @@ from skuggi.registry import (
     ToolStatus,
     doctor_hints,
     doctor_table,
+    net_tool_table,
     probe,
+    probe_net_tools,
     probe_runtimes,
     runtime_table,
 )
@@ -39,12 +41,14 @@ def main() -> int:
         with console.status("probing host tools and runtimes...", spinner="dots"):
             statuses = probe_statuses(Settings())
             runtimes = probe_runtimes()
+            net_tools = probe_net_tools()
     except ConfigError as exc:
         console.print(f"[red]doctor:[/red] {exc}")
         return 1
     console.print(doctor_table(statuses))
     console.print(runtime_table(runtimes))
-    hints = doctor_hints(statuses, runtimes)
+    console.print(net_tool_table(net_tools))
+    hints = doctor_hints(statuses, runtimes, net_tools)
     if hints:
         console.print(hints)
     return 0

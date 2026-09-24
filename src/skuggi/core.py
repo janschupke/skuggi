@@ -293,6 +293,10 @@ class AgentCore:
         """Probe the host for the standard runtimes/toolchains."""
         return registry.probe_runtimes()
 
+    def net_tool_statuses(self) -> list[RuntimeStatus]:
+        """Probe the host for the standard Unix net tools."""
+        return registry.probe_net_tools()
+
     def install_tool(self, binary: str) -> ToolStatus | None:
         """Install one recognized tool; returns its status, or None if unknown."""
         spec = self.registry.spec_for(binary)

@@ -347,44 +347,48 @@ def _hint_block(
 
 
 def doctor_hints(
-    statuses: list[ToolStatus], runtimes: list[RuntimeStatus] | None = None
+    statuses: list[ToolStatus],
+    runtimes: list[RuntimeStatus] | None = None,
+    net_tools: list[RuntimeStatus] | None = None,
 ) -> str:
-    """Install hints for the missing tools and runtimes, filtered to this host.
+    """Install hints for the missing tools/runtimes/net tools, filtered to host.
 
-    Returns '' when nothing is missing. Tools and runtimes are reported in
-    separate blocks so the operator can tell a scoped tool from a host
-    capability; both are filtered to the package managers that actually exist.
+    Returns '' when nothing is missing. Each kind is reported in its own block
+    so the operator can tell a scoped tool from a host capability; all are
+    filtered to the package managers that actually exist on this host.
     """
-    missing_tools = [
-        (st.spec.binary, st.spec.install) for st in statuses if not st.found
-    ]
-    missing_runtimes = [
-        (st.spec.name, st.spec.install) for st in (runtimes or []) if not st.found
-    ]
-    if not missing_tools and not missing_runtimes:
+    groups = (
+        ("tools", [(s.spec.binary, s.spec.install) for s in statuses if not s.found]),
+        (
+            "runtimes",
+            [(s.spec.name, s.spec.install) for s in (runtimes or []) if not s.found],
+        ),
+        (
+            "net tools",
+            [(s.spec.name, s.spec.install) for s in (net_tools or []) if not s.found],
+        ),
+    )
+    if not any(pairs for _, pairs in groups):
         return ""
     available = available_installers()
     header = ", ".join(sorted(available)) or "none"
     lines: list[str] = []
-    if missing_tools:
-        lines += _hint_block(
-            f"Missing tools (installers on this host: {header}):",
-            missing_tools,
-            available,
-        )
-    if missing_runtimes:
-        lines += _hint_block(
-            f"Missing runtimes (installers on this host: {header}):",
-            missing_runtimes,
-            available,
-        )
+    for label, pairs in groups:
+        if pairs:
+            lines += _hint_block(
+                f"Missing {label} (installers on this host: {header}):",
+                pairs,
+                available,
+            )
     return "\n".join(lines)
 
 
 def doctor_ansi(
-    statuses: list[ToolStatus], runtimes: list[RuntimeStatus] | None = None
+    statuses: list[ToolStatus],
+    runtimes: list[RuntimeStatus] | None = None,
+    net_tools: list[RuntimeStatus] | None = None,
 ) -> str:
-    """Render the tool table + hints + runtime table to an ANSI string.
+    """Render the tool table + capability tables + hints to an ANSI string.
 
     For the shell daemon: it renders on a non-terminal (the socket) while the
     client writes the result to the operator's real terminal, so colour must be
@@ -395,7 +399,9 @@ def doctor_ansi(
         console.print(doctor_table(statuses))
         if runtimes:
             console.print(runtime_table(runtimes))
-    hints = doctor_hints(statuses, runtimes)
+        if net_tools:
+            console.print(net_tool_table(net_tools))
+    hints = doctor_hints(statuses, runtimes, net_tools)
     return capture.get() + (hints + "\n" if hints else "")
 
 
@@ -512,8 +518,59 @@ _RUNTIMES: tuple[RuntimeSpec, ...] = (
 )
 
 
-def probe_runtimes(runner: Runner = execution.run) -> list[RuntimeStatus]:
-    """Resolve and version every standard runtime/toolchain, concurrently."""
+# Standard Unix network utilities an operator reaches for constantly. Like the
+# runtimes, these are host capabilities (not scoped engagement tools); they get
+# their own table so a missing `ip` or `dig` is obvious at a glance.
+_NET_TOOLS: tuple[RuntimeSpec, ...] = (
+    RuntimeSpec(
+        "dig",
+        "dig",
+        ("-v",),
+        r"DiG ([0-9][0-9.]*)",
+        {"brew": "brew install bind", "apt": "apt install dnsutils"},
+    ),
+    RuntimeSpec(
+        "nslookup",
+        "nslookup",
+        (),
+        None,
+        {"brew": "brew install bind", "apt": "apt install dnsutils"},
+    ),
+    RuntimeSpec(
+        "ifconfig",
+        "ifconfig",
+        (),
+        None,
+        {"apt": "apt install net-tools"},
+    ),
+    RuntimeSpec(
+        "ip",
+        "ip",
+        (),
+        None,
+        {"brew": "brew install iproute2mac", "apt": "apt install iproute2"},
+    ),
+    RuntimeSpec(
+        "wget",
+        "wget",
+        ("--version",),
+        r"Wget ([0-9][0-9.]*)",
+        {"brew": "brew install wget", "apt": "apt install wget"},
+    ),
+    RuntimeSpec(
+        "ssh",
+        "ssh",
+        ("-V",),
+        r"OpenSSH_([0-9][^,\s]*)",
+        {"brew": "brew install openssh", "apt": "apt install openssh-client"},
+    ),
+)
+
+
+def _probe_capabilities(
+    specs: tuple[RuntimeSpec, ...], runner: Runner
+) -> list[RuntimeStatus]:
+    """Resolve and version every spec against this host, concurrently."""
 
     def one(spec: RuntimeSpec) -> RuntimeStatus:
         resolved = shutil.which(spec.binary)
@@ -527,13 +584,25 @@ def probe_runtimes(runner: Runner = execution.run) -> list[RuntimeStatus]:
             spec=spec, found=path is not None, path=path, version=version
         )
 
-    return _map_concurrently(one, _RUNTIMES)
+    return _map_concurrently(one, specs)
 
 
-def runtime_table(statuses: list[RuntimeStatus]) -> Table:
-    """A colour-coded Rich table of the host runtime/toolchain probe."""
-    table = Table(title="host runtimes / toolchains")
-    for column in ("runtime", "status", "version", "path"):
+def probe_runtimes(runner: Runner = execution.run) -> list[RuntimeStatus]:
+    """Resolve and version every standard runtime/toolchain, concurrently."""
+    return _probe_capabilities(_RUNTIMES, runner)
+
+
+def probe_net_tools(runner: Runner = execution.run) -> list[RuntimeStatus]:
+    """Resolve and version every standard Unix net tool, concurrently."""
+    return _probe_capabilities(_NET_TOOLS, runner)
+
+
+def _capability_table(
+    title: str, first_column: str, statuses: list[RuntimeStatus]
+) -> Table:
+    """A colour-coded Rich table of a host-capability probe (runtime or net)."""
+    table = Table(title=title)
+    for column in (first_column, "status", "version", "path"):
         table.add_column(column)
     for st in statuses:
         table.add_row(
@@ -546,3 +615,13 @@ def runtime_table(statuses: list[RuntimeStatus]) -> Table:
             str(st.path) if st.path else "-",
         )
     return table
+
+
+def runtime_table(statuses: list[RuntimeStatus]) -> Table:
+    """A colour-coded Rich table of the host runtime/toolchain probe."""
+    return _capability_table("host runtimes / toolchains", "runtime", statuses)
+
+
+def net_tool_table(statuses: list[RuntimeStatus]) -> Table:
+    """A colour-coded Rich table of the standard Unix net-tool probe."""
+    return _capability_table("standard net tools", "net tool", statuses)
