@@ -54,11 +54,16 @@ class Tui:
         )
 
         self._embeddings = providers.get_embeddings(self.settings)
-        self.store = Store(str(self.settings.faiss_path), self._embeddings)
+        self.store = Store(
+            self.settings.faiss_path,
+            self._embeddings,
+            chunk_size=self.settings.chunk_size,
+            chunk_overlap=self.settings.chunk_overlap,
+        )
         self.tools_list = tools.build_tools(self.store, k=self.settings.retrieve_k)
         self.llm = providers.get_chat_model(self.settings, model=self.model)
 
-        self._saver_ctx = memory.open_checkpointer(str(self.settings.sqlite_path))
+        self._saver_ctx = memory.open_checkpointer(self.settings.sqlite_path)
         self.saver = self._saver_ctx.__enter__()
         self.graph = self._build()
 
@@ -186,7 +191,7 @@ class Tui:
             self.thread_id = str(uuid.uuid4())
             self.console.print(f"[dim]new thread:[/dim] {self.thread_id}")
         elif arg == "list":
-            ids = memory.list_threads(str(self.settings.sqlite_path))
+            ids = memory.list_threads(self.saver)
             if not ids:
                 self.console.print("[dim](no threads)[/dim]")
                 return

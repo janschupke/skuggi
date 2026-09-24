@@ -94,7 +94,7 @@ def fake_embeddings() -> CountingFakeEmbeddings:
 
 @pytest.fixture
 def store(tmp_path: Path, fake_embeddings: CountingFakeEmbeddings) -> Store:
-    return Store(str(tmp_path / "faiss_index"), fake_embeddings)
+    return Store(tmp_path / "faiss_index", fake_embeddings)
 
 
 @pytest.fixture

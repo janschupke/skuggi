@@ -1,47 +1,51 @@
 """SQLite-backed session history.
 
-Thin wrapper around langgraph-checkpoint-sqlite. The ``checkpoints`` table is
-created automatically by ``SqliteSaver`` on first use; ``list_threads`` queries
-it directly with stdlib sqlite3 (no extra deps).
+Thin wrapper around langgraph-checkpoint-sqlite. Thread enumeration goes through
+the checkpointer's own ``list`` API rather than querying its tables directly, so
+this module is not coupled to a private schema.
 """
 
 from __future__ import annotations
 
-import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 
-def _ensure_parent(path: str) -> None:
-    Path(path).expanduser().parent.mkdir(parents=True, exist_ok=True)
-
-
 @contextmanager
-def open_checkpointer(path: str) -> Iterator[SqliteSaver]:
-    """Open a ``SqliteSaver`` over the given .db path; auto-creates the file
-    and the parent directory. Hold this open for the TUI lifetime."""
-    _ensure_parent(path)
-    with SqliteSaver.from_conn_string(path) as saver:
+def open_checkpointer(path: Path) -> Iterator[SqliteSaver]:
+    """Open a `SqliteSaver` over `path`, creating the file and its parent.
+
+    Hold this open for the lifetime of the session.
+    """
+    path.expanduser().parent.mkdir(parents=True, exist_ok=True)
+    with SqliteSaver.from_conn_string(str(path)) as saver:
         yield saver
 
 
-def list_threads(path: str) -> list[str]:
-    """Return distinct thread_ids stored in the checkpoints table.
+def list_threads(saver: BaseCheckpointSaver[str]) -> list[str]:
+    """Return the distinct thread ids the checkpointer holds.
 
-    Reads the table SqliteSaver auto-creates. Returns ``[]`` if the file or
-    table does not yet exist.
+    Order follows the checkpointer's own enumeration, which is *not* a
+    cross-implementation contract: SqliteSaver yields newest-first while
+    InMemorySaver yields oldest-first. Callers should not rely on it.
+
+    Takes the live saver rather than a path: the previous version opened a
+    second sqlite connection to the same file the session already had open, and
+    read `SELECT DISTINCT thread_id FROM checkpoints` -- a private table whose
+    layout is not ours to depend on. Passing the saver also means a test can use
+    an in-memory one.
+
+    This walks every checkpoint, not every thread, so cost grows with history
+    length. Fine for an interactive command (0.1 ms at 9 checkpoints); note that
+    the saver's own `limit` caps checkpoints rather than threads, so it is not a
+    useful way to bound this.
     """
-    p = Path(path).expanduser()
-    if not p.exists():
-        return []
-    with sqlite3.connect(str(p)) as conn:
-        try:
-            rows = conn.execute(
-                "SELECT DISTINCT thread_id FROM checkpoints ORDER BY thread_id"
-            ).fetchall()
-        except sqlite3.OperationalError:
-            return []
-    return [r[0] for r in rows]
+    ids = (
+        tuple_.config["configurable"]["thread_id"]
+        for tuple_ in saver.list(None)
+    )
+    return list(dict.fromkeys(str(thread_id) for thread_id in ids))

@@ -19,7 +19,6 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-_SPLITTER = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
 
 _HIT_SEPARATOR = "\n\n---\n\n"
 
@@ -36,9 +35,23 @@ def format_hits(hits: Sequence[Document]) -> str:
 
 
 class Store:
-    def __init__(self, path: str, embeddings: Embeddings) -> None:
-        self.path = Path(path).expanduser()
+    """A lazily-loaded FAISS index over local markdown and text files."""
+
+    def __init__(
+        self,
+        path: Path,
+        embeddings: Embeddings,
+        *,
+        chunk_size: int = 800,
+        chunk_overlap: int = 120,
+        globs: Sequence[str] = ("**/*.md", "**/*.txt"),
+    ) -> None:
+        self.path = path.expanduser()
         self.embeddings = embeddings
+        self.globs = tuple(globs)
+        self._splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        )
         self._vs: FAISS | None = self._try_load()
 
     def _try_load(self) -> FAISS | None:
@@ -55,22 +68,32 @@ class Store:
             return []
         return self._vs.similarity_search(query, k=k)
 
-    def ingest(self, paths: Iterable[Path]) -> int:
-        docs: list[Document] = []
+    def _files(self, paths: Iterable[Path]) -> list[Path]:
+        """Expand the given files and directories into readable source files."""
+        found: list[Path] = []
         for raw in paths:
-            p = Path(raw).expanduser()
-            if p.is_dir():
-                files = [*p.rglob("*.md"), *p.rglob("*.txt")]
-            elif p.is_file():
-                files = [p]
-            else:
-                continue
-            for f in files:
-                text = f.read_text(encoding="utf-8", errors="replace")
-                for chunk in _SPLITTER.split_text(text):
-                    docs.append(
-                        Document(page_content=chunk, metadata={"source": str(f)})
-                    )
+            candidate = Path(raw).expanduser()
+            if candidate.is_dir():
+                for pattern in self.globs:
+                    found.extend(sorted(candidate.glob(pattern)))
+            elif candidate.is_file():
+                found.append(candidate)
+        return found
+
+    def ingest(self, paths: Iterable[Path]) -> int:
+        """Embed the given files or directories, returning the chunk count.
+
+        `errors="replace"` is kept deliberately over a document loader: ingest
+        must never fail the whole run because one file has a stray byte.
+        """
+        sources = [
+            Document(
+                page_content=path.read_text(encoding="utf-8", errors="replace"),
+                metadata={"source": str(path)},
+            )
+            for path in self._files(paths)
+        ]
+        docs = self._splitter.split_documents(sources)
         if not docs:
             return 0
         if self._vs is None:

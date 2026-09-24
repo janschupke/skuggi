@@ -23,7 +23,12 @@ def main() -> int:
 
     settings = Settings()
     faiss_path = settings.faiss_path
-    store = Store(str(faiss_path), providers.get_embeddings(settings))
+    store = Store(
+        faiss_path,
+        providers.get_embeddings(settings),
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+    )
     added = store.ingest([Path(p) for p in args.paths])
     store.persist()
     print(f"indexed {added} chunk(s) into {faiss_path}")
