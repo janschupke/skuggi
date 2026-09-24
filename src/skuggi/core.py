@@ -35,7 +35,7 @@ from skuggi.engagement import EngagementConfig
 from skuggi.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.ledger import FindingRow
 from skuggi.modes import MODES, Mode, prompt_set
-from skuggi.registry import ToolRegistry, ToolStatus
+from skuggi.registry import RuntimeStatus, ToolRegistry, ToolStatus
 from skuggi.state import AgentState
 from skuggi.vectorstore import Store
 from skuggi.workspace import Workspace, WorkspaceLayout
@@ -288,6 +288,10 @@ class AgentCore:
             source=self.settings.tool_source,
             managed_dir=self.settings.managed_tools_dir,
         )
+
+    def runtime_statuses(self) -> list[RuntimeStatus]:
+        """Probe the host for the standard runtimes/toolchains."""
+        return registry.probe_runtimes()
 
     def install_tool(self, binary: str) -> ToolStatus | None:
         """Install one recognized tool; returns its status, or None if unknown."""

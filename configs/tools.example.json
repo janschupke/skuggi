@@ -40,6 +40,16 @@
       }
     },
     {
+      "name": "ffuf",
+      "binary": "ffuf",
+      "method": "enumerate",
+      "version_args": ["-V"],
+      "version_regex": "v?([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "target_flags": ["-u"],
+      "requires_target": true,
+      "install": { "brew": "brew install ffuf", "apt": "apt-get install -y ffuf" }
+    },
+    {
       "name": "sqlmap",
       "binary": "sqlmap",
       "method": "enumerate",
@@ -56,6 +66,140 @@
       "version_args": ["--version"],
       "requires_target": true,
       "install": { "apt": "apt-get install -y whatweb" }
+    },
+    {
+      "name": "ldapsearch",
+      "binary": "ldapsearch",
+      "method": "enumerate",
+      "version_args": ["-VV"],
+      "version_regex": "ldapsearch ([0-9.]+)",
+      "target_flags": ["-H"],
+      "requires_target": true,
+      "install": {
+        "brew": "brew install openldap",
+        "apt": "apt-get install -y ldap-utils"
+      }
+    },
+    {
+      "name": "enum4linux-ng",
+      "binary": "enum4linux-ng",
+      "method": "enumerate",
+      "requires_target": true,
+      "install": { "pip": "pip install enum4linux-ng" }
+    },
+    {
+      "name": "nxc",
+      "binary": "nxc",
+      "method": "bruteforce",
+      "version_args": ["--version"],
+      "version_regex": "([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "requires_target": true,
+      "install": { "pip": "pip install netexec" }
+    },
+    {
+      "name": "hydra",
+      "binary": "hydra",
+      "method": "bruteforce",
+      "version_args": ["-h"],
+      "version_regex": "[Hh]ydra v([0-9.]+)",
+      "requires_target": true,
+      "install": { "brew": "brew install hydra", "apt": "apt-get install -y hydra" }
+    },
+    {
+      "name": "john",
+      "binary": "john",
+      "method": "crack",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install john-jumbo",
+        "apt": "apt-get install -y john"
+      }
+    },
+    {
+      "name": "unshadow",
+      "binary": "unshadow",
+      "method": "crack",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install john-jumbo",
+        "apt": "apt-get install -y john"
+      }
+    },
+    {
+      "name": "zip2john",
+      "binary": "zip2john",
+      "method": "crack",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install john-jumbo",
+        "apt": "apt-get install -y john"
+      }
+    },
+    {
+      "name": "rar2john",
+      "binary": "rar2john",
+      "method": "crack",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install john-jumbo",
+        "apt": "apt-get install -y john"
+      }
+    },
+    {
+      "name": "hashcat",
+      "binary": "hashcat",
+      "method": "crack",
+      "version_args": ["--version"],
+      "version_regex": "v?([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install hashcat",
+        "apt": "apt-get install -y hashcat"
+      }
+    },
+    {
+      "name": "metasploit",
+      "binary": "msfconsole",
+      "method": "exploit",
+      "version_args": ["--version"],
+      "version_regex": "([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install metasploit",
+        "apt": "apt-get install -y metasploit-framework"
+      }
+    },
+    {
+      "name": "msfvenom",
+      "binary": "msfvenom",
+      "method": "exploit",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install metasploit",
+        "apt": "apt-get install -y metasploit-framework"
+      }
+    },
+    {
+      "name": "nc",
+      "binary": "nc",
+      "method": "recon",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install netcat",
+        "apt": "apt-get install -y netcat-openbsd"
+      }
+    },
+    {
+      "name": "tcpdump",
+      "binary": "tcpdump",
+      "method": "recon",
+      "version_args": ["--version"],
+      "version_regex": "([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install tcpdump",
+        "apt": "apt-get install -y tcpdump"
+      }
     }
   ]
 }

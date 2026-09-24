@@ -114,22 +114,32 @@ def _resolve(
     return None, "missing"
 
 
-def _read_version(path: Path, spec: ToolSpec, runner: Runner) -> str | None:
-    """Run the tool's version command and extract a version string."""
-    if not spec.version_args:
+def _version_from(
+    path: Path,
+    version_args: tuple[str, ...],
+    version_regex: str | None,
+    runner: Runner,
+) -> str | None:
+    """Run `path version_args` and extract a version string, or None."""
+    if not version_args:
         return None
     result = runner(
-        [str(path), *spec.version_args],
+        [str(path), *version_args],
         timeout=_VERSION_PROBE_TIMEOUT,
         cwd=Path.cwd(),
     )
     text = f"{result.stdout}\n{result.stderr}".strip()
     if not text:
         return None
-    if spec.version_regex:
-        match = re.search(spec.version_regex, text)
+    if version_regex:
+        match = re.search(version_regex, text)
         return match.group(match.lastindex or 0) if match else None
     return text.splitlines()[0][:80]
+
+
+def _read_version(path: Path, spec: ToolSpec, runner: Runner) -> str | None:
+    """Run the tool's version command and extract a version string."""
+    return _version_from(path, spec.version_args, spec.version_regex, runner)
 
 
 def probe(
@@ -302,8 +312,10 @@ def doctor_hints(statuses: list[ToolStatus]) -> str:
     return "\n".join(lines)
 
 
-def doctor_ansi(statuses: list[ToolStatus]) -> str:
-    """Render the doctor table + host-verified hints to an ANSI string.
+def doctor_ansi(
+    statuses: list[ToolStatus], runtimes: list[RuntimeStatus] | None = None
+) -> str:
+    """Render the tool table + hints + runtime table to an ANSI string.
 
     For the shell daemon: it renders on a non-terminal (the socket) while the
     client writes the result to the operator's real terminal, so colour must be
@@ -312,5 +324,77 @@ def doctor_ansi(statuses: list[ToolStatus]) -> str:
     console = Console(force_terminal=True, width=100)
     with console.capture() as capture:
         console.print(doctor_table(statuses))
+        if runtimes:
+            console.print(runtime_table(runtimes))
     hints = doctor_hints(statuses)
     return capture.get() + (hints + "\n" if hints else "")
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSpec:
+    """A standard host toolchain skuggi checks for (not a scoped tool)."""
+
+    name: str
+    binary: str
+    version_args: tuple[str, ...] = ()
+    version_regex: str | None = None
+
+
+class RuntimeStatus(NamedTuple):
+    """The result of probing one runtime on this host."""
+
+    spec: RuntimeSpec
+    found: bool
+    path: Path | None
+    version: str | None
+
+
+# The interpreters and build tools an operator relies on to run scripts and
+# build exploits. Distinct from the engagement tool registry: these are host
+# capabilities, not authorized-and-scoped commands.
+_RUNTIMES: tuple[RuntimeSpec, ...] = (
+    RuntimeSpec("ruby", "ruby", ("--version",), r"ruby ([0-9][0-9.]*)"),
+    RuntimeSpec("rustc", "rustc", ("--version",), r"rustc ([0-9][0-9.]*)"),
+    RuntimeSpec("cargo", "cargo", ("--version",), r"cargo ([0-9][0-9.]*)"),
+    RuntimeSpec("python3", "python3", ("--version",), r"Python ([0-9][0-9.]*)"),
+    RuntimeSpec("node", "node", ("--version",), r"v?([0-9][0-9.]*)"),
+    RuntimeSpec("php", "php", ("--version",), r"PHP ([0-9][0-9.]*)"),
+    RuntimeSpec("cc", "cc", ("--version",)),
+    RuntimeSpec("c++", "c++", ("--version",)),
+    RuntimeSpec("make", "make", ("--version",), r"[Mm]ake ([0-9][0-9.]*)"),
+)
+
+
+def probe_runtimes(runner: Runner = execution.run) -> list[RuntimeStatus]:
+    """Resolve and version every standard runtime/toolchain on this host."""
+    statuses: list[RuntimeStatus] = []
+    for spec in _RUNTIMES:
+        resolved = shutil.which(spec.binary)
+        path = Path(resolved) if resolved is not None else None
+        version = (
+            _version_from(path, spec.version_args, spec.version_regex, runner)
+            if path is not None
+            else None
+        )
+        statuses.append(
+            RuntimeStatus(spec=spec, found=path is not None, path=path, version=version)
+        )
+    return statuses
+
+
+def runtime_table(statuses: list[RuntimeStatus]) -> Table:
+    """A colour-coded Rich table of the host runtime/toolchain probe."""
+    table = Table(title="host runtimes / toolchains")
+    for column in ("runtime", "status", "version", "path"):
+        table.add_column(column)
+    for st in statuses:
+        table.add_row(
+            st.spec.name,
+            palette.paint(
+                "found" if st.found else "missing",
+                palette.status_style(found=st.found),
+            ),
+            st.version or "-",
+            str(st.path) if st.path else "-",
+        )
+    return table

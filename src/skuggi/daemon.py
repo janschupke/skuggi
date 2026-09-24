@@ -91,7 +91,7 @@ class Daemon:
             described = self.core.describe_engagement()
             yield (described + "\n") if described else "no engagement loaded\n"
         elif name == "doctor":
-            yield doctor_ansi(self.core.doctor_statuses())
+            yield doctor_ansi(self.core.doctor_statuses(), self.core.runtime_statuses())
         elif name == "mode":
             yield self._set_mode(arg)
         elif name == "autonomous":

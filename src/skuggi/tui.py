@@ -26,7 +26,7 @@ from skuggi.config import Settings
 from skuggi.core import AgentCore
 from skuggi.engagement import EngagementConfig
 from skuggi.ledger import Ledger
-from skuggi.registry import ToolRegistry, doctor_hints, doctor_table
+from skuggi.registry import ToolRegistry, doctor_hints, doctor_table, runtime_table
 from skuggi.state import AgentState
 
 
@@ -293,6 +293,7 @@ class Tui:
         hints = doctor_hints(statuses)
         if hints:
             self.console.print(hints)
+        self.console.print(runtime_table(self.core.runtime_statuses()))
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""

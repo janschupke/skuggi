@@ -12,7 +12,14 @@ from rich.console import Console
 
 from skuggi.config import Settings
 from skuggi.configs import ConfigError, load_registry
-from skuggi.registry import ToolStatus, doctor_hints, doctor_table, probe
+from skuggi.registry import (
+    ToolStatus,
+    doctor_hints,
+    doctor_table,
+    probe,
+    probe_runtimes,
+    runtime_table,
+)
 
 
 def probe_statuses(settings: Settings) -> list[ToolStatus]:
@@ -37,6 +44,7 @@ def main() -> int:
     hints = doctor_hints(statuses)
     if hints:
         console.print(hints)
+    console.print(runtime_table(probe_runtimes()))
     return 0
 
 

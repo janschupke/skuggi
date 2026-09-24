@@ -61,3 +61,23 @@ def test_invalid_layout_raises_config_error(tmp_path: Path) -> None:
     bad.write_text('{"recon_subdirs": "not-a-list"', encoding="utf-8")
     with pytest.raises(ConfigError, match="invalid workspace layout"):
         load_layout(bad)
+
+
+def test_example_registry_includes_the_new_tools() -> None:
+    """The shipped tools.example.json parses and carries the extended set."""
+    example = Path(__file__).parents[2] / "configs" / "tools.example.json"
+    registry = load_registry(example)
+    assert registry.method_for("hydra") == "bruteforce"
+    assert registry.method_for("nxc") == "bruteforce"
+    assert registry.method_for("hashcat") == "crack"
+    assert registry.method_for("john") == "crack"
+    assert registry.method_for("msfconsole") == "exploit"
+    assert registry.method_for("ldapsearch") == "enumerate"
+    assert registry.method_for("tcpdump") == "recon"
+    # File/interface tools do not require a network target.
+    john = registry.spec_for("john")
+    hydra = registry.spec_for("hydra")
+    assert john is not None
+    assert hydra is not None
+    assert john.requires_target is False
+    assert hydra.requires_target is True

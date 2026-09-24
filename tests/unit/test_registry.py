@@ -24,6 +24,8 @@ from skuggi.registry import (
     install_tool,
     managed_bin,
     probe,
+    probe_runtimes,
+    runtime_table,
     select_install,
 )
 
@@ -236,3 +238,32 @@ def test_doctor_hints_empty_when_nothing_missing() -> None:
 @pytest.mark.parametrize("missing_binary", ["localthing"])
 def test_method_lookup_unknown_returns_none(missing_binary: str) -> None:
     assert ToolRegistry(tools=(NMAP,)).method_for(missing_binary) is None
+
+
+# --- runtime / toolchain probe ----------------------------------------------
+
+
+def test_probe_runtimes_reports_found_and_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only python3 is on PATH; its version parses, the rest are missing."""
+    monkeypatch.setattr(
+        "skuggi.registry.shutil.which",
+        lambda name: "/usr/bin/python3" if name == "python3" else None,
+    )
+    statuses = probe_runtimes(runner=FakeRunner(stdout="Python 3.14.0"))
+    by_name = {s.spec.name: s for s in statuses}
+    assert by_name["python3"].found
+    assert by_name["python3"].version == "3.14.0"
+    assert not by_name["ruby"].found
+    assert by_name["ruby"].version is None
+
+
+def test_runtime_table_renders_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("skuggi.registry.shutil.which", lambda _name: None)
+    console = Console(force_terminal=True, width=100)
+    with console.capture() as cap:
+        console.print(runtime_table(probe_runtimes(runner=FakeRunner())))
+    rendered = cap.get()
+    assert "python3" in rendered
+    assert "missing" in rendered

@@ -37,6 +37,8 @@ _METHOD = {
     "recon": "cyan",
     "scan": "blue",
     "enumerate": "magenta",
+    "bruteforce": "dark_orange",
+    "crack": "yellow",
     "exploit": "bold red",
 }
 _METHOD_DEFAULT = "white"

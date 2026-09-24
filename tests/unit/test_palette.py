@@ -11,7 +11,9 @@ def test_status_style_distinguishes_found_from_missing() -> None:
     assert palette.status_style(found=True) != palette.status_style(found=False)
 
 
-@pytest.mark.parametrize("method", ["recon", "scan", "enumerate", "exploit"])
+@pytest.mark.parametrize(
+    "method", ["recon", "scan", "enumerate", "bruteforce", "crack", "exploit"]
+)
 def test_every_method_has_a_defined_colour(method: str) -> None:
     assert palette.method_style(method) != palette.method_style("something-unknown")
 
