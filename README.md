@@ -62,52 +62,70 @@ Anything not starting with `/` is sent to the agent.
 ## The graph
 
 ```
-START → planner → worker → critic ─┬─ APPROVED   → END
-                                   ├─ max revs   → END
-                                   └─ else → bump → planner
+START → planner → retriever → worker ──┬── tools ──┐
+                                       │           │ (loops back to worker)
+                                       └── finalize ┴─→ critic ─┬─ APPROVED → respond → END
+                                                                ├─ max revs → respond → END
+                                                                └─ else → bump → planner
 ```
 
-- **planner** — reads the latest user message and any prior critique, emits a
-  short numbered plan into `state["plan"]`.
-- **worker** — binds the tools (`retrieve`, `calculator`, `file_read`) and
-  iterates a tool-calling loop until it produces a draft. With
-  `provider=chatgpt`, tools are skipped and the worker generates directly.
-- **critic** — replies `APPROVED: <reason>` or `REVISE: <issue>`. The edge
-  function routes back through a `bump` node (which increments
-  `revision_count`) until the critic approves or `max_revisions` is hit.
+- **planner** — reads the conversation so far, the latest request and any prior
+  critique, and emits a short numbered plan. It also resets the worker's
+  scratch channel for this pass.
+- **retriever** — for providers that *cannot* bind tools, inlines a top-k
+  snippet into `state["context"]`. A no-op when tools are available, since the
+  `retrieve` tool covers that case.
+- **worker → tools → worker** — a real graph cycle, bounded by
+  `max_tool_rounds`. Every intermediate assistant message and tool result is
+  checkpointed, so a crash mid-loop is resumable and `/trace` can show the
+  trail.
+- **critic** — replies `APPROVED: <reason>` or `REVISE: <issue>`; anything that
+  is not an approval is treated as a revision request.
+- **respond** — the only node that writes to `messages`, so a revised turn
+  leaves exactly one answer in the conversation rather than one per pass.
 
-State (`src/skuggi/state.py`):
+State (`src/skuggi/state.py`) has two message channels, deliberately separate:
 
 ```python
-class AgentState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
-    plan: str | None
-    draft: str | None
-    critique: str | None
+class _MessageChannels(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]   # the conversation
+    scratch:  Annotated[list[BaseMessage], add_messages]   # the worker's tool loop
+
+class AgentState(_MessageChannels, total=False):
+    plan: str
+    context: str
+    draft: str
+    critique: str
     revision_count: int
     max_revisions: int
+    tool_rounds: int
 ```
+
+`messages` is what `/history` prints and what the planner and critic read as
+context. `scratch` holds the worker's own prompt scaffolding and tool traffic --
+kept apart because a seeded `HumanMessage` is otherwise indistinguishable from a
+real user turn.
 
 Persistence: every node update is checkpointed by
 `langgraph.checkpoint.sqlite.SqliteSaver` into `./data/sessions.db`, keyed by
 the current thread id. Killing the process and resuming a thread with
-`/thread <id>` restores the full message history.
+`/thread <id>` restores the full message history -- and, unlike earlier
+versions, the agent actually reads it.
 
 ## Standalone modules
 
-Two files were designed to be read top-to-bottom in one sitting:
+Files that can be read top-to-bottom in one sitting:
 
-- [src/skuggi/memory.py](src/skuggi/memory.py) — `SqliteSaver` wrapper plus a
-  raw-sqlite `list_threads` helper. ~50 LoC.
-- [src/skuggi/vectorstore.py](src/skuggi/vectorstore.py) — `load_or_create` /
-  `ingest_paths` / `persist` over `langchain_community.vectorstores.FAISS`
-  with a `RecursiveCharacterTextSplitter`. ~60 LoC.
-
-A third self-contained module:
-
-- [src/skuggi/codex_chat.py](src/skuggi/codex_chat.py) — a
-  `CodexChatModel(BaseChatModel)` that speaks the codex ChatGPT-account
-  Responses API directly, handles OAuth refresh, and parses SSE. ~200 LoC.
+- [src/skuggi/config.py](src/skuggi/config.py) — every setting, in one typed
+  `pydantic-settings` object.
+- [src/skuggi/memory.py](src/skuggi/memory.py) — a `SqliteSaver` wrapper and
+  thread enumeration through the checkpointer's own `list` API.
+- [src/skuggi/vectorstore.py](src/skuggi/vectorstore.py) — a lazily-loaded FAISS
+  index; nothing is embedded until the first `ingest`, so the TUI boots without
+  embedding credentials.
+- [src/skuggi/codex_chat.py](src/skuggi/codex_chat.py) — a `CodexTokenStore`
+  (auth.json and the OAuth refresh) and a `CodexAuth` (`httpx.Auth`) under a
+  thin `ChatOpenAI` subclass. The SDK owns SSE framing, streaming and retries.
 
 ## Codex auth (the `openai` and `chatgpt` providers)
 
@@ -186,11 +204,13 @@ and the suite on 3.12, 3.13 and 3.14.
 ## Known limitations
 
 - The `chatgpt` provider does not bind LangChain tools (see the table above).
-- The Codex Responses API event schema may change; this scaffold parses the
-  event types we know about (`response.output_text.delta`,
-  `response.completed`). Other events are ignored. If you see no streaming
-  output, run with `SKUGGI_PROVIDER=openai` to confirm the rest of the
-  pipeline works, then check the codex source for new event names.
-- `text-embedding-3-small` (OpenAI) is the default embedding model and
-  requires an OpenAI key. Without one, `providers.get_embeddings()` falls back
-  to `OllamaEmbeddings("nomic-embed-text")` if Ollama is running.
+  It gets retrieval through the `retriever` node instead.
+- The `chatgpt` provider needs a model your ChatGPT plan licenses for Codex;
+  see the Codex auth section for how to tell that apart from a routing error.
+- `text-embedding-3-small` (OpenAI) is the default embedding model and requires
+  an OpenAI key. Without one, `get_embeddings` falls back to
+  `OllamaEmbeddings("nomic-embed-text")` if Ollama is running.
+- `langchain-community` supplies the FAISS vector store and is
+  sunset-announced upstream. It is still released alongside langchain-core 1.x
+  and there is no official standalone replacement yet, so it stays, with the
+  deprecation warning ignored by name in `pyproject.toml`.
