@@ -50,3 +50,64 @@ path = "src/skuggi/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/skuggi"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.8",
+    # Tight minor pin: pydantic's mypy plugin imports deep mypy internals, so a
+    # local run and a CI run must never disagree about which mypy found what.
+    "mypy>=2.3.1,<2.4",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1",
+    # Two tests (the bounded tool loop, the huge-exponent guard) would hang
+    # rather than fail if their cap regressed. A hanging job is worse than a red one.
+    "pytest-timeout>=2.4",
+    "respx>=0.23.1",
+    "pre-commit>=4.6.2",
+]
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+    # The eval layer talks to real providers; it is opt-in only.
+    "-m", "not eval",
+    "--cov=skuggi",
+    "--cov-branch",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=xml",
+]
+xfail_strict = true
+filterwarnings = [
+    "error",
+    # langgraph.checkpoint.base emits this at import time; not actionable here.
+    "ignore:The default value of .allowed_objects. will change:",
+    # langchain-community is sunset-announced but still shipping releases
+    # (0.4.2, aligned with core 1.x) and there is no official standalone FAISS
+    # integration to move to -- langchain-faiss on PyPI is an unrelated
+    # third-party upload. Revisit when langchain-ai publishes a replacement.
+    "ignore:.langchain-community. is being sunset:DeprecationWarning",
+]
+markers = [
+    "eval: talks to a real LLM provider; needs credentials, deselected by default",
+    "slow: builds a real FAISS index or exercises the sqlite saver end to end",
+]
+
+[tool.coverage.run]
+source = ["src/skuggi"]
+branch = true
+omit = ["src/skuggi/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+# Raised to its real target once the suite is filled out (phase 7).
+fail_under = 0
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "^\\s*\\.\\.\\.$",
+]

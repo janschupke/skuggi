@@ -12,7 +12,7 @@ that's fine for a single-user local store.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from collections.abc import Iterable, Sequence
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -20,6 +20,19 @@ from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 _SPLITTER = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
+
+_HIT_SEPARATOR = "\n\n---\n\n"
+
+
+def format_hits(hits: Sequence[Document]) -> str:
+    """Render retrieved documents for a prompt.
+
+    Shared so a snippet reads identically whether it arrives as tool output or
+    is inlined into the worker prompt for a provider that cannot bind tools.
+    """
+    return _HIT_SEPARATOR.join(
+        f"[{hit.metadata.get('source', '?')}]\n{hit.page_content}" for hit in hits
+    )
 
 
 class Store:
