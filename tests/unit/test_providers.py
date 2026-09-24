@@ -56,7 +56,10 @@ def test_malformed_auth_json_falls_back(tmp_path: Path) -> None:
 
 
 def test_missing_auth_json_falls_back(tmp_path: Path) -> None:
-    assert providers.resolve_openai_key(_settings(tmp_path, openai_api_key="sk-e")) == "sk-e"
+    assert (
+        providers.resolve_openai_key(_settings(tmp_path, openai_api_key="sk-e"))
+        == "sk-e"
+    )
 
 
 def test_no_key_anywhere(tmp_path: Path) -> None:
@@ -139,4 +142,7 @@ def test_embeddings_prefer_openai_when_a_key_exists(tmp_path: Path) -> None:
 
 def test_embeddings_fall_back_to_ollama(tmp_path: Path) -> None:
     """Mandatory: the TUI must boot with no credentials at all."""
-    assert type(providers.get_embeddings(_settings(tmp_path))).__name__ == "OllamaEmbeddings"
+    assert (
+        type(providers.get_embeddings(_settings(tmp_path))).__name__
+        == "OllamaEmbeddings"
+    )

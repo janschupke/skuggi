@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from skuggi.vectorstore import Store, format_hits
 from tests.fakes import CountingFakeEmbeddings
+
+from skuggi.vectorstore import Store, format_hits
 
 
 def _corpus(tmp_path: Path) -> Path:
@@ -58,7 +59,9 @@ def test_ingest_tolerates_undecodable_bytes(tmp_path: Path, store: Store) -> Non
 
 
 def test_long_document_is_chunked_with_metadata(tmp_path: Path) -> None:
-    store = Store(tmp_path / "idx", CountingFakeEmbeddings(), chunk_size=100, chunk_overlap=10)
+    store = Store(
+        tmp_path / "idx", CountingFakeEmbeddings(), chunk_size=100, chunk_overlap=10
+    )
     path = tmp_path / "long.md"
     path.write_text(" ".join(f"word{i}" for i in range(400)), encoding="utf-8")
 

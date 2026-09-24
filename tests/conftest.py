@@ -13,10 +13,10 @@ from pathlib import Path
 import httpx
 import pytest
 from rich.console import Console
+from tests.fakes import CountingFakeEmbeddings
 
 from skuggi import codex_chat
 from skuggi.vectorstore import Store
-from tests.fakes import CountingFakeEmbeddings
 
 _VENDOR_ENV = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_BASE_URL")
 

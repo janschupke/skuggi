@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from skuggi.graph import last_user_text, prior_turns, render_history, route_after_critic
 from skuggi.state import AgentState
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 
 def _state(**kwargs: object) -> AgentState:
@@ -34,7 +34,11 @@ def test_route_after_critic(
 
 
 def test_last_user_text_takes_the_most_recent() -> None:
-    messages = [HumanMessage(content="first"), AIMessage(content="a"), HumanMessage(content="second")]
+    messages = [
+        HumanMessage(content="first"),
+        AIMessage(content="a"),
+        HumanMessage(content="second"),
+    ]
     assert last_user_text(messages) == "second"
 
 

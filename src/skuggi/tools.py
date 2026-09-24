@@ -95,7 +95,9 @@ def _resolve_within(candidate: str, root: Path) -> Path | None:
     return resolved if resolved.is_relative_to(root) else None
 
 
-def build_tools(store: Store, *, root: Path | None = None, k: int = 4) -> list[BaseTool]:
+def build_tools(
+    store: Store, *, root: Path | None = None, k: int = 4
+) -> list[BaseTool]:
     """Build the worker's tools, confining `file_read` to `root`.
 
     `root` is captured once here rather than read per call, so the sandbox

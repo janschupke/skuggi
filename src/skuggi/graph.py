@@ -182,7 +182,9 @@ def build_graph(
     `deps.bind_tools=False` removes the tools node entirely, which is the
     chatgpt path: that endpoint does not accept LangChain's tool schema.
     """
-    worker_llm = deps.llm.bind_tools(deps.tools) if deps.bind_tools and deps.tools else deps.llm
+    worker_llm = (
+        deps.llm.bind_tools(deps.tools) if deps.bind_tools and deps.tools else deps.llm
+    )
     tool_node = (
         ToolNode(list(deps.tools), messages_key="scratch")
         if deps.bind_tools and deps.tools
@@ -266,7 +268,11 @@ def build_graph(
         return {"revision_count": (state.get("revision_count") or 0) + 1}
 
     def route_worker(state: AgentState) -> Literal["tools", "finalize"]:
-        return "tools" if wants_tools(state, max_tool_rounds=deps.max_tool_rounds) else "finalize"
+        return (
+            "tools"
+            if wants_tools(state, max_tool_rounds=deps.max_tool_rounds)
+            else "finalize"
+        )
 
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("planner", plan_node)

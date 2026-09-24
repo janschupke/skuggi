@@ -11,14 +11,13 @@ that's fine for a single-user local store.
 
 from __future__ import annotations
 
-from pathlib import Path
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
 
 _HIT_SEPARATOR = "\n\n---\n\n"
 

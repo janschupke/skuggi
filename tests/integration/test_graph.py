@@ -13,12 +13,12 @@ from pathlib import Path
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
+from tests.fakes import RoleScriptedChatModel
 
 from skuggi.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.state import AgentState
 from skuggi.tools import build_tools
 from skuggi.vectorstore import Store
-from tests.fakes import RoleScriptedChatModel
 
 TOOL_CALL = AIMessage(
     content="",
@@ -29,7 +29,9 @@ TOOL_CALL = AIMessage(
 )
 
 
-def _turn(app: object, text: str, thread: str = "t1", **overrides: object) -> AgentState:
+def _turn(
+    app: object, text: str, thread: str = "t1", **overrides: object
+) -> AgentState:
     initial: AgentState = {
         "messages": [HumanMessage(content=text)],
         "scratch": [],

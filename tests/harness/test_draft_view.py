@@ -89,7 +89,9 @@ def test_show_makes_the_finalized_draft_authoritative(view: DraftView) -> None:
 def test_block_content_is_flattened(view: DraftView) -> None:
     """Responses-API and Anthropic chunks carry content blocks, not strings."""
     view.push(
-        AIMessageChunk(content=[{"type": "text", "text": "blocky", "index": 0}], id="r"),
+        AIMessageChunk(
+            content=[{"type": "text", "text": "blocky", "index": 0}], id="r"
+        ),
         "worker",
     )
     assert view.buffer == "blocky"

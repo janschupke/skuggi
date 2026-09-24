@@ -14,7 +14,9 @@ def _auth_file(tmp_path: Path, mode: int = 0o600) -> Path:
     home = tmp_path / "codex"
     home.mkdir(exist_ok=True)
     path = home / "auth.json"
-    path.write_text(json.dumps({"auth_mode": "chatgpt", "tokens": {}}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"auth_mode": "chatgpt", "tokens": {}}), encoding="utf-8"
+    )
     path.chmod(mode)
     return path
 
@@ -47,7 +49,9 @@ def test_save_repairs_an_already_widened_file(tmp_path: Path) -> None:
 def test_save_writes_content_and_leaves_no_temp_file(tmp_path: Path) -> None:
     path = _auth_file(tmp_path)
 
-    CodexTokenStore(path)._save({"auth_mode": "chatgpt", "tokens": {"access_token": "abc"}})
+    CodexTokenStore(path)._save(
+        {"auth_mode": "chatgpt", "tokens": {"access_token": "abc"}}
+    )
 
     assert json.loads(path.read_text())["tokens"]["access_token"] == "abc"
     leftovers = [p.name for p in path.parent.iterdir() if p.name != "auth.json"]

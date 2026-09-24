@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import importlib.metadata as metadata
+from importlib import metadata
 from pathlib import Path
 
 import pytest
+from tests.fakes import CountingFakeEmbeddings
 
 from skuggi import ingest
-from tests.fakes import CountingFakeEmbeddings
 
 
 @pytest.fixture(autouse=True)

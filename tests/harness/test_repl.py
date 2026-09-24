@@ -10,16 +10,16 @@ from pathlib import Path
 
 import pytest
 from rich.console import Console
-
-from skuggi.config import Settings
-from skuggi.tools import build_tools
-from skuggi.tui import HELP, Tui
-from skuggi.vectorstore import Store
 from tests.fakes import (
     CountingFakeEmbeddings,
     FakePromptSession,
     RoleScriptedChatModel,
 )
+
+from skuggi.config import Settings
+from skuggi.tools import build_tools
+from skuggi.tui import HELP, Tui
+from skuggi.vectorstore import Store
 
 
 @pytest.fixture

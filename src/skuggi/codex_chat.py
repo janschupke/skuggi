@@ -61,7 +61,11 @@ def jwt_expiry(token: str) -> int | None:
     except (IndexError, ValueError, binascii.Error):
         return None
     exp = claims.get("exp") if isinstance(claims, dict) else None
-    return int(exp) if isinstance(exp, (int, float)) and not isinstance(exp, bool) else None
+    return (
+        int(exp)
+        if isinstance(exp, (int, float)) and not isinstance(exp, bool)
+        else None
+    )
 
 
 class CodexAuthError(RuntimeError):

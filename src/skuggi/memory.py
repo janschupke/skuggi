@@ -44,8 +44,5 @@ def list_threads(saver: BaseCheckpointSaver[str]) -> list[str]:
     the saver's own `limit` caps checkpoints rather than threads, so it is not a
     useful way to bound this.
     """
-    ids = (
-        tuple_.config["configurable"]["thread_id"]
-        for tuple_ in saver.list(None)
-    )
+    ids = (tuple_.config["configurable"]["thread_id"] for tuple_ in saver.list(None))
     return list(dict.fromkeys(str(thread_id) for thread_id in ids))

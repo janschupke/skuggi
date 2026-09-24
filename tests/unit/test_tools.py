@@ -179,9 +179,7 @@ def test_retrieve_clamps_k(store: Store, tmp_path: Path) -> None:
         (docs / f"d{i}.md").write_text(f"passage number {i}", encoding="utf-8")
     store.ingest([docs])
 
-    out = _tool(build_tools(store), "retrieve").invoke(
-        {"query": "passage", "k": 10**6}
-    )
+    out = _tool(build_tools(store), "retrieve").invoke({"query": "passage", "k": 10**6})
 
     assert out.count("---") <= 10
 

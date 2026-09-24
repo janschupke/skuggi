@@ -11,10 +11,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-
-from skuggi.config import Provider
-from skuggi.state import AgentState
 from tests.eval.conftest import answer, require, tool_names
+
+from skuggi.state import AgentState
 
 pytestmark = [
     pytest.mark.eval,
