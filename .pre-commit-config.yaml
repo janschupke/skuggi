@@ -1,0 +1,56 @@
+# Local hooks deliberately use `language: system` + `uv run` rather than
+# mirrors-mypy. mirrors-mypy runs in an isolated virtualenv containing only what
+# additional_dependencies lists, so type-checking code that imports langchain,
+# langgraph, pydantic, httpx and rich would mean duplicating the entire runtime
+# dependency list into this file -- a second copy uv.lock knows nothing about,
+# which drifts until the hook and CI disagree about what the type errors are.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: check-json
+      - id: debug-statements
+      # Not boilerplate here: this project's subject is credential files, and
+      # tests/ is not gitignored.
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+      - id: forbid-submodules
+
+  - repo: local
+    hooks:
+      # pass_filenames: false throughout -- mypy needs the whole package for
+      # cross-module inference, and isort rules need to see every import block.
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix --exit-non-zero-on-fix
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run mypy
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+      # On push only: the suite builds FAISS indexes and opens sqlite savers, and
+      # a slow pre-commit hook is a hook people start bypassing.
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+        stages: [pre-push]

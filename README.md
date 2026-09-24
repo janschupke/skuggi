@@ -160,6 +160,22 @@ It can be in one of two shapes:
 If the `chatgpt` path stops working after an `OAuth refresh failed` error,
 run `codex login` again.
 
+## Development
+
+```sh
+make install     # uv sync --all-groups, plus the git hooks
+make check       # ruff format --check, ruff, mypy --strict, pytest -- what CI runs
+make eval        # the real-provider layer; costs money, needs credentials
+```
+
+`make check` is the gate. It uses `ruff format --check` and never the rewriting
+formatter, because a target that rewrites files can never fail and so can never
+gate anything; `make format` is the one that fixes things.
+
+The test suite is four layers, three of them offline -- see
+[docs/testing.md](docs/testing.md). CI runs lint, format and types once on 3.12
+and the suite on 3.12, 3.13 and 3.14.
+
 ## Storage layout
 
 - `./data/sessions.db` — LangGraph SqliteSaver checkpoint store

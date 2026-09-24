@@ -1,0 +1,39 @@
+UV ?= uv
+
+.PHONY: install lint format typecheck test eval check clean
+
+## sync the locked environment and install the git hooks
+install:
+	$(UV) sync --all-groups
+	$(UV) run pre-commit install
+	$(UV) run pre-commit install --hook-type pre-push
+
+lint:
+	$(UV) run ruff check
+
+## rewrites files; `make check` verifies instead
+format:
+	$(UV) run ruff format
+	$(UV) run ruff check --fix
+
+typecheck:
+	$(UV) run mypy
+
+test:
+	$(UV) run pytest
+
+## talks to real providers, costs money, needs credentials. Never part of `check`.
+eval:
+	$(UV) run pytest -m eval
+
+## The gate. Same commands, same order as .github/workflows/ci.yml.
+## `ruff format --check` and never `ruff format`: a target that rewrites files
+## can never fail, so it can never gate anything.
+check:
+	$(UV) run ruff format --check
+	$(UV) run ruff check
+	$(UV) run mypy
+	$(UV) run pytest
+
+clean:
+	rm -rf .ruff_cache .mypy_cache .pytest_cache htmlcov coverage.xml .coverage dist *.egg-info

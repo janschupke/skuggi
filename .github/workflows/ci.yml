@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: lint, format, types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install 3.12
+      # --frozen: a stale uv.lock is a red build, not a silently drifting env.
+      - run: uv sync --frozen --all-groups
+      - run: uv run ruff check --output-format=github
+      # --check, never the rewriting formatter: CI reports, it does not fix.
+      - run: uv run ruff format --check
+      - run: uv run mypy
+
+  test:
+    name: pytest (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is the floor and what mypy targets; 3.14 is the dev interpreter;
+        # 3.13 is included because skipping the middle version is how you learn
+        # about a 3.13-only break from a user instead of from CI.
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ matrix.python }}
+      - run: uv sync --frozen --all-groups --python ${{ matrix.python }}
+      # The eval layer is deselected by default, so no credentials are needed
+      # and the suite must pass on a machine that has none.
+      - run: uv run --python ${{ matrix.python }} pytest
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-${{ matrix.python }}
+          path: coverage.xml
