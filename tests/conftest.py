@@ -14,7 +14,7 @@ import httpx
 import pytest
 from rich.console import Console
 
-from skuggi import codex_chat, providers
+from skuggi import codex_chat
 from skuggi.vectorstore import Store
 from tests.fakes import CountingFakeEmbeddings
 
@@ -31,14 +31,20 @@ def isolate_credentials(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Strip provider env vars and redirect the auth.json lookups.
+    """Strip provider env vars, redirect auth.json, and escape the repo's .env.
 
-    `providers.AUTH_JSON` and `codex_chat._AUTH_PATH_DEFAULT` are module-level
-    constants that are `.expanduser()`-ed at import time, so
-    `monkeypatch.setenv("HOME", ...)` does NOT redirect them. Without the two
-    `setattr` calls below the suite passes while reading the developer's real
-    ~/.codex/auth.json -- a bad outcome for a project whose subject is
-    credential files.
+    Three separate leaks have to be closed:
+
+    1. Environment variables, including every SKUGGI_* override.
+    2. `Settings` reads a `.env` file relative to the working directory, so a
+       test run from the repo root would pick up the developer's real
+       OPENAI_API_KEY. chdir to a temp directory closes that, and incidentally
+       redirects the default relative ./data paths somewhere disposable.
+    3. `codex_chat._AUTH_PATH_DEFAULT` is a module-level constant already
+       `.expanduser()`-ed at import time, so setting HOME does NOT redirect it.
+
+    Get any of these wrong and the suite passes while reading real credentials --
+    a bad outcome for a project whose subject matter is credential files.
     """
     if _is_eval(request):
         return
@@ -48,8 +54,11 @@ def isolate_credentials(
         if name.startswith("SKUGGI_"):
             monkeypatch.delenv(name, raising=False)
     absent = tmp_path / "no-such-auth.json"
-    monkeypatch.setattr(providers, "AUTH_JSON", absent)
+    monkeypatch.setenv("SKUGGI_CODEX_AUTH_PATH", str(absent))
     monkeypatch.setattr(codex_chat, "_AUTH_PATH_DEFAULT", absent)
+    workdir = tmp_path / "cwd"
+    workdir.mkdir(exist_ok=True)
+    monkeypatch.chdir(workdir)
 
 
 def os_environ_keys() -> list[str]:

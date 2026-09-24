@@ -1,11 +1,10 @@
-from dotenv import load_dotenv
-
+from skuggi.config import Settings
 from skuggi.tui import Tui
 
 
 def main() -> None:
-    load_dotenv()
-    Tui().run()
+    """Launch the REPL."""
+    Tui(Settings()).run()
 
 
 if __name__ == "__main__":

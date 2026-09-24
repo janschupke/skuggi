@@ -6,9 +6,7 @@ current SqliteSaver-checkpointed thread; output streams via rich.live.Live.
 
 from __future__ import annotations
 
-import os
 import uuid
-from pathlib import Path
 
 from langchain_core.messages import HumanMessage
 from prompt_toolkit import PromptSession
@@ -19,6 +17,7 @@ from rich.markdown import Markdown
 from rich.table import Table
 
 from skuggi import memory, providers, tools
+from skuggi.config import Provider, Settings
 from skuggi.graph import build_graph
 from skuggi.vectorstore import Store
 
@@ -35,32 +34,50 @@ _HELP = [
 
 
 class Tui:
-    def __init__(self) -> None:
-        self.console = Console()
-        self.sqlite_path = os.environ.get("SKUGGI_SQLITE_PATH", "./data/sessions.db")
-        self.faiss_path = os.environ.get("SKUGGI_FAISS_PATH", "./data/faiss_index")
-        self.max_revisions = int(os.environ.get("SKUGGI_MAX_REVISIONS", "2"))
-        self.provider = os.environ.get("SKUGGI_PROVIDER", "openai")
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        *,
+        console: Console | None = None,
+        session: PromptSession[str] | None = None,
+    ) -> None:
+        """Wire up a session. `console` and `session` are injectable for tests."""
+        self.settings = settings or Settings()
+        self.console = console or Console()
         self.model: str | None = None
         self.thread_id = str(uuid.uuid4())
 
-        Path("./data").mkdir(parents=True, exist_ok=True)
-        history_file = Path("./data/.repl_history")
+        history_file = self.settings.history_path
         history_file.parent.mkdir(parents=True, exist_ok=True)
-        self.session: PromptSession = PromptSession(history=FileHistory(str(history_file)))
+        self.session: PromptSession[str] = session or PromptSession(
+            history=FileHistory(str(history_file))
+        )
 
-        self._embeddings = providers.get_embeddings()
-        self.store = Store(self.faiss_path, self._embeddings)
-        self.tools_list = tools.build_tools(self.store)
-        self.llm = providers.get_chat_model(self.provider, self.model)
+        self._embeddings = providers.get_embeddings(self.settings)
+        self.store = Store(str(self.settings.faiss_path), self._embeddings)
+        self.tools_list = tools.build_tools(self.store, k=self.settings.retrieve_k)
+        self.llm = providers.get_chat_model(self.settings, model=self.model)
 
-        self._saver_ctx = memory.open_checkpointer(self.sqlite_path)
+        self._saver_ctx = memory.open_checkpointer(str(self.settings.sqlite_path))
         self.saver = self._saver_ctx.__enter__()
-        self.graph = build_graph(
+        self.graph = self._build()
+
+    @property
+    def provider(self) -> Provider:
+        """The active provider name."""
+        return self.settings.provider
+
+    @property
+    def max_revisions(self) -> int:
+        """Critic revision budget for one turn."""
+        return self.settings.max_revisions
+
+    def _build(self) -> object:
+        return build_graph(
             self.llm,
             self.tools_list,
             self.saver,
-            bind_tools=self.provider != "chatgpt",
+            bind_tools=self.settings.supports_tools(),
         )
 
     # ----- lifecycle -----
@@ -98,8 +115,8 @@ class Tui:
         self.console.rule("[bold]skuggi[/bold]")
         self.console.print(
             f"provider=[cyan]{self.provider}[/cyan]  "
-            f"sqlite=[dim]{self.sqlite_path}[/dim]  "
-            f"faiss=[dim]{self.faiss_path}[/dim]  "
+            f"sqlite=[dim]{self.settings.sqlite_path}[/dim]  "
+            f"faiss=[dim]{self.settings.faiss_path}[/dim]  "
             f"max_revisions=[dim]{self.max_revisions}[/dim]"
         )
         self.console.print("type /help for commands\n")
@@ -142,7 +159,7 @@ class Tui:
         if name not in {"openai", "chatgpt", "anthropic", "ollama"}:
             self.console.print(f"[red]unknown provider:[/red] {name!r}")
             return
-        self.provider = name
+        self.settings = self.settings.model_copy(update={"provider": name})
         self.model = None
         self._rebuild()
 
@@ -155,16 +172,11 @@ class Tui:
 
     def _rebuild(self) -> None:
         try:
-            self.llm = providers.get_chat_model(self.provider, self.model)
+            self.llm = providers.get_chat_model(self.settings, model=self.model)
         except Exception as e:
             self.console.print(f"[red]provider error:[/red] {e}")
             return
-        self.graph = build_graph(
-            self.llm,
-            self.tools_list,
-            self.saver,
-            bind_tools=self.provider != "chatgpt",
-        )
+        self.graph = self._build()
         self.console.print(
             f"[dim]switched to[/dim] {self.provider}/{self.model or '(default)'}"
         )
@@ -174,7 +186,7 @@ class Tui:
             self.thread_id = str(uuid.uuid4())
             self.console.print(f"[dim]new thread:[/dim] {self.thread_id}")
         elif arg == "list":
-            ids = memory.list_threads(self.sqlite_path)
+            ids = memory.list_threads(str(self.settings.sqlite_path))
             if not ids:
                 self.console.print("[dim](no threads)[/dim]")
                 return

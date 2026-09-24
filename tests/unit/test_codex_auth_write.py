@@ -10,7 +10,10 @@ from skuggi.codex_chat import CodexChatModel
 
 
 def _auth_file(tmp_path: Path, mode: int = 0o600) -> Path:
-    path = tmp_path / "auth.json"
+    # Its own directory, so the leftover-temp-file assertion sees only this file.
+    home = tmp_path / "codex"
+    home.mkdir(exist_ok=True)
+    path = home / "auth.json"
     path.write_text(json.dumps({"auth_mode": "chatgpt", "tokens": {}}), encoding="utf-8")
     path.chmod(mode)
     return path
@@ -50,5 +53,5 @@ def test_save_auth_writes_content_and_leaves_no_temp_file(tmp_path: Path) -> Non
     model._save_auth({"auth_mode": "chatgpt", "tokens": {"access_token": "abc"}})
 
     assert json.loads(path.read_text())["tokens"]["access_token"] == "abc"
-    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "auth.json"]
+    leftovers = [p.name for p in path.parent.iterdir() if p.name != "auth.json"]
     assert leftovers == [], f"temp files left behind: {leftovers}"

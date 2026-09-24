@@ -36,8 +36,10 @@ dependencies = [
     # structurally on Live/Markdown/Table rendering.
     "rich>=15,<16",
     "prompt-toolkit>=3.0.53",
-    "python-dotenv>=1.0",
     "pydantic>=2.9",
+    # Reads .env itself (via dotenv internally), so python-dotenv is no longer
+    # a direct dependency.
+    "pydantic-settings>=2.15",
     "httpx>=0.28",
 ]
 
