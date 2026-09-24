@@ -20,6 +20,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, time
 from pathlib import Path
@@ -89,11 +90,19 @@ class EngagementConfig(BaseModel):
         """The engagement's timezone as a ``ZoneInfo``."""
         return ZoneInfo(self.timezone)
 
-    def describe(self) -> str:
-        """A one-block human summary for the REPL."""
+    def describe(self, *, method_paint: Callable[[str], str] | None = None) -> str:
+        """A one-block human summary for the REPL.
+
+        ``method_paint`` styles each method name (the REPL passes the palette);
+        without it the summary is plain, for the daemon and the report. Colour
+        is applied to the structured method list here, so no front-end has to
+        re-parse this rendered text.
+        """
+        paint = method_paint or (lambda m: m)
         nets = ", ".join(str(n) for n in self.target_networks) or "(none)"
         daily = ", ".join(f"{w.start}-{w.end}" for w in self.daily_windows) or "any"
         hosts = ", ".join(sorted(self.allowed_hosts)) or "(none)"
+        methods = ", ".join(paint(m) for m in sorted(self.allowed_methods))
         return (
             f"engagement: {self.name}\n"
             f"  window: {self.authorized_start.isoformat()} "
@@ -102,7 +111,7 @@ class EngagementConfig(BaseModel):
             f"  networks: {nets}\n"
             f"  hosts:  {hosts}\n"
             f"  tools:  {', '.join(sorted(self.allowed_tools))}\n"
-            f"  methods: {', '.join(sorted(self.allowed_methods))}\n"
+            f"  methods: {methods}\n"
             f"  autonomous: {self.autonomous}"
         )
 

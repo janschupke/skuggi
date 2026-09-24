@@ -22,7 +22,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Iterator
 
-from skuggi.core import AgentCore
+from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, doctor_ansi
 from skuggi.ledger import finding_line
 
@@ -117,9 +117,8 @@ class Daemon:
         return f"mode: {self.core.mode}\n"
 
     def _set_autonomous(self, arg: str) -> str:
-        want = {"on": True, "off": False}.get(arg.lower())
         try:
-            state = self.core.set_autonomous(want)
+            state = self.core.set_autonomous(parse_toggle(arg))
         except ValueError as e:
             return f"{e}\n"
         return f"autonomous execution is now {'ON' if state else 'off'}\n"

@@ -24,7 +24,7 @@ from rich.table import Table
 
 from skuggi import palette
 from skuggi.config import Settings
-from skuggi.core import AgentCore
+from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, render_doctor
 from skuggi.engagement import EngagementConfig
 from skuggi.ledger import Ledger, finding_line
@@ -264,26 +264,15 @@ class Tui:
         self.console.print(f"[dim]mode:[/dim] {self.mode}")
 
     def _cmd_engagement(self, _arg: str) -> None:
-        described = self.core.describe_engagement()
-        if described is None:
+        eng = self.engagement
+        if eng is None:
             self.console.print("[yellow]no engagement loaded[/yellow]")
             return
-        self.console.print(self._colour_scope(described))
-
-    def _colour_scope(self, described: str) -> str:
-        """Tint the method line of a scope summary with the method palette."""
-        out: list[str] = []
-        for line in described.splitlines():
-            if line.strip().startswith("methods:"):
-                label, _, rest = line.partition(":")
-                names = [n.strip() for n in rest.split(",") if n.strip()]
-                painted = ", ".join(
-                    palette.paint(n, palette.method_style(n)) for n in names
-                )
-                out.append(f"{label}: {painted}")
-            else:
-                out.append(line)
-        return "\n".join(out)
+        self.console.print(
+            eng.describe(
+                method_paint=lambda m: palette.paint(m, palette.method_style(m))
+            )
+        )
 
     def _cmd_doctor(self, arg: str) -> None:
         parts = arg.split()
@@ -328,9 +317,8 @@ class Tui:
         self.console.print(f"[green]report written:[/green] {path}")
 
     def _cmd_autonomous(self, arg: str) -> None:
-        want = {"on": True, "off": False}.get(arg.lower())
         try:
-            state = self.core.set_autonomous(want)
+            state = self.core.set_autonomous(parse_toggle(arg))
         except ValueError as e:
             self.console.print(f"[yellow]{e}[/yellow]")
             return

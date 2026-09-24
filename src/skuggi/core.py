@@ -46,6 +46,15 @@ _PROVIDERS = get_args(Provider)
 EventKind = Literal["reset", "status", "token", "final"]
 
 
+def parse_toggle(arg: str) -> bool | None:
+    """Parse an on/off argument; None (neither) means "flip the current state".
+
+    Shared by the REPL and the daemon so /autonomous parses identically in
+    both front-ends.
+    """
+    return {"on": True, "off": False}.get(arg.strip().lower())
+
+
 @dataclass(frozen=True, slots=True)
 class TurnEvent:
     """One item streamed out of a turn.
