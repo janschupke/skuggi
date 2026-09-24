@@ -111,3 +111,91 @@ class ScriptedChatModel(BaseChatModel):
     def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> BaseChatModel:
         self.tools_bound = [getattr(tool, "name", str(tool)) for tool in tools]
         return self
+
+
+class RoleScriptedChatModel(BaseChatModel):
+    """Replies according to which node is asking, not call order.
+
+    Every node in the graph invokes the same model, and a revision loop revisits
+    them an unpredictable number of times, so an ordered reply queue desynchronises
+    as soon as a test exercises more than one pass. Dispatching on the system
+    prompt keeps multi-pass tests readable. ``calls`` records ``(role, prompt)``
+    so a test can assert what actually reached each node.
+    """
+
+    plan_reply: str = "1. answer the question"
+    worker_replies: list[str | AIMessage] = []
+    critic_replies: list[str] = ["APPROVED: fine"]
+    calls: list[tuple[str, list[BaseMessage]]] = []
+
+    @property
+    def _llm_type(self) -> str:
+        return "role-scripted"
+
+    @staticmethod
+    def _role(messages: Sequence[BaseMessage]) -> str:
+        system = next((m.text for m in messages if m.type == "system"), "")
+        for role in ("planner", "worker", "critic"):
+            if f"You are the {role}" in system:
+                return role
+        return "worker"
+
+    def prompts_for(self, role: str) -> list[str]:
+        """The human-facing prompt text each `role` invocation received."""
+        return [
+            "\n".join(m.text for m in messages if m.type != "system")
+            for seen, messages in self.calls
+            if seen == role
+        ]
+
+    def _reply(self, messages: list[BaseMessage]) -> AIMessage:
+        role = self._role(messages)
+        self.calls.append((role, list(messages)))
+        seen = sum(1 for call_role, _ in self.calls if call_role == role)
+        if role == "planner":
+            return AIMessage(content=self.plan_reply, id=f"plan-{seen}")
+        queue: list[str | AIMessage] = (
+            list(self.worker_replies) if role == "worker" else list(self.critic_replies)
+        )
+        if not queue:
+            return AIMessage(content="", id=f"{role}-{seen}")
+        chosen = queue[min(seen - 1, len(queue) - 1)]
+        if isinstance(chosen, AIMessage):
+            # Give every reply a fresh id, including the tool-call ids. add_messages
+            # treats a repeated id as a REPLACEMENT rather than an append, so
+            # returning the same scripted AIMessage object twice would silently
+            # overwrite the previous entry and break a multi-round tool cycle.
+            calls = [
+                {**call, "id": f"call-{role}-{seen}-{i}"}
+                for i, call in enumerate(chosen.tool_calls)
+            ]
+            return chosen.model_copy(
+                update={"id": f"{role}-{seen}", "tool_calls": calls}
+            )
+        return AIMessage(content=chosen, id=f"{role}-{seen}")
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        return ChatResult(generations=[ChatGeneration(message=self._reply(messages))])
+
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> BaseChatModel:
+        return self
+
+
+class FakePromptSession:
+    """Feeds queued lines to the REPL, then signals end-of-input."""
+
+    def __init__(self, lines: Sequence[str]) -> None:
+        self._lines = list(lines)
+        self.prompts: list[str] = []
+
+    def prompt(self, text: str = "") -> str:
+        self.prompts.append(text)
+        if not self._lines:
+            raise EOFError
+        return self._lines.pop(0)
