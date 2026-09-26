@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +21,7 @@ from skuggi.commands import CommandAlias, CommandRegistry
 from skuggi.config import config_path
 from skuggi.configs import ConfigError
 from skuggi.core import AgentCore
+from skuggi.execution import CommandResult
 from skuggi.registry import ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
 
@@ -278,3 +280,43 @@ def test_propose_config_parses_llm_lines(core: AgentCore) -> None:
     assert ("retrieve_k", "8") in proposals
     assert ("provider", "anthropic") in proposals
     assert len(proposals) == 2  # the garbage line is dropped
+
+
+# --- self-update (the `update` verb) ----------------------------------------
+
+
+def _result(argv: list[str], *, exit_code: int, err: str = "") -> CommandResult:
+    now = datetime.now(UTC)
+    return CommandResult(
+        command=" ".join(argv),
+        exit_code=exit_code,
+        stdout="ok\n" if exit_code == 0 else "",
+        stderr=err,
+        started_at=now,
+        finished_at=now,
+    )
+
+
+def test_self_update_runs_pull_then_sync(core: AgentCore) -> None:
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> CommandResult:
+        calls.append(argv)
+        return _result(argv, exit_code=0)
+
+    lines = list(core.self_update(runner))
+    assert ["git", "pull", "--ff-only"] in calls
+    assert ["uv", "sync"] in calls
+    assert any("updated to skuggi" in line for line in lines)
+
+
+def test_self_update_aborts_on_a_failed_step(core: AgentCore) -> None:
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> CommandResult:
+        calls.append(argv)
+        return _result(argv, exit_code=1 if argv[0] == "git" else 0, err="boom")
+
+    lines = list(core.self_update(runner))
+    assert any("aborted" in line for line in lines)
+    assert ["uv", "sync"] not in calls  # the failed pull short-circuits sync

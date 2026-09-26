@@ -273,3 +273,16 @@ def test_attach_config_request_confirms_and_applies(
     assert [f["ask"] for f in emitted if "ask" in f]  # asked to confirm
     assert daemon.core.mode == "blueteam"  # applied to the warm core
     assert "applied live" in "".join(str(f.get("chunk", "")) for f in emitted)
+
+
+def test_update_verb_streams_core_output(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # self_update's subprocess logic is unit-tested in test_core; here just prove
+    # the `update` verb routes to it and streams its lines.
+    monkeypatch.setattr(
+        daemon.core, "self_update", lambda: iter(["updating\n", "done\n"])
+    )
+    out = _chunks(daemon, {"op": "input", "text": "update"})
+    assert "updating" in out
+    assert "done" in out

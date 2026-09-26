@@ -15,8 +15,9 @@ front-end shows them) rather than crashing the session.
 
 from __future__ import annotations
 
+import re
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,8 +30,17 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from pydantic import TypeAdapter, ValidationError
 
+from skuggi import (
+    __version__,
+    execution,
+    memory,
+    pentest_tools,
+    probe,
+    providers,
+    reports,
+    tools,
+)
 from skuggi import ledger as ledger_mod
-from skuggi import memory, pentest_tools, probe, providers, reports, tools
 from skuggi.commands import CommandRegistry, raw_command
 from skuggi.config import (
     _SECRET_FIELDS,
@@ -52,6 +62,7 @@ from skuggi.engagement import (
     check_command,
     parse_command,
 )
+from skuggi.execution import CommandResult
 from skuggi.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.ledger import FindingRow
 from skuggi.modes import MODES, Mode, prompt_set
@@ -64,6 +75,21 @@ _STREAM_MODES: list[StreamMode] = ["updates", "messages"]
 _PROVIDERS = get_args(Provider)
 
 EventKind = Literal["reset", "status", "token", "final"]
+
+# A subprocess runner for `update`, injectable so the path is captured + tested.
+UpdateRunner = Callable[[list[str]], CommandResult]
+# Update commands can build wheels; give them far longer than a scan's cap.
+_UPDATE_TIMEOUT_S = 600.0
+
+
+def _installed_version(root: Path) -> str:
+    """Read ``__version__`` from the on-disk source (post-pull), or ``?``."""
+    try:
+        text = (root / "src" / "skuggi" / "__init__.py").read_text(encoding="utf-8")
+    except OSError:
+        return "?"
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
+    return match.group(1) if match else "?"
 
 
 def parse_toggle(arg: str) -> bool | None:
@@ -456,6 +482,32 @@ class AgentCore:
             if sep and key.strip() in settable:
                 proposals.append((key.strip(), value.strip()))
         return proposals
+
+    # ----- self-update (the `update` verb) -----------------------------------
+
+    def self_update(self, runner: UpdateRunner | None = None) -> Iterator[str]:
+        """Update the install in place: ``git pull --ff-only`` then ``uv sync``.
+
+        Yields progress text. `runner` is injected (default ``execution.run``,
+        bound to the repo root) so the subprocess path stays captured and
+        testable. A non-zero step aborts; code changes take effect on restart.
+        """
+        root = Path(__file__).resolve().parents[2]
+        run_cmd = runner or (
+            lambda argv: execution.run(argv, timeout=_UPDATE_TIMEOUT_S, cwd=root)
+        )
+        yield f"skuggi {__version__} -- updating in {root}\n"
+        for argv in (["git", "pull", "--ff-only"], ["uv", "sync"]):
+            yield f"$ {' '.join(argv)}\n"
+            result = run_cmd(list(argv))
+            output = (result.stdout + result.stderr).strip()
+            if output:
+                yield output + "\n"
+            if result.exit_code != 0:
+                yield f"update aborted: '{' '.join(argv)}' exited {result.exit_code}\n"
+                return
+        after = _installed_version(root)
+        yield f"updated to skuggi {after}; restart skuggi to run the new code\n"
 
     def findings(self) -> list[FindingRow]:
         """Findings recorded this session."""

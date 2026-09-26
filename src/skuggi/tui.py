@@ -100,6 +100,7 @@ class Tui:
             "autonomous": self._cmd_autonomous,
             "clear": self._cmd_clear,
             "ingest": self._cmd_ingest,
+            "update": self._cmd_update,
         }
 
     # ----- delegated read state ----------------------------------------------
@@ -453,6 +454,10 @@ class Tui:
                 shown = True
         if not shown:
             self.console.print("[dim](no tool activity on this thread)[/dim]")
+
+    def _cmd_update(self, _arg: str) -> None:
+        for line in self.core.self_update():
+            self.console.print(line.rstrip())
 
     def _cmd_clear(self, _arg: str) -> None:
         self.console.clear()

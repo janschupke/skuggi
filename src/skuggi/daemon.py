@@ -195,6 +195,7 @@ class Daemon:
             "history": self._history,
             "trace": self._trace,
             "ingest": self._ingest,
+            "update": self._update,
             "clear": self._clear,
         }.get(verb)
         if handler is None:  # pragma: no cover -- KNOWN guards this in _dispatch
@@ -359,6 +360,9 @@ class Daemon:
             yield "usage: ingest <path>\n"
             return
         yield f"indexed {self.core.ingest(Path(arg))} chunk(s)\n"
+
+    def _update(self, _arg: str) -> Iterator[str]:
+        yield from self.core.self_update()
 
     def _clear(self, _arg: str) -> Iterator[str]:
         yield "clear is only available in skuggi-repl\n"
