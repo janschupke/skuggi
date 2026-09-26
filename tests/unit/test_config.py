@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -81,3 +83,51 @@ def test_suite_does_not_see_real_credentials() -> None:
     assert settings.openai_api_key is None
     assert settings.anthropic_api_key is None
     assert not settings.auth_json().exists()
+
+
+# --- JSON config source -----------------------------------------------------
+
+
+def _write_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, data: dict[str, object]
+) -> None:
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setenv("SKUGGI_CONFIG_PATH", str(cfg))
+
+
+def test_json_config_is_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_config(tmp_path, monkeypatch, {"provider": "ollama", "retrieve_k": 9})
+    settings = Settings()
+    assert settings.provider == "ollama"
+    assert settings.retrieve_k == 9
+
+
+def test_env_overrides_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_config(tmp_path, monkeypatch, {"provider": "ollama"})
+    monkeypatch.setenv("SKUGGI_PROVIDER", "anthropic")
+    assert Settings().provider == "anthropic"  # env wins over JSON
+
+
+def test_missing_json_config_falls_back_to_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SKUGGI_CONFIG_PATH", str(tmp_path / "absent.json"))
+    assert Settings().provider == "openai"
+
+
+def test_secrets_are_never_read_from_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A key mistakenly placed in the JSON config must be ignored, not loaded."""
+    _write_config(tmp_path, monkeypatch, {"openai_api_key": "sk-leaked-from-json"})
+    assert Settings().openai_api_key is None
+
+
+def test_example_config_loads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The shipped configs/config.example.json validates against Settings."""
+    example = Path(__file__).parents[2] / "configs" / "config.example.json"
+    monkeypatch.setenv("SKUGGI_CONFIG_PATH", str(example))
+    settings = Settings()
+    assert settings.provider == "openai"
+    assert settings.mode == "pentest"

@@ -43,7 +43,7 @@ model is nondeterministic.
 `no_network` makes a forgotten mock raise instead of reaching the internet, and
 `isolate_credentials` strips the provider env vars, redirects the `auth.json`
 lookup, and chdirs to a temp directory so `Settings` cannot read the repo's own
-`.env`. `test_suite_does_not_see_real_credentials` guards the fixture itself --
+`configs/config.json`. `test_suite_does_not_see_real_credentials` guards the fixture itself --
 if isolation breaks, every credential assertion elsewhere becomes meaningless.
 
 **`filterwarnings = ["error"]`.** Two ignores, both explained where they are

@@ -75,8 +75,8 @@ Files that can be read top-to-bottom in one sitting:
 
 - [config.py](../src/skuggi/config.py) — every setting, in one typed
   `pydantic-settings` object. No module-level singleton by design: a singleton
-  would read `.env` at import time and make `import skuggi.providers` a
-  filesystem side effect.
+  would read `configs/config.json` at import time and make `import
+  skuggi.providers` a filesystem side effect.
 - [registry.py](../src/skuggi/registry.py) / [probe.py](../src/skuggi/probe.py)
   / the rendering half of [doctor.py](../src/skuggi/doctor.py) — the recognized-
   tool data model, host probing + install, and the doctor tables respectively.

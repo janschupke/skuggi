@@ -1,27 +1,35 @@
-"""Typed configuration, replacing scattered os.environ.get calls.
+"""Typed configuration for one skuggi session.
 
-Every setting is read from the environment with a ``SKUGGI_`` prefix, or from a
-``.env`` file, or passed explicitly to the constructor. Vendor credentials keep
-their conventional unprefixed names via ``validation_alias``.
+Values resolve in priority order: explicit constructor args, then environment
+variables (``SKUGGI_*`` plus the unprefixed vendor aliases), then the persisted
+JSON config file (``configs/config.json``, path overridable with
+``SKUGGI_CONFIG_PATH``), then the field defaults. The ``config`` verb edits that
+JSON; an env var still wins over it, which keeps CI and one-off overrides simple.
+
+**Secrets never live in the JSON.** The API keys are read only from the
+environment (or ``~/.codex/auth.json``); the JSON source is filtered to drop
+them even if a file mistakenly contains one.
 
 Construct this at an entry point and pass it down; there is deliberately no
-module-level singleton. A singleton would read ``.env`` at import time, making
-``import skuggi.providers`` a filesystem side effect, and would turn every test
-override into monkeypatching a global. ``Settings(provider="ollama")`` overrides
-the environment cleanly, which keeps tests to one line.
-
-Relative paths (including ``.env`` itself) resolve against the working
-directory, so ``skuggi`` is cwd-sensitive by design -- the data directory
-belongs to the project you run it from.
+module-level singleton, so ``import skuggi.providers`` has no filesystem side
+effect and a test override is one constructor arg. Relative paths resolve
+against the working directory, so ``skuggi`` is cwd-sensitive by design -- the
+data directory belongs to the project you run it from.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    JsonConfigSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 from skuggi.modes import Mode
 
@@ -35,18 +43,56 @@ ToolSource = Literal["host", "managed", "combine"]
 CODEX_RESPONSES_BASE = "https://chatgpt.com/backend-api/codex"
 CODEX_REFRESH_URL = "https://auth.openai.com/oauth/token"
 
+# The persisted, `config`-editable settings file. Overridable so tests (and a
+# multi-project user) can point elsewhere; env still overrides its values.
+DEFAULT_CONFIG_PATH = "./configs/config.json"
+CONFIG_PATH_ENV = "SKUGGI_CONFIG_PATH"
+
+# Field names that must never be sourced from (or written to) the JSON config:
+# credentials belong in the environment only.
+_SECRET_FIELDS = frozenset({"openai_api_key", "anthropic_api_key"})
+
+
+def config_path() -> Path:
+    """The active config.json path (``SKUGGI_CONFIG_PATH`` or the default)."""
+    return Path(os.environ.get(CONFIG_PATH_ENV, DEFAULT_CONFIG_PATH))
+
+
+class _NonSecretJsonSource(JsonConfigSettingsSource):
+    """A JSON settings source that refuses to supply credential fields."""
+
+    def __call__(self) -> dict[str, object]:
+        # Match case-insensitively: the source keys a secret by its env alias
+        # (e.g. "OPENAI_API_KEY"), whose lower-case form is the field name.
+        data = super().__call__()
+        return {k: v for k, v in data.items() if k.lower() not in _SECRET_FIELDS}
+
 
 class Settings(BaseSettings):
     """Runtime configuration for one skuggi session."""
 
     model_config = SettingsConfigDict(
         env_prefix="SKUGGI_",
-        env_file=".env",
-        env_file_encoding="utf-8",
         extra="ignore",
         frozen=True,
         populate_by_name=True,
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,  # noqa: ARG003 -- pydantic hook
+        file_secret_settings: PydanticBaseSettingsSource,  # noqa: ARG003 -- pydantic hook
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Resolve init args > env > configs/config.json > defaults.
+
+        Secrets are env-only (dropped from the JSON source).
+        """
+        json_source = _NonSecretJsonSource(settings_cls, json_file=config_path())
+        return (init_settings, env_settings, json_source)
 
     provider: Provider = "openai"
 

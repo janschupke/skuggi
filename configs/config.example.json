@@ -1,0 +1,20 @@
+{
+  "provider": "openai",
+  "model_openai": "gpt-6-luna",
+  "model_chatgpt": "gpt-6-luna",
+  "model_anthropic": "claude-haiku-4-5",
+  "model_ollama": "qwen3",
+  "embedding_model": "text-embedding-3-small",
+  "embedding_model_ollama": "nomic-embed-text",
+  "mode": "pentest",
+  "tool_source": "combine",
+  "command_timeout_s": 120,
+  "retrieve_k": 4,
+  "max_revisions": 2,
+  "max_tool_rounds": 4,
+  "history_messages": 8,
+  "history_chars": 4000,
+  "chunk_size": 800,
+  "chunk_overlap": 120,
+  "engagement": null
+}

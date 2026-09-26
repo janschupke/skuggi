@@ -30,8 +30,11 @@ CI covers 3.12–3.14).
 
 ```sh
 uv sync --all-groups
-cp .env.example .env
-# edit .env: set ANTHROPIC_API_KEY (easiest), or arrange OpenAI/ChatGPT auth
+
+# app config (persisted, edited by the `config` verb); tune it freely
+cp configs/config.example.json configs/config.json
+# secrets stay in the environment, never in the JSON:
+export ANTHROPIC_API_KEY=sk-ant-...      # easiest; or arrange OpenAI/ChatGPT auth
 
 # harness config (shared across engagements): the recognized-tool registry
 cp configs/tools.example.json configs/tools.json
@@ -194,19 +197,24 @@ The layout is configurable
 
 ## Configuration
 
-All settings are read from the environment (prefix `SKUGGI_`) or a `.env` file —
-see [.env.example](.env.example) for the full list (providers/models,
-embedding models, storage paths, graph bounds, mode, and the pentest-harness
-paths). Two tiers:
+App settings (providers/models, embedding models, storage paths, graph bounds,
+mode, the pentest-harness paths) live in **`configs/config.json`** — copy it from
+[configs/config.example.json](configs/config.example.json). Values resolve in
+priority order: an environment variable (prefix `SKUGGI_*`, or the unprefixed
+vendor names) overrides the JSON, which overrides the built-in defaults. So a
+one-off `SKUGGI_PROVIDER=anthropic` still wins for a single run. Config tiers:
 
-- **Harness config** (shared, in `configs/`, gitignored except `.example`): the
-  recognized-tool registry `tools.json` and the optional workspace-layout
-  override `layout.json`.
-- **Engagement setup** (per-case, in `engagements/<name>/scope.json`,
-  gitignored): the boundary above.
+- **App config** (`configs/config.json`, gitignored except `.example`): the
+  settings above; edit it directly or with the `config` verb.
+- **Harness config** (shared, in `configs/`): the recognized-tool registry
+  `tools.json` and the optional workspace-layout override `layout.json`.
+- **Engagement setup** (per-case, in `engagements/<name>/scope.json`): the
+  boundary above.
 
-Vendor credentials keep their conventional unprefixed names: `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, `OLLAMA_BASE_URL`.
+**Secrets never go in the JSON.** The API keys are read only from the
+environment — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` (or `~/.codex/auth.json`) —
+and `OLLAMA_BASE_URL`; see [.env.example](.env.example). The JSON config source
+drops these fields even if a file mistakenly contains one.
 
 ## Storage layout
 
