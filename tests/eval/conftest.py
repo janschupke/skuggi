@@ -23,7 +23,6 @@ from skuggi.config import Provider, Settings
 from skuggi.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.providers import get_chat_model, get_embeddings, resolve_openai_key
 from skuggi.state import AgentState
-from skuggi.tools import build_tools
 from skuggi.vectorstore import Store
 
 
@@ -72,27 +71,24 @@ def run_turn(tmp_path: Path) -> Callable[..., AgentState]:
             store.ingest([doc])
         deps = GraphDeps(
             llm=get_chat_model(settings),
-            tools=build_tools(store, root=tmp_path),
             store=store,
-            bind_tools=settings.supports_tools(),
-            max_tool_rounds=settings.max_tool_rounds,
+            native_structured=settings.supports_structured_output(),
+            max_command_rounds=settings.max_tool_rounds,
         )
         app = build_graph(deps, InMemorySaver())
         config: RunnableConfig = {
             "configurable": {"thread_id": "eval"},
             "recursion_limit": recursion_limit(
                 max_revisions=max_revisions,
-                max_tool_rounds=settings.max_tool_rounds,
+                max_command_rounds=settings.max_tool_rounds,
             ),
         }
-        state: AgentState = {"messages": [], "scratch": []}
+        state: AgentState = {"messages": []}
         for prompt in prompts:
             turn: AgentState = {
                 "messages": [HumanMessage(content=prompt)],
-                "scratch": [],
                 "revision_count": 0,
                 "max_revisions": max_revisions,
-                "tool_rounds": 0,
             }
             try:
                 state = cast("AgentState", app.invoke(turn, config))
@@ -109,13 +105,3 @@ def answer(state: AgentState) -> str:
     """The assistant's final reply, lowercased for tolerant matching."""
     replies = [m for m in state["messages"] if isinstance(m, AIMessage)]
     return replies[-1].text.lower() if replies else ""
-
-
-def tool_names(state: AgentState) -> list[str]:
-    """Tools the worker actually invoked this pass."""
-    return [
-        call["name"]
-        for message in state["scratch"]
-        if isinstance(message, AIMessage)
-        for call in message.tool_calls
-    ]

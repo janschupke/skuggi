@@ -10,26 +10,29 @@ from skuggi.state import AgentState
 
 
 def _state(**kwargs: object) -> AgentState:
-    base: AgentState = {"messages": [], "scratch": []}
+    base: AgentState = {"messages": []}
     base.update(kwargs)  # type: ignore[typeddict-item]
     return base
 
 
 @pytest.mark.parametrize(
-    ("critique", "revisions", "budget", "expected"),
+    ("approved", "revisions", "budget", "expected"),
     [
-        ("APPROVED: good", 0, 2, "respond"),
-        ("REVISE: too short", 0, 2, "bump"),
-        ("REVISE: too short", 1, 2, "bump"),
-        ("REVISE: too short", 2, 2, "respond"),
-        ("REVISE: anything", 0, 0, "respond"),
-        ("", 0, 2, "bump"),
+        (True, 0, 2, "respond"),
+        (False, 0, 2, "bump"),
+        (False, 1, 2, "bump"),
+        (False, 2, 2, "respond"),
+        (False, 0, 0, "respond"),
+        (None, 0, 2, "bump"),  # unset verdict is treated as "not approved"
     ],
 )
 def test_route_after_critic(
-    critique: str, revisions: int, budget: int, expected: str
+    approved: bool | None, revisions: int, budget: int, expected: str
 ) -> None:
-    state = _state(critique=critique, revision_count=revisions, max_revisions=budget)
+    kwargs: dict[str, object] = {"revision_count": revisions, "max_revisions": budget}
+    if approved is not None:
+        kwargs["approved"] = approved
+    state = _state(**kwargs)
     assert route_after_critic(state) == expected
 
 

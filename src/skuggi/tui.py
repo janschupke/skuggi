@@ -11,8 +11,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from langchain_core.messages import AIMessage
-from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
@@ -144,11 +142,6 @@ class Tui:
         return self.core.provider
 
     @property
-    def tools_list(self) -> list[BaseTool]:
-        """The bound tool list."""
-        return self.core.tools_list
-
-    @property
     def graph(self) -> CompiledStateGraph[AgentState]:
         """The compiled agent graph."""
         return self.core.graph
@@ -208,8 +201,8 @@ class Tui:
         )
         if self.provider == "chatgpt":
             self.console.print(
-                "[yellow]note:[/yellow] the chatgpt provider cannot call tools, "
-                "so run_command is unavailable in this session"
+                "[yellow]note:[/yellow] the chatgpt provider has no native "
+                "structured output, so responses use the JSON-contract fallback"
             )
         self.console.print("type /help for commands\n")
 
@@ -503,20 +496,19 @@ class Tui:
             )
 
     def _cmd_trace(self, _arg: str) -> None:
-        """Show the worker's tool trail, which /history deliberately excludes."""
-        shown = False
-        for message in self.core.state().get("scratch", []):
-            if isinstance(message, AIMessage) and message.tool_calls:
-                for call in message.tool_calls:
-                    self.console.print(
-                        f"[cyan]call[/cyan] {call['name']}({call['args']})"
-                    )
-                    shown = True
-            elif message.type == "tool":
-                self.console.print(f"[green]result[/green] {message.text[:200]}")
-                shown = True
-        if not shown:
-            self.console.print("[dim](no tool activity on this thread)[/dim]")
+        """Show the command trail, which /history deliberately excludes."""
+        commands = self.core.state().get("commands") or []
+        if not commands:
+            self.console.print("[dim](no command activity on this thread)[/dim]")
+            return
+        for cmd in commands:
+            self.console.print(
+                f"[cyan]{cmd.status}[/cyan] [cmd:{cmd.id}] {cmd.command}"
+            )
+            if cmd.summary:
+                self.console.print(
+                    f"[green]  {cmd.summary.splitlines()[0][:200]}[/green]"
+                )
 
     def _cmd_update(self, _arg: str) -> None:
         for line in self.core.self_update():

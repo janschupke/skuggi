@@ -25,6 +25,15 @@ def test_every_prompt_keeps_its_role_dispatch_phrase(mode: str) -> None:
 
 
 @pytest.mark.parametrize("mode", MODES)
-def test_worker_prompts_describe_the_command_loop(mode: str) -> None:
-    assert "run_command" in prompt_set(mode).worker  # type: ignore[arg-type]
-    assert "record_finding" in prompt_set(mode).worker  # type: ignore[arg-type]
+def test_worker_prompts_describe_the_structured_contract(mode: str) -> None:
+    worker = prompt_set(mode).worker  # type: ignore[arg-type]
+    assert "`command`" in worker
+    assert "`findings`" in worker
+    assert "scope" in worker
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_planner_and_worker_carry_the_phase_stance_clause(mode: str) -> None:
+    ps = prompt_set(mode)  # type: ignore[arg-type]
+    assert "phase" in ps.planner
+    assert "stance" in ps.worker

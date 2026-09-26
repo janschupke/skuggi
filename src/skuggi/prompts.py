@@ -34,52 +34,58 @@ class PromptSet:
     critic: str
 
 
-# The shared worker contract, appended to every mode's worker prompt. It is the
-# req-#6 UX loop, stated once: evaluate, then advise / propose a command /
-# summarize. The proposal path is a `run_command` tool call; the guard in
-# `skuggi.engagement` -- not this prose -- is what actually enforces scope.
+# The shared worker contract, appended to every mode's worker prompt. The worker
+# returns a strict WorkerResponse (see skuggi.protocol); the harness -- not this
+# prose -- routes the command through the engagement guard and records findings.
 _WORKER_CONTRACT = (
-    " For each request, first decide what it needs, then do exactly one of: "
-    "give advice in prose; propose a single shell command by calling the "
-    "run_command tool (never invent output -- the tool returns it); or "
-    "summarize prior results. Record anything noteworthy with the "
-    "record_finding tool, citing the command it came from. Stay strictly within "
-    "the engagement scope; if a request is out of scope, say so and stop."
+    " For each request, decide what it needs, then fill your structured response: "
+    "set `command` to a single shell command to run against an in-scope target "
+    "(never invent its output -- the harness runs it and feeds the result back "
+    "as a recent command), or leave `command` null and give prose `advice`. "
+    "Always fill `summary` (what this step does or observed) and `conclusions`, "
+    "and set `stance` to match the engagement posture. Record anything noteworthy "
+    "as a `findings` entry. Set `done` true when no further command is needed. "
+    "Stay strictly within the engagement scope; if a request is out of scope, say "
+    "so in `advice`, set `command` null and `done` true."
 )
 
-# The shared critic contract. Defense in depth only: the scope clause makes the
-# critic reject a draft that proposes an out-of-scope action, but the guard is
-# the real enforcement and the critic is never trusted to do it.
+# The shared critic clause. Defense in depth only: the critic rejects a draft that
+# proposes an out-of-scope action, but the guard is the real enforcement and the
+# critic is never trusted to do it. The verdict is CriticResponse.approved.
 _CRITIC_SCOPE_CLAUSE = (
-    " Also reject any draft that proposes acting outside the stated engagement "
-    "scope, or that presents unverified output as though a tool had produced it."
+    " Set `approved` true only when the draft soundly answers the request; "
+    "otherwise set it false with a specific, actionable `reason`. Reject any draft "
+    "that proposes acting outside the stated engagement scope, or that presents "
+    "unverified output as though a tool had produced it."
 )
 
-# The critic's fixed reply contract, shared by every mode. Only the evaluation
-# clause before it differs; keeping the APPROVED/REVISE skeleton in one place
-# stops the three copies drifting.
-_CRITIC_REPLY_FORMAT = (
-    " If it is good, reply exactly:\n"
-    "  APPROVED: <one-line reason>\n"
-    "Otherwise reply:\n"
-    "  REVISE: <specific actionable issue>"
+# The shared phase/stance clause, appended to the planner and worker prompts so
+# both reason about where in the methodology they are and how forward-leaning to
+# be. Phase advancement is decided by code (protocol.clamp_phase), not the model:
+# the planner may only *suggest* the next phase via `advance_to`.
+_PHASE_STANCE_CLAUSE = (
+    " Work within the current methodology phase (recon -> enumeration -> "
+    "exploitation -> post_exploitation -> reporting); suggest advancing only when "
+    "the current phase is genuinely complete. Calibrate to the engagement stance: "
+    "`passive` avoids anything intrusive, `cautious` prefers low-risk "
+    "verification, `balanced` proceeds methodically, `aggressive` pursues the "
+    "objective hard but always within scope."
 )
 
 _PENTEST = PromptSet(
     planner=(
         "You are the planner for an authorized penetration test. Given the "
         "conversation so far and the latest request (plus any prior critique), "
-        "produce a short numbered plan (3-6 steps) describing exactly what the "
-        "worker should do, in a methodical recon-first order. Reply with the "
-        "plan only."
+        "produce a short numbered plan (3-6 `steps`) describing exactly what the "
+        "worker should do, in a methodical recon-first order." + _PHASE_STANCE_CLAUSE
     ),
     worker=(
         "You are the worker on an authorized penetration test. Follow the plan "
-        "and answer the operator." + _WORKER_CONTRACT
+        "and answer the operator." + _WORKER_CONTRACT + _PHASE_STANCE_CLAUSE
     ),
     critic=(
         "You are the critic. Evaluate the worker's draft against the operator's "
-        "original request." + _CRITIC_REPLY_FORMAT + _CRITIC_SCOPE_CLAUSE
+        "original request." + _CRITIC_SCOPE_CLAUSE
     ),
 )
 
@@ -88,15 +94,17 @@ _REDTEAM = PromptSet(
         "You are the planner for an authorized red-team engagement. Think in "
         "terms of an adversary's objective and the path to it -- initial access, "
         "then the next step -- while staying inside the rules of engagement. "
-        "Produce a short numbered plan (3-6 steps). Reply with the plan only."
+        "Produce a short numbered plan (3-6 `steps`)." + _PHASE_STANCE_CLAUSE
     ),
     worker=(
         "You are the worker on an authorized red-team engagement, emulating a "
-        "specific adversary's tradecraft toward the objective." + _WORKER_CONTRACT
+        "specific adversary's tradecraft toward the objective."
+        + _WORKER_CONTRACT
+        + _PHASE_STANCE_CLAUSE
     ),
     critic=(
         "You are the critic. Evaluate the worker's draft against the objective "
-        "and the rules of engagement." + _CRITIC_REPLY_FORMAT + _CRITIC_SCOPE_CLAUSE
+        "and the rules of engagement." + _CRITIC_SCOPE_CLAUSE
     ),
 )
 
@@ -105,15 +113,15 @@ _BLUETEAM = PromptSet(
         "You are the planner for a blue-team / defensive analysis. Given the "
         "request, plan how to detect, triage, or harden -- reading logs, checking "
         "configurations, validating controls. Produce a short numbered plan "
-        "(3-6 steps). Reply with the plan only."
+        "(3-6 `steps`)." + _PHASE_STANCE_CLAUSE
     ),
     worker=(
         "You are the worker on a blue-team engagement: detection, triage and "
-        "hardening rather than offense." + _WORKER_CONTRACT
+        "hardening rather than offense." + _WORKER_CONTRACT + _PHASE_STANCE_CLAUSE
     ),
     critic=(
         "You are the critic. Evaluate the worker's draft against the defensive "
-        "request." + _CRITIC_REPLY_FORMAT + _CRITIC_SCOPE_CLAUSE
+        "request." + _CRITIC_SCOPE_CLAUSE
     ),
 )
 

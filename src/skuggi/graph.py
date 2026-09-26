@@ -1,22 +1,31 @@
-"""planner -> retriever -> worker <-> tools -> finalize -> critic graph.
+"""planner -> retriever -> worker <-> executor -> critic graph.
 
-The worker's tool calling is a real graph cycle rather than a loop inside one
-node, so every intermediate assistant message and tool result is checkpointed
-and a crash mid-loop is resumable. Its working set lives in the ``scratch``
-channel; see ``skuggi.state`` for why that is separate from ``messages``.
+Every node speaks the structured protocol (``skuggi.protocol``): the planner
+returns a ``PlannerResponse`` (plan + a phase judgement), the worker a
+``WorkerResponse`` (a command to run/propose, or advice, plus summary,
+conclusions, stance and findings), the critic a ``CriticResponse`` (an
+``approved`` boolean, not a parsed prefix). Each request is built from a
+``RequestContext`` -- conversation history, the engagement scope + stance, the
+current methodology phase, prior findings and the commands run so far this turn.
 
-Retrieval happens two ways. Providers that can bind tools get a ``retrieve``
-tool. Providers that cannot (chatgpt) get a top-k snippet inlined ahead of the
-worker by the ``retriever`` node, so ``/ingest`` is useful on every provider.
+The worker's command handling is a real graph cycle -- worker -> executor ->
+worker -- rather than a tool loop inside one node: the executor sends the command
+through the engagement guard, records it (and any findings) to the ledger, and in
+autonomous mode runs it and feeds the result back as a recent command. Every step
+is a checkpointed superstep, so a crash mid-loop is resumable and ``/trace`` can
+show the trail. Non-autonomous, the command is recorded ``proposed`` and the loop
+stops for the operator to run it by hand.
 
-``respond`` is the only node that writes to ``messages``, which is what keeps a
-revised turn from persisting several drafts for one user question.
+``respond`` is the only node that writes to ``messages``, so a revised turn leaves
+exactly one rendered answer in the conversation rather than one per pass.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
@@ -24,51 +33,78 @@ from langchain_core.messages import (
     AIMessage,
     BaseMessage,
     HumanMessage,
-    RemoveMessage,
     SystemMessage,
 )
-from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import ToolNode
 
-from skuggi.modes import PromptSet, prompt_set
+from skuggi import execution
+from skuggi.engagement import EngagementConfig, check_command, parse_command
+from skuggi.ledger import Ledger
+from skuggi.prompts import PromptSet, prompt_set
+from skuggi.protocol import (
+    CommandBrief,
+    CriticResponse,
+    EngagementBrief,
+    FindingBrief,
+    PlannerResponse,
+    RequestContext,
+    WorkerResponse,
+    clamp_phase,
+    render_request,
+    render_response,
+    structured_invoke,
+)
+from skuggi.registry import ToolRegistry
 from skuggi.state import (
     AgentState,
     ContextUpdate,
     CritiqueUpdate,
-    DraftUpdate,
+    ExecutorUpdate,
     PlanUpdate,
     ReplyUpdate,
     RevisionUpdate,
     WorkerUpdate,
 )
-from skuggi.text import join_blocks, labeled
 from skuggi.vectorstore import Store, format_hits
 
-_APPROVED = "APPROVED"
-_BUDGET_EXHAUSTED = (
-    "(the worker used its whole tool budget without producing an answer)"
-)
+# How much captured command output the executor hands back to the worker as the
+# command's summary -- enough to decide the next step without dumping a whole scan.
+_OUTPUT_SUMMARY_CAP = 1_500
 
 
 @dataclass(frozen=True, slots=True)
 class GraphDeps:
-    """Everything `build_graph` needs, bundled so the signature stays small."""
+    """Everything `build_graph` needs, bundled so the signature stays small.
+
+    The engagement/ledger/registry group is what the executor uses to guard,
+    record and (autonomously) run the worker's command -- the dependencies the old
+    ``run_command`` tool closed over, now owned by the graph. They are ``None`` in
+    agent-only mode (no engagement loaded), where the worker can still advise.
+    """
 
     llm: BaseChatModel
-    tools: Sequence[BaseTool] = field(default_factory=tuple)
     store: Store | None = None
-    bind_tools: bool = True
-    max_tool_rounds: int = 4
+    engagement: EngagementConfig | None = None
+    ledger: Ledger | None = None
+    registry: ToolRegistry | None = None
+    session_id: str = ""
+    thread_id: Callable[[], str] = field(default=lambda: "")
+    turn_id: Callable[[], int | None] = field(default=lambda: None)
+    clock: Callable[[], datetime] | None = None
+    cwd: Path | None = None
+    command_timeout_s: float = 120.0
+    # Whether the provider supports native structured output; the chatgpt path
+    # (False) uses protocol's JSON-contract fallback. See Settings.
+    native_structured: bool = True
+    max_command_rounds: int = 4
     retrieve_k: int = 4
     history_messages: int = 8
     history_chars: int = 4_000
-    # The operator's standing preferences, pre-rendered as a bullet list (see
-    # preferences.PreferenceStore.render_block). Injected into every role's
-    # prompt; empty by default, in which case the block self-elides.
+    findings_limit: int = 10
+    commands_limit: int = 10
+    # The operator's standing preferences, pre-rendered as a bullet list.
     preferences: str = ""
     # The mode's prompts. Defaults to pentest so an unset caller still gets a
     # coherent (and role-dispatchable) set; the REPL passes the active mode's.
@@ -91,7 +127,7 @@ def prior_turns(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
 
     The graph is invoked with the new user message already appended, so the
     trailing human turn(s) are dropped. Only human and assistant messages are
-    kept, so nothing from the worker's scratch can reach a prompt.
+    kept, so nothing but the conversation can reach a prompt.
     """
     kept: list[BaseMessage] = [
         m for m in messages if isinstance(m, (HumanMessage, AIMessage))
@@ -122,35 +158,49 @@ def render_history(
     return "\n".join(lines)
 
 
-def _pick_draft(scratch: Sequence[BaseMessage]) -> str:
-    """The last assistant message with real text.
+def engagement_brief(engagement: EngagementConfig) -> EngagementBrief:
+    """Condense an engagement into the scope brief the model reasons within."""
+    return EngagementBrief(
+        name=engagement.name,
+        stance=engagement.stance,
+        autonomous=engagement.autonomous,
+        networks=tuple(str(n) for n in engagement.target_networks),
+        hosts=tuple(sorted(engagement.allowed_hosts)),
+        allowed_tools=tuple(sorted(engagement.allowed_tools)),
+        allowed_methods=tuple(sorted(engagement.allowed_methods)),
+    )
 
-    Walking backwards matters: when the tool budget runs out the final scratch
-    entry is a tool result, and returning that would hand raw tool output to the
-    critic as though it were the answer.
-    """
-    for message in reversed(scratch):
-        if isinstance(message, AIMessage) and message.text.strip():
-            return message.text
-    return _BUDGET_EXHAUSTED
+
+def _finding_briefs(deps: GraphDeps) -> tuple[FindingBrief, ...]:
+    """The most recent findings recorded this session, for a request."""
+    if deps.ledger is None or not deps.session_id:
+        return ()
+    rows = deps.ledger.findings_for(deps.session_id)[-deps.findings_limit :]
+    return tuple(
+        FindingBrief(
+            id=r.id, severity=r.severity, title=r.title, command_id=r.command_id
+        )
+        for r in rows
+    )
+
+
+def _summarize_result(result: execution.CommandResult) -> str:
+    """A bounded summary of a command's output for the worker's next request."""
+    parts = [result.stdout.strip()]
+    if result.stderr.strip():
+        parts.append("stderr: " + result.stderr.strip())
+    text = "\n".join(p for p in parts if p)
+    if not text:
+        return f"exit={result.exit_code} (no output)"
+    return f"exit={result.exit_code}\n{text[:_OUTPUT_SUMMARY_CAP]}"
 
 
 # --- routing ----------------------------------------------------------------
 
 
-def wants_tools(state: AgentState, *, max_tool_rounds: int) -> bool:
-    """Whether the worker asked for a tool and still has budget."""
-    scratch = state["scratch"]
-    last = scratch[-1] if scratch else None
-    if not isinstance(last, AIMessage) or not last.tool_calls:
-        return False
-    return (state.get("tool_rounds") or 0) < max_tool_rounds
-
-
 def route_after_critic(state: AgentState) -> Literal["bump", "respond"]:
     """Send an approved draft to the user, otherwise spend a revision."""
-    critique = (state.get("critique") or "").strip()
-    if critique.startswith(_APPROVED):
+    if state.get("approved"):
         return "respond"
     if (state.get("revision_count") or 0) >= (state.get("max_revisions") or 0):
         return "respond"
@@ -160,22 +210,11 @@ def route_after_critic(state: AgentState) -> Literal["bump", "respond"]:
 # --- graph ------------------------------------------------------------------
 
 
-def build_graph(
+def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are its statements
     deps: GraphDeps, checkpointer: BaseCheckpointSaver[str]
 ) -> CompiledStateGraph[AgentState]:
-    """Compile the agent graph.
-
-    `deps.bind_tools=False` removes the tools node entirely, which is the
-    chatgpt path: that endpoint does not accept LangChain's tool schema.
-    """
-    worker_llm = (
-        deps.llm.bind_tools(deps.tools) if deps.bind_tools and deps.tools else deps.llm
-    )
-    tool_node = (
-        ToolNode(list(deps.tools), messages_key="scratch")
-        if deps.bind_tools and deps.tools
-        else None
-    )
+    """Compile the agent graph."""
+    work_dir = (deps.cwd or Path.cwd()).resolve()
 
     def history(state: AgentState, *, divisor: int = 1) -> str:
         return render_history(
@@ -184,71 +223,110 @@ def build_graph(
             max_chars=deps.history_chars // divisor,
         )
 
-    def plan_node(state: AgentState) -> PlanUpdate:
-        prompt = [
-            SystemMessage(content=deps.prompts.planner),
-            HumanMessage(
-                content=join_blocks(
-                    labeled("Conversation so far", history(state)),
-                    labeled("Operator preferences", deps.preferences),
-                    labeled("Request", last_user_text(state["messages"])),
-                    labeled("Prior critique", state.get("critique") or ""),
-                )
-            ),
+    def context(
+        state: AgentState, *, divisor: int = 1, **extra: object
+    ) -> RequestContext:
+        brief = (
+            engagement_brief(deps.engagement) if deps.engagement is not None else None
+        )
+        commands = list(state.get("commands", []))[-deps.commands_limit :]
+        return RequestContext(
+            request=last_user_text(state["messages"]),
+            phase=state.get("phase", "recon"),
+            engagement=brief,
+            history=history(state, divisor=divisor),
+            preferences=deps.preferences,
+            retrieved_context=state.get("context") or "",
+            findings=_finding_briefs(deps),
+            recent_commands=tuple(commands),
+            **extra,  # type: ignore[arg-type]
+        )
+
+    def ask[T: (PlannerResponse, WorkerResponse, CriticResponse)](
+        system: str, ctx: RequestContext, schema: type[T]
+    ) -> T:
+        prompt: list[BaseMessage] = [
+            SystemMessage(content=system),
+            HumanMessage(content=render_request(ctx)),
         ]
+        return structured_invoke(
+            deps.llm, schema, prompt, native=deps.native_structured
+        )
+
+    def plan_node(state: AgentState) -> PlanUpdate:
+        ctx = context(state, prior_critique=state.get("critique") or "")
+        resp = ask(deps.prompts.planner, ctx, PlannerResponse)
+        # Advance the phase at most once per turn (on the first pass), so a
+        # multi-revision turn cannot walk several phases forward.
+        current = state.get("phase", "recon")
+        phase = (
+            clamp_phase(current, resp.advance_to)
+            if (state.get("revision_count") or 0) == 0
+            else current
+        )
         return {
-            "plan": deps.llm.invoke(prompt).text,
-            # Reset the worker's working set for this pass. `add_messages`
-            # ignores an empty list, so clearing requires this sentinel -- which
-            # is also the only thing that clears scratch left by a crashed run.
-            "scratch": [RemoveMessage(id=REMOVE_ALL_MESSAGES)],
-            "tool_rounds": 0,
+            "plan": list(resp.steps),
+            "phase": phase,
+            # Reset this turn's command trail and round counter for the new pass.
+            "commands": [],
+            "command_rounds": 0,
         }
 
     def retrieve_node(state: AgentState) -> ContextUpdate:
-        """Inline a retrieval snippet for providers that cannot call tools."""
-        if tool_node is not None or deps.store is None:
+        """Inline a top-k retrieval snippet ahead of the worker."""
+        if deps.store is None:
             return {}
         hits = deps.store.search(last_user_text(state["messages"]), k=deps.retrieve_k)
         return {"context": format_hits(hits)} if hits else {}
 
     def work_node(state: AgentState) -> WorkerUpdate:
-        scratch = state["scratch"]
-        if not scratch:
-            seed: list[BaseMessage] = [
-                SystemMessage(content=deps.prompts.worker),
-                HumanMessage(
-                    content=join_blocks(
-                        labeled("Conversation so far", history(state)),
-                        labeled("Operator preferences", deps.preferences),
-                        labeled("Retrieved context", state.get("context") or ""),
-                        labeled("Request", last_user_text(state["messages"])),
-                        labeled("Plan", state.get("plan") or ""),
-                    )
-                ),
-            ]
-            return {"scratch": [*seed, worker_llm.invoke(seed)]}
-        return {
-            "scratch": [worker_llm.invoke(scratch)],
-            "tool_rounds": (state.get("tool_rounds") or 0) + 1,
-        }
+        ctx = context(state, plan=tuple(state.get("plan") or ()))
+        resp = ask(deps.prompts.worker, ctx, WorkerResponse)
+        return {"worker": resp, "draft": render_response(resp)}
 
-    def finalize_node(state: AgentState) -> DraftUpdate:
-        return {"draft": _pick_draft(state["scratch"])}
+    def execute_node(state: AgentState) -> ExecutorUpdate:
+        resp = state.get("worker")
+        if resp is None:
+            return {}
+        commands = list(state.get("commands", []))
+        rounds = state.get("command_rounds") or 0
+        updates: ExecutorUpdate = {}
+        command_id: int | None = None
+        runnable = (
+            resp.command is not None
+            and deps.ledger is not None
+            and deps.engagement is not None
+            and deps.registry is not None
+            and bool(deps.session_id)
+        )
+        if runnable and resp.command is not None:
+            command_id, brief, ran = _run_or_propose(
+                deps, resp.command, work_dir, now=_now(deps)
+            )
+            commands.append(brief)
+            updates["commands"] = commands
+            if ran:
+                updates["command_rounds"] = rounds + 1
+        _record_findings(deps, resp, command_id)
+        return updates
+
+    def route_after_executor(state: AgentState) -> Literal["worker", "critic"]:
+        resp = state.get("worker")
+        if resp is None or resp.done or resp.command is None:
+            return "critic"
+        if deps.engagement is None or not deps.engagement.autonomous:
+            return "critic"
+        if (state.get("command_rounds") or 0) >= deps.max_command_rounds:
+            return "critic"
+        commands = state.get("commands") or []
+        if not commands or commands[-1].status != "executed":
+            return "critic"
+        return "worker"
 
     def critique_node(state: AgentState) -> CritiqueUpdate:
-        prompt = [
-            SystemMessage(content=deps.prompts.critic),
-            HumanMessage(
-                content=join_blocks(
-                    labeled("Conversation so far", history(state, divisor=2)),
-                    labeled("Operator preferences", deps.preferences),
-                    labeled("Request", last_user_text(state["messages"])),
-                    labeled("Draft", state.get("draft") or ""),
-                )
-            ),
-        ]
-        return {"critique": deps.llm.invoke(prompt).text}
+        ctx = context(state, divisor=2, draft=state.get("draft") or "")
+        resp = ask(deps.prompts.critic, ctx, CriticResponse)
+        return {"approved": resp.approved, "critique": resp.reason}
 
     def respond_node(state: AgentState) -> ReplyUpdate:
         return {"messages": [AIMessage(content=state.get("draft") or "")]}
@@ -256,18 +334,11 @@ def build_graph(
     def bump_node(state: AgentState) -> RevisionUpdate:
         return {"revision_count": (state.get("revision_count") or 0) + 1}
 
-    def route_worker(state: AgentState) -> Literal["tools", "finalize"]:
-        return (
-            "tools"
-            if wants_tools(state, max_tool_rounds=deps.max_tool_rounds)
-            else "finalize"
-        )
-
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("planner", plan_node)
     graph.add_node("retriever", retrieve_node)
     graph.add_node("worker", work_node)
-    graph.add_node("finalize", finalize_node)
+    graph.add_node("executor", execute_node)
     graph.add_node("critic", critique_node)
     graph.add_node("respond", respond_node)
     graph.add_node("bump", bump_node)
@@ -275,25 +346,116 @@ def build_graph(
     graph.add_edge(START, "planner")
     graph.add_edge("planner", "retriever")
     graph.add_edge("retriever", "worker")
-    if tool_node is not None:
-        graph.add_node("tools", tool_node)
-        graph.add_conditional_edges("worker", route_worker)
-        graph.add_edge("tools", "worker")
-    else:
-        graph.add_edge("worker", "finalize")
-    graph.add_edge("finalize", "critic")
+    graph.add_edge("worker", "executor")
+    graph.add_conditional_edges("executor", route_after_executor)
     graph.add_conditional_edges("critic", route_after_critic)
     graph.add_edge("bump", "planner")
     graph.add_edge("respond", END)
     return graph.compile(checkpointer=checkpointer)
 
 
-def recursion_limit(*, max_revisions: int, max_tool_rounds: int) -> int:
+def _now(deps: GraphDeps) -> datetime:
+    """The current time in the engagement timezone (or the injected clock)."""
+    if deps.clock is not None:
+        return deps.clock()
+    assert deps.engagement is not None  # noqa: S101 -- only called on the guarded path
+    return datetime.now(deps.engagement.tzinfo())
+
+
+def _run_or_propose(
+    deps: GraphDeps, command: str, work_dir: Path, *, now: datetime
+) -> tuple[int, CommandBrief, bool]:
+    """Guard, record and (autonomously) run one command. Returns (id, brief, ran).
+
+    ``ran`` is True only when the command actually executed, which is what gates
+    another turn of the worker <-> executor loop.
+    """
+    assert deps.ledger is not None  # noqa: S101
+    assert deps.engagement is not None  # noqa: S101
+    assert deps.registry is not None  # noqa: S101
+    parsed = parse_command(command, deps.registry)
+    verdict = check_command(parsed, deps.engagement, now=now)
+    if not verdict.allowed:
+        cid = deps.ledger.record_command(
+            session_id=deps.session_id,
+            thread_id=deps.thread_id(),
+            command=command,
+            binary=parsed.binary,
+            method=parsed.method,
+            status="blocked",
+            reason=verdict.reason,
+            turn_event_id=deps.turn_id(),
+        )
+        brief = CommandBrief(
+            id=cid, status="blocked", command=command, summary=verdict.reason
+        )
+        return cid, brief, False
+    if not deps.engagement.autonomous:
+        cid = deps.ledger.record_command(
+            session_id=deps.session_id,
+            thread_id=deps.thread_id(),
+            command=command,
+            binary=parsed.binary,
+            method=parsed.method,
+            status="proposed",
+            turn_event_id=deps.turn_id(),
+        )
+        brief = CommandBrief(
+            id=cid,
+            status="proposed",
+            command=command,
+            summary="recorded proposed; the operator runs it manually",
+        )
+        return cid, brief, False
+    result = execution.run(parsed.argv, timeout=deps.command_timeout_s, cwd=work_dir)
+    cid = deps.ledger.record_command(
+        session_id=deps.session_id,
+        thread_id=deps.thread_id(),
+        command=command,
+        binary=parsed.binary,
+        method=parsed.method,
+        status="executed",
+        result=result,
+        turn_event_id=deps.turn_id(),
+    )
+    brief = CommandBrief(
+        id=cid,
+        status="executed",
+        command=command,
+        exit_code=result.exit_code,
+        summary=_summarize_result(result),
+    )
+    return cid, brief, True
+
+
+def _record_findings(
+    deps: GraphDeps, resp: WorkerResponse, command_id: int | None
+) -> None:
+    """Record each of the worker's findings, linked to the command it cites."""
+    if deps.ledger is None or not deps.session_id or not resp.findings:
+        return
+    link = (
+        command_id
+        if command_id is not None
+        else deps.ledger.latest_command_id(deps.session_id)
+    )
+    for finding in resp.findings:
+        deps.ledger.record_finding(
+            session_id=deps.session_id,
+            title=finding.title,
+            severity=finding.severity,
+            description=finding.description,
+            evidence=finding.evidence,
+            command_id=link,
+        )
+
+
+def recursion_limit(*, max_revisions: int, max_command_rounds: int) -> int:
     """Supersteps needed for the worst-case turn, plus headroom.
 
-    One pass is planner + retriever + worker + 2 per tool round + finalize +
-    critic + bump/respond. The default of 25 is not enough for a turn that both
-    uses tools and gets revised, which would raise GraphRecursionError.
+    One pass is planner + retriever + (worker + executor) per command round +
+    critic + bump/respond. A turn that both loops on commands and gets revised
+    needs more than langgraph's default of 25.
     """
-    per_pass = 2 * max_tool_rounds + 6
+    per_pass = 2 * (max_command_rounds + 1) + 3
     return (max_revisions + 1) * per_pass + 4

@@ -23,7 +23,7 @@ import pytest
 from skuggi import codex_chat
 from skuggi.config import Settings
 from skuggi.core import AgentCore
-from skuggi.tools import build_tools
+from skuggi.protocol import CriticResponse, WorkerResponse
 from skuggi.vectorstore import Store
 from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
 
@@ -81,24 +81,17 @@ def wire_offline_core(
     core: AgentCore,
     *,
     worker: RoleScriptedChatModel | None = None,
-    base_tools_root: Path | None = None,
 ) -> None:
-    """Swap a core's live parts for offline doubles and rebuild tools + graph.
+    """Swap a core's live parts for offline doubles and rebuild the graph.
 
     Replaces the embeddings-backed store and the real LLM with fakes so no test
     reaches localhost:11434 or a provider. `worker` overrides the scripted model
-    (default: one plan-worker-critic pass); `base_tools_root` builds only the
-    base tools rooted there (for an engagement-less REPL) instead of the pentest
-    tool set.
+    (default: one plan-worker-critic pass returning a structured response).
     """
     core.store = Store(core.settings.faiss_path, CountingFakeEmbeddings())
     core.llm = worker or RoleScriptedChatModel(
-        worker_replies=["the answer"], critic_replies=["APPROVED: ok"]
-    )
-    core.tools_list = (
-        build_tools(core.store, root=base_tools_root)
-        if base_tools_root is not None
-        else core.build_tools()
+        worker_replies=[WorkerResponse(summary="the answer")],
+        critic_replies=[CriticResponse(approved=True, reason="ok")],
     )
     core.graph = core._build()
 

@@ -22,8 +22,8 @@ def tui(tmp_path: Path) -> tuple[Tui, io.StringIO]:
     """A REPL wired to a scripted model, with no network anywhere."""
     buffer = io.StringIO()
     app = Tui(offline_settings(tmp_path), console=Console(file=buffer, width=100))
-    # Offline doubles, with base tools rooted at tmp_path (no engagement here).
-    wire_offline_core(app.core, base_tools_root=tmp_path)
+    # Offline doubles (no engagement here).
+    wire_offline_core(app.core)
     return app, buffer
 
 
@@ -169,7 +169,7 @@ def test_trace_is_empty_without_tool_use(tui: tuple[Tui, io.StringIO]) -> None:
     buffer.truncate(0)
     buffer.seek(0)
     app.dispatch("/trace")
-    assert "no tool activity" in _out(buffer)
+    assert "no command activity" in _out(buffer)
 
 
 def test_a_failing_turn_does_not_kill_the_repl(

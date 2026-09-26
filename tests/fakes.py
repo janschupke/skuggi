@@ -13,9 +13,13 @@ from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.embeddings import Embeddings
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.language_models import BaseChatModel, LanguageModelInput
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.runnables import Runnable, RunnableLambda
+from pydantic import BaseModel
+
+from skuggi.protocol import CriticResponse, PlannerResponse, WorkerResponse
 
 EMBED_DIM = 8
 
@@ -114,18 +118,24 @@ class ScriptedChatModel(BaseChatModel):
 
 
 class RoleScriptedChatModel(BaseChatModel):
-    """Replies according to which node is asking, not call order.
+    """Serves structured responses according to which node is asking.
 
-    Every node in the graph invokes the same model, and a revision loop revisits
-    them an unpredictable number of times, so an ordered reply queue desynchronises
-    as soon as a test exercises more than one pass. Dispatching on the system
-    prompt keeps multi-pass tests readable. ``calls`` records ``(role, prompt)``
-    so a test can assert what actually reached each node.
+    Every node invokes the same model through ``structured_invoke`` /
+    ``with_structured_output``, and a revision loop revisits them an unpredictable
+    number of times, so an ordered queue would desynchronise as soon as a test
+    exercises more than one pass. Dispatching on the system prompt (the pinned
+    "You are the {role}" phrase) keeps multi-pass tests readable. Each role has its
+    own queue of protocol objects; ``calls`` records ``(role, prompt)`` so a test
+    can assert what actually reached each node.
     """
 
-    plan_reply: str = "1. answer the question"
-    worker_replies: list[str | AIMessage] = []
-    critic_replies: list[str] = ["APPROVED: fine"]
+    planner_replies: list[PlannerResponse] = [
+        PlannerResponse(phase="recon", steps=("answer the question",))
+    ]
+    worker_replies: list[WorkerResponse] = []
+    critic_replies: list[CriticResponse] = [
+        CriticResponse(approved=True, reason="fine")
+    ]
     calls: list[tuple[str, list[BaseMessage]]] = []
 
     @property
@@ -148,31 +158,29 @@ class RoleScriptedChatModel(BaseChatModel):
             if seen == role
         ]
 
-    def _reply(self, messages: list[BaseMessage]) -> AIMessage:
-        role = self._role(messages)
-        self.calls.append((role, list(messages)))
+    def _dispatch(self, messages: LanguageModelInput) -> BaseModel:
+        msgs = _as_messages(messages)
+        role = self._role(msgs)
+        self.calls.append((role, list(msgs)))
         seen = sum(1 for call_role, _ in self.calls if call_role == role)
-        if role == "planner":
-            return AIMessage(content=self.plan_reply, id=f"plan-{seen}")
-        queue: list[str | AIMessage] = (
-            list(self.worker_replies) if role == "worker" else list(self.critic_replies)
-        )
+        queues: dict[str, Sequence[BaseModel]] = {
+            "planner": self.planner_replies,
+            "worker": self.worker_replies,
+            "critic": self.critic_replies,
+        }
+        queue = queues[role]
         if not queue:
-            return AIMessage(content="", id=f"{role}-{seen}")
-        chosen = queue[min(seen - 1, len(queue) - 1)]
-        if isinstance(chosen, AIMessage):
-            # Give every reply a fresh id, including the tool-call ids. add_messages
-            # treats a repeated id as a REPLACEMENT rather than an append, so
-            # returning the same scripted AIMessage object twice would silently
-            # overwrite the previous entry and break a multi-round tool cycle.
-            calls = [
-                {**call, "id": f"call-{role}-{seen}-{i}"}
-                for i, call in enumerate(chosen.tool_calls)
-            ]
-            return chosen.model_copy(
-                update={"id": f"{role}-{seen}", "tool_calls": calls}
-            )
-        return AIMessage(content=chosen, id=f"{role}-{seen}")
+            return {
+                "planner": PlannerResponse(phase="recon"),
+                "worker": WorkerResponse(),
+                "critic": CriticResponse(approved=True),
+            }[role]
+        return queue[min(seen - 1, len(queue) - 1)]
+
+    def with_structured_output(
+        self, schema: Any, **kwargs: Any
+    ) -> Runnable[LanguageModelInput, BaseModel]:
+        return RunnableLambda(self._dispatch)
 
     def _generate(
         self,
@@ -181,10 +189,15 @@ class RoleScriptedChatModel(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        return ChatResult(generations=[ChatGeneration(message=self._reply(messages))])
+        # The structured graph never calls this; kept to satisfy BaseChatModel.
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=""))])
 
-    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> BaseChatModel:
-        return self
+
+def _as_messages(value: LanguageModelInput) -> list[BaseMessage]:
+    """Normalize a LanguageModelInput to a message list (it is always one here)."""
+    return (
+        list(value) if isinstance(value, list) else [HumanMessage(content=str(value))]
+    )
 
 
 class FakePromptSession:

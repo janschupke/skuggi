@@ -129,7 +129,6 @@ def test_no_engagement_degrades(tmp_path: Path) -> None:
         assert core.autonomous is False
         assert core.describe_engagement() is None
         assert any("no engagement" in w for w in core.warnings)
-        assert "run_command" not in {t.name for t in core.tools_list}
         with pytest.raises(ValueError, match="no engagement"):
             core.set_autonomous(True)
     finally:

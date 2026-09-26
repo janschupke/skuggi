@@ -25,8 +25,6 @@ import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
-from langchain_core.messages import AIMessage
-
 from skuggi import configflow, prompts, reports, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.core import AgentCore, parse_toggle
@@ -399,17 +397,14 @@ class Daemon:
             yield f"{labels.get(message.type, message.type)}: {message.text}\n"
 
     def _trace(self, _arg: str) -> Iterator[str]:
-        shown = False
-        for message in self.core.state().get("scratch", []):
-            if isinstance(message, AIMessage) and message.tool_calls:
-                for call in message.tool_calls:
-                    yield f"call {call['name']}({call['args']})\n"
-                    shown = True
-            elif message.type == "tool":
-                yield f"result {message.text[:200]}\n"
-                shown = True
-        if not shown:
-            yield "(no tool activity on this thread)\n"
+        commands = self.core.state().get("commands") or []
+        if not commands:
+            yield "(no command activity on this thread)\n"
+            return
+        for cmd in commands:
+            yield f"{cmd.status} [cmd:{cmd.id}] {cmd.command}\n"
+            if cmd.summary:
+                yield f"  {cmd.summary.splitlines()[0][:200]}\n"
 
     def _ingest(self, arg: str) -> Iterator[str]:
         if not arg:

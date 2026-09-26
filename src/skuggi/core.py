@@ -23,24 +23,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
 
-from langchain_core.messages import AIMessageChunk, HumanMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import StreamMode
 from pydantic import TypeAdapter, ValidationError
 
 from skuggi import (
     __version__,
     execution,
     memory,
-    pentest_tools,
     preferences,
     probe,
     prompts,
     providers,
     reports,
-    tools,
 )
 from skuggi import ledger as ledger_mod
 from skuggi import (
@@ -77,7 +73,6 @@ from skuggi.text import join_blocks, labeled
 from skuggi.vectorstore import Store
 from skuggi.workspace import Workspace, WorkspaceLayout
 
-_STREAM_MODES: list[StreamMode] = ["updates", "messages"]
 _PROVIDERS = get_args(Provider)
 
 # How much captured command output to feed the reviewer per command -- enough to
@@ -181,7 +176,6 @@ class AgentCore:
         self._prefs_ctx = preferences.open_preferences(self.settings.preferences_path)
         self.prefs = self._prefs_ctx.__enter__()
 
-        self.tools_list = self.build_tools()
         self.graph = self._build()
 
     # ----- config + workspace ------------------------------------------------
@@ -243,22 +237,6 @@ class AgentCore:
     def _recon_cwd(self) -> Path | None:
         return self.workspace.recon_dir if self.workspace is not None else None
 
-    def build_tools(self) -> list[BaseTool]:
-        """Base tools plus the pentest tools when an engagement is loaded."""
-        built = tools.build_tools(self.store, k=self.settings.retrieve_k)
-        if self.engagement is not None:
-            built += pentest_tools.build_pentest_tools(
-                engagement=self.engagement,
-                registry=self.registry,
-                ledger=self.ledger,
-                session_id=self.session_id,
-                thread_id=lambda: self.thread_id,
-                settings=self.settings,
-                cwd=self._recon_cwd(),
-                turn_id=lambda: self._current_turn_event_id,
-            )
-        return built
-
     # ----- properties --------------------------------------------------------
 
     @property
@@ -274,10 +252,17 @@ class AgentCore:
     def _deps(self) -> GraphDeps:
         return GraphDeps(
             llm=self.llm,
-            tools=self.tools_list,
             store=self.store,
-            bind_tools=self.settings.supports_tools(),
-            max_tool_rounds=self.settings.max_tool_rounds,
+            engagement=self.engagement,
+            ledger=self.ledger,
+            registry=self.registry,
+            session_id=self.session_id,
+            thread_id=lambda: self.thread_id,
+            turn_id=lambda: self._current_turn_event_id,
+            cwd=self._recon_cwd(),
+            command_timeout_s=self.settings.command_timeout_s,
+            native_structured=self.settings.supports_structured_output(),
+            max_command_rounds=self.settings.max_tool_rounds,
             retrieve_k=self.settings.retrieve_k,
             history_messages=self.settings.history_messages,
             history_chars=self.settings.history_chars,
@@ -336,7 +321,6 @@ class AgentCore:
             raise ValueError(msg)
         target = (not self.engagement.autonomous) if want is None else want
         self.engagement = self.engagement.model_copy(update={"autonomous": target})
-        self.tools_list = self.build_tools()
         self.graph = self._build()
         return target
 
@@ -407,7 +391,6 @@ class AgentCore:
         self.session_id = str(uuid.uuid4())
         self.ledger.start_session(self.session_id, engagement_name=name, mode=self.mode)
 
-        self.tools_list = self.build_tools()
         self.graph = self._build()
         return self.engagement
 
@@ -813,7 +796,7 @@ class AgentCore:
             "configurable": {"thread_id": self.thread_id},
             "recursion_limit": recursion_limit(
                 max_revisions=self.settings.max_revisions,
-                max_tool_rounds=self.settings.max_tool_rounds,
+                max_command_rounds=self.settings.max_tool_rounds,
             ),
         }
 
@@ -822,7 +805,7 @@ class AgentCore:
         values = self.graph.get_state(self._config()).values
         if isinstance(values, dict) and values:
             return cast("AgentState", values)
-        return {"messages": [], "scratch": []}
+        return {"messages": []}
 
     def turn(self, user_text: str) -> Iterator[TurnEvent]:
         """Run one agent turn, yielding events as the graph streams.
@@ -832,10 +815,8 @@ class AgentCore:
         """
         initial: AgentState = {
             "messages": [HumanMessage(content=user_text)],
-            "scratch": [],
             "revision_count": 0,
             "max_revisions": self.settings.max_revisions,
-            "tool_rounds": 0,
         }
         # The prompt goes on the timeline first, and its id tags every command
         # this turn records (so a finding traces prompt -> command -> finding).
@@ -845,31 +826,18 @@ class AgentCore:
             kind="prompt",
             text=user_text,
         )
-        run_id: str | None = None
         final_text = ""
         try:
-            # A multi-mode stream is heterogeneous -- (mode, payload) pairs whose
-            # payload shape depends on the mode -- so it is typed loosely and
-            # narrowed here.
+            # Structured output is not token-streamed; each node's state update is
+            # turned into a status/final event as the graph advances.
             stream: Iterator[Any] = self.graph.stream(
-                initial, self._config(), stream_mode=_STREAM_MODES
+                initial, self._config(), stream_mode="updates"
             )
-            for item in stream:
-                event, payload = cast("tuple[str, Any]", item)
-                if event == "messages":
-                    chunk, meta = payload
-                    node = (meta or {}).get("langgraph_node", "")
-                    if node == "worker" and isinstance(chunk, AIMessageChunk):
-                        if chunk.id != run_id:
-                            run_id = chunk.id
-                            yield TurnEvent("reset")
-                        if chunk.text:
-                            yield TurnEvent("token", chunk.text)
-                elif event == "updates":
-                    for ev in self._turn_updates(payload):
-                        if ev.kind == "final":
-                            final_text = ev.text
-                        yield ev
+            for payload in stream:
+                for ev in self._turn_updates(cast("dict[str, object]", payload)):
+                    if ev.kind == "final":
+                        final_text = ev.text
+                    yield ev
             # The turn is answered; now let the harness remember any standing
             # directive it carried (best-effort, never raises).
             for row in self.maybe_capture_preferences(user_text):
@@ -897,17 +865,31 @@ class AgentCore:
             values = update if isinstance(update, dict) else {}
             if node == "planner":
                 yield TurnEvent("reset")
-                if values.get("plan"):
-                    yield TurnEvent("status", str(values["plan"]), node="planner")
+                steps = values.get("plan") or []
+                if steps:
+                    plan = "\n".join(
+                        f"{i}. {step}" for i, step in enumerate(steps, start=1)
+                    )
+                    yield TurnEvent("status", plan, node="planner")
             elif node == "retriever":
                 if values.get("context"):
                     yield TurnEvent(
                         "status", "inlined retrieved context", node="retriever"
                     )
-            elif node == "tools":
+            elif node == "worker":
                 yield TurnEvent("reset")
-            elif node == "finalize":
-                yield TurnEvent("final", str(values.get("draft") or ""))
+                if values.get("draft"):
+                    yield TurnEvent("final", str(values["draft"]))
+            elif node == "executor":
+                commands = values.get("commands") or []
+                if commands:
+                    last = commands[-1]
+                    yield TurnEvent(
+                        "status", f"{last.status}: {last.command}", node="executor"
+                    )
             elif node == "critic":
-                if values.get("critique"):
-                    yield TurnEvent("status", str(values["critique"]), node="critic")
+                approved = values.get("approved")
+                reason = values.get("critique") or ""
+                verdict = "approved" if approved else "revise"
+                text = f"{verdict}: {reason}" if reason else verdict
+                yield TurnEvent("status", text, node="critic")

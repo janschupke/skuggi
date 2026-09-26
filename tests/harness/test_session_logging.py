@@ -16,8 +16,9 @@ import pytest
 from skuggi import providers
 from skuggi.commands import CommandAlias, CommandRegistry
 from skuggi.core import AgentCore
+from skuggi.protocol import CriticResponse, WorkerResponse
 from tests.conftest import offline_settings, wire_offline_core
-from tests.fakes import ScriptedChatModel
+from tests.fakes import RoleScriptedChatModel, ScriptedChatModel
 
 
 @pytest.fixture
@@ -45,11 +46,21 @@ def test_turn_records_prompt_and_response_events(core: AgentCore) -> None:
 
 
 def test_agent_command_links_to_the_current_turn(core: AgentCore) -> None:
-    """A command the worker runs mid-turn is tagged with the driving prompt."""
-    core._current_turn_event_id = 99  # as turn() sets it while streaming
-    run_command = {t.name: t for t in core.tools_list}["run_command"]
-    run_command.invoke({"command": "nmap 10.0.0.5"})
-    assert core.ledger.commands_for(core.session_id)[-1].turn_event_id == 99
+    """A command the executor records mid-turn is tagged with the driving prompt."""
+    core.llm = RoleScriptedChatModel(
+        worker_replies=[
+            WorkerResponse(command="nmap 10.0.0.5", summary="scan", done=True)
+        ],
+        critic_replies=[CriticResponse(approved=True, reason="ok")],
+    )
+    core.graph = core._build()
+    list(core.turn("scan the host"))
+
+    events = core.ledger.events_for(core.session_id)
+    prompt_id = next(e.id for e in events if e.kind == "prompt")
+    command = core.ledger.commands_for(core.session_id)[-1]
+    assert command.command == "nmap 10.0.0.5"
+    assert command.turn_event_id == prompt_id
 
 
 def test_run_proposal_outside_a_turn_is_unlinked(core: AgentCore) -> None:
