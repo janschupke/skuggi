@@ -99,6 +99,7 @@ def test_describe_and_findings_and_report(core: AgentCore) -> None:
     assert "test-eng" in described
     assert core.findings() == []
     path = core.write_report()
+    assert isinstance(path, Path)  # md-only when pdf is not requested
     assert path.suffix == ".md"
     assert path.parent == core.reports_dir
 

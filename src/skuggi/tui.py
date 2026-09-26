@@ -22,7 +22,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi import configflow, palette, verbs, wizard
+from skuggi import configflow, palette, reports, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.config import Settings
 from skuggi.core import AgentCore, parse_toggle
@@ -397,9 +397,10 @@ class Tui:
                 )
             )
 
-    def _cmd_report(self, _arg: str) -> None:
-        path = self.core.write_report()
-        self.console.print(f"[green]report written:[/green] {path}")
+    def _cmd_report(self, arg: str) -> None:
+        result = self.core.write_report(pdf=arg.strip().lower() == "pdf")
+        for line in reports.report_written_lines(result):
+            self.console.print(f"[green]{line}[/green]")
 
     def _cmd_autonomous(self, arg: str) -> None:
         try:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from skuggi import pdf as pdf_mod
 from skuggi import probe as probe_mod
 from skuggi.commands import CommandAlias, CommandRegistry
 from skuggi.core import AgentCore
@@ -64,6 +65,19 @@ def test_slash_findings_lists_findings(daemon: Daemon) -> None:
 
 def test_slash_report_writes(daemon: Daemon) -> None:
     assert "report written" in _chunks(daemon, {"op": "input", "text": "/report"})
+
+
+def test_slash_report_pdf_writes_both(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_markdown_to_pdf(md_text: str, out: Path, *, title: str) -> Path:
+        out.write_bytes(b"%PDF-fake")
+        return out
+
+    monkeypatch.setattr(pdf_mod, "markdown_to_pdf", fake_markdown_to_pdf)
+    out = _chunks(daemon, {"op": "input", "text": "/report pdf"})
+    assert "report written" in out
+    assert "pdf written" in out
 
 
 def test_slash_engagement_shows_scope(daemon: Daemon) -> None:

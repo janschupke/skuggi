@@ -38,6 +38,28 @@ def test_every_source_has_a_style(source: str) -> None:
     assert palette.source_style(source)
 
 
+@pytest.mark.parametrize("severity", ["critical", "high", "medium", "low", "info"])
+def test_every_severity_has_a_print_hex(severity: str) -> None:
+    hex_colour = palette.severity_hex(severity)
+    assert hex_colour.startswith("#")
+    assert hex_colour != palette.severity_hex("something-unknown")
+
+
+@pytest.mark.parametrize(
+    "method", ["recon", "scan", "enumerate", "bruteforce", "crack", "exploit"]
+)
+def test_every_method_has_a_print_hex(method: str) -> None:
+    hex_colour = palette.method_hex(method)
+    assert hex_colour.startswith("#")
+    assert hex_colour != palette.method_hex("something-unknown")
+
+
+def test_print_hex_is_case_insensitive_with_fallbacks() -> None:
+    assert palette.severity_hex("HIGH") == palette.severity_hex("high")
+    assert palette.method_hex("SCAN") == palette.method_hex("scan")
+    assert palette.method_hex(None) == palette.method_hex("nope")
+
+
 def test_paint_wraps_in_markup() -> None:
     assert palette.paint("x", "red") == "[red]x[/red]"
 

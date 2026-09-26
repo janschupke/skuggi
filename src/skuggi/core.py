@@ -513,13 +513,18 @@ class AgentCore:
         """Findings recorded this session."""
         return self.ledger.findings_for(self.session_id)
 
-    def write_report(self) -> Path:
-        """Write the session's Markdown report and return its path."""
+    def write_report(self, *, pdf: bool = False) -> Path | tuple[Path, Path]:
+        """Write the session's Markdown report and return its path.
+
+        With ``pdf=True`` a styled PDF is written alongside the canonical
+        Markdown and both paths are returned.
+        """
         return reports.write_report(
             self.session_id,
             self.ledger,
             self.reports_dir,
             engagement=self.engagement,
+            pdf=pdf,
         )
 
     def doctor_statuses(self) -> list[ToolStatus]:

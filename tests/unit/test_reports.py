@@ -60,6 +60,7 @@ def test_write_report_creates_a_markdown_file(tmp_path: Path) -> None:
     with open_ledger(tmp_path / "l.db") as led:
         _seed(led)
         path = write_report("s1", led, reports, engagement=None)
+    assert isinstance(path, Path)  # md-only when pdf is not requested
     assert path.parent == reports
     assert path.suffix == ".md"
     assert "SSH exposed" in path.read_text(encoding="utf-8")

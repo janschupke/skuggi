@@ -49,6 +49,7 @@ skuggi-repl = "skuggi.__main__:main"
 skuggi-ingest = "skuggi.ingest:main"
 skuggi-doctor = "skuggi.doctor:main"
 skuggi-client = "skuggi.client:main"
+skuggi-pdf = "skuggi.pdf:main"
 
 [tool.hatch.version]
 path = "src/skuggi/__init__.py"
@@ -69,6 +70,17 @@ dev = [
     "pytest-timeout>=2.4",
     "respx>=0.23.1",
     "pre-commit>=4.6.2",
+]
+# The MD -> HTML -> PDF report pipeline (skuggi-pdf and `/report pdf`). A separate
+# group so the core agent installs without WeasyPrint's native Pango dependency;
+# `make install` (uv sync --all-groups) and CI pull it, so the gate exercises it.
+# WeasyPrint needs a system Pango: `brew install pango` / `apt install libpango-1.0-0`.
+pdf = [
+    "weasyprint>=63",
+    "markdown-it-py>=3",
+    "mdit-py-plugins>=0.4",
+    "pygments>=2.17",
+    "jinja2>=3.1",
 ]
 
 [tool.pytest.ini_options]
@@ -190,6 +202,11 @@ runtime-evaluated-base-classes = [
 # its unit-tested helpers stays cheap. shell.main prints to the operator's tty.
 "src/skuggi/shell.py" = ["PLC0415", "T201"]
 "src/skuggi/daemon.py" = ["PLC0415"]
+# WeasyPrint is imported lazily inside the render function (native dep, kept out
+# of the import graph for the core agent); the CLI prints its result to the tty.
+"src/skuggi/pdf.py" = ["PLC0415", "T201"]
+# reports.write_report imports skuggi.pdf lazily so the PDF deps stay optional.
+"src/skuggi/reports.py" = ["PLC0415"]
 "tests/**" = [
     "S101",             # asserts are the point
     "S105", "S106",     # fake tokens in fixtures
@@ -234,3 +251,10 @@ pretty = true
 init_forbid_extra = false
 init_typed = true
 warn_required_dynamic_aliases = true
+
+# WeasyPrint and Pygments ship no type information, so a strict run cannot
+# follow them. Scoped to those two; markdown-it-py, mdit-py-plugins, jinja2 and
+# markupsafe are all typed.
+[[tool.mypy.overrides]]
+module = ["weasyprint.*", "pygments.*"]
+ignore_missing_imports = true

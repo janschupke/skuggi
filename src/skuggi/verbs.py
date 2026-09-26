@@ -27,7 +27,9 @@ VERBS: tuple[Verb, ...] = (
     Verb("ask", "send a prompt to the agent", "<prompt>"),
     Verb("run", "resolve a command alias, check scope, advise", "<alias> [args]"),
     Verb("findings", "list findings recorded this session"),
-    Verb("report", "write a Markdown engagement report"),
+    Verb(
+        "report", "write an engagement report (add 'pdf' for a styled PDF too)", "[pdf]"
+    ),
     Verb("engagement", "show scope, or run the setup wizard", "[setup]"),
     Verb("config", "show or change app settings", "[show | <key> <value> | <request>]"),
     Verb("doctor", "probe host tools / runtimes / net tools", "[install <tool>]"),

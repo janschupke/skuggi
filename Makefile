@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install lint format typecheck test eval check clean
+.PHONY: install lint format typecheck test eval check clean pdf
 
 ## sync the locked environment and install the git hooks
 install:
@@ -34,6 +34,11 @@ check:
 	$(UV) run ruff check
 	$(UV) run mypy
 	$(UV) run pytest
+
+## render a Markdown file to a styled PDF: `make pdf IN=docs/architecture.md`
+## needs the `pdf` group (make install) and a system Pango (brew install pango)
+pdf:
+	$(UV) run skuggi-pdf $(IN)
 
 clean:
 	rm -rf .ruff_cache .mypy_cache .pytest_cache htmlcov coverage.xml .coverage dist *.egg-info

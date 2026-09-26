@@ -93,7 +93,7 @@ implicit `ask`. The two front-ends share one registry
 | `ask <prompt>` | Send a prompt to the agent |
 | `run <alias> [args]` | Resolve a command alias, check scope, advise (never runs it) |
 | `findings` | List findings recorded this session |
-| `report` | Write a Markdown engagement report |
+| `report [pdf]` | Write a Markdown engagement report (add `pdf` for a styled PDF too) |
 | `engagement [setup]` | Show the scope, or run the interactive setup wizard |
 | `config [show \| <key> <value> \| <request>]` | Show or change app settings |
 | `doctor [install <tool>]` | Probe host tools; install a missing one on request |
@@ -216,6 +216,34 @@ command, so it is always traceable. `/report` writes a Markdown report into the
 workspace's `reports/` with the scope, findings grouped by severity, and the
 timestamped command log.
 
+### PDF reports
+
+Markdown is the canonical artifact; a styled, client-ready PDF is derived from
+it. `/report pdf` writes a `.pdf` next to the `.md`, and the standalone
+`skuggi-pdf` renders any Markdown file (a report, or anything under `docs/`):
+
+```sh
+skuggi-pdf data/reports/<file>.md            # -> <file>.pdf
+skuggi-pdf docs/architecture.md -o arch.pdf --html   # also emit the HTML
+make pdf IN=docs/architecture.md
+```
+
+The pipeline is `Markdown -> HTML -> PDF`
+([src/skuggi/pdf.py](src/skuggi/pdf.py)): markdown-it-py parses the report,
+Pygments highlights fenced code, a Jinja2 shell wraps it in the print
+stylesheet ([src/skuggi/templates/report.css](src/skuggi/templates/report.css)),
+and WeasyPrint paints the PDF. Styling is pure CSS — edit `report.css` to
+restyle every report — and the severity/method colours are pulled from
+[src/skuggi/palette.py](src/skuggi/palette.py), the same source the terminal
+uses. It needs the optional `pdf` dependency group (installed by `make install`)
+and WeasyPrint's native Pango library:
+
+```sh
+brew install pango            # macOS
+# apt install libpango-1.0-0 libpangoft2-1.0-0   # Debian/Ubuntu
+uv sync --group pdf           # if you skipped `make install`
+```
+
 ## The per-engagement workspace
 
 Each engagement operates in `engagements/<name>/`
@@ -281,6 +309,7 @@ drops these fields even if a file mistakenly contains one.
 - `skuggi-repl` — the pure agent REPL
 - `skuggi-doctor` — probe the host for the registry's tools and report
 - `skuggi-ingest` — index files/directories into the FAISS store
+- `skuggi-pdf` — render a Markdown file to a styled PDF (needs the `pdf` group)
 - `skuggi-client` — the thin client the shell's `/skuggi` hook calls (not run
   directly)
 

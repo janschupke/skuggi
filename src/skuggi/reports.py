@@ -94,8 +94,14 @@ def write_report(
     reports_dir: Path,
     *,
     engagement: EngagementConfig | None = None,
-) -> Path:
+    pdf: bool = False,
+) -> Path | tuple[Path, Path]:
     """Render the session's report and write it as a timestamped Markdown file.
+
+    Markdown is always the canonical artifact. When ``pdf`` is set, the same
+    rendered Markdown is also painted to a sibling ``.pdf`` (via
+    :mod:`skuggi.pdf`, imported lazily so the core agent needs no PDF deps) and
+    both paths are returned.
 
     Raises ``ValueError`` if the session was never started.
     """
@@ -109,6 +115,27 @@ def write_report(
 
     reports_dir = ensure_dir(reports_dir)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    path = reports_dir / f"{_slug(session.engagement_name)}-{session_id[:8]}-{stamp}.md"
-    path.write_text(body, encoding="utf-8")
-    return path
+    base = reports_dir / f"{_slug(session.engagement_name)}-{session_id[:8]}-{stamp}"
+    md_path = base.with_suffix(".md")
+    md_path.write_text(body, encoding="utf-8")
+    if not pdf:
+        return md_path
+
+    from skuggi import pdf as pdf_mod
+
+    pdf_path = pdf_mod.markdown_to_pdf(
+        body, base.with_suffix(".pdf"), title=session.engagement_name
+    )
+    return md_path, pdf_path
+
+
+def report_written_lines(result: Path | tuple[Path, Path]) -> list[str]:
+    """Describe what :func:`write_report` produced, for either front-end.
+
+    Keeps the "report written / pdf written" wording identical across the REPL
+    and the daemon instead of each formatting the ``Path | tuple`` return.
+    """
+    if isinstance(result, tuple):
+        md_path, pdf_path = result
+        return [f"report written: {md_path}", f"pdf written: {pdf_path}"]
+    return [f"report written: {result}"]

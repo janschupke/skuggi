@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ title }}</title>
+    <style>{{ base_css }}</style>
+    <style>{{ pygments_css }}</style>
+    <style>
+      /* Runtime tokens + margin boxes: values that live in palette.py / Python,
+         kept out of the packaged CSS so the two never drift. */
+      :root {
+{%- for name, value in severity_tokens.items() %}
+        --sev-{{ name }}: {{ value }};
+{%- endfor %}
+{%- for name, value in method_tokens.items() %}
+        --method-{{ name }}: {{ value }};
+{%- endfor %}
+      }
+      @page {
+        @top-right {
+          content: "{{ brand }}";
+          font: 8pt "Helvetica Neue", Arial, sans-serif;
+          color: #6b7280;
+        }
+        @bottom-left {
+          content: "{{ generated_label }}";
+          font: 8pt "Helvetica Neue", Arial, sans-serif;
+          color: #9ca3af;
+        }
+      }
+    </style>
+  </head>
+  <body>
+{{ body }}
+  </body>
+</html>

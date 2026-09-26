@@ -27,7 +27,7 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
-from skuggi import configflow, verbs, wizard
+from skuggi import configflow, reports, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, doctor_ansi
@@ -238,8 +238,10 @@ class Daemon:
         for a in aliases:
             yield f"  {a.name:<16} {raw_command(list(a.argv))}  -- {a.description}\n"
 
-    def _report(self, _arg: str) -> Iterator[str]:
-        yield f"report written: {self.core.write_report()}\n"
+    def _report(self, arg: str) -> Iterator[str]:
+        result = self.core.write_report(pdf=arg.strip().lower() == "pdf")
+        for line in reports.report_written_lines(result):
+            yield f"{line}\n"
 
     def _engagement(self, arg: str) -> Iterator[str]:
         parts = arg.split()

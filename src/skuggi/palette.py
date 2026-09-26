@@ -59,6 +59,30 @@ _SEVERITY = {
 }
 _SEVERITY_DEFAULT = "white"
 
+# --- print (PDF/HTML) colour tokens -----------------------------------------
+# Hex analogs of the Rich sentiment/severity/method names above, so the print
+# theme (report.css :root tokens, injected by skuggi.pdf) never drifts from the
+# terminal palette. A screen terminal renders named colours from its own theme;
+# print has no theme, so the same semantics are pinned to concrete hex here.
+_SEVERITY_HEX = {
+    "critical": "#b91c1c",  # bold red -- the strongest danger
+    "high": "#dc2626",  # red
+    "medium": "#b45309",  # yellow reads as amber in print (contrast on white)
+    "low": "#0e7490",  # cyan
+    "info": "#6b7280",  # dim -- muted grey
+}
+_SEVERITY_HEX_DEFAULT = "#374151"
+
+_METHOD_HEX = {
+    "recon": "#0e7490",  # cyan
+    "scan": "#1d4ed8",  # blue
+    "enumerate": "#a21caf",  # magenta
+    "bruteforce": "#c2410c",  # dark_orange
+    "crack": "#7c3aed",  # medium_purple
+    "exploit": "#be185d",  # deep_pink3
+}
+_METHOD_HEX_DEFAULT = "#374151"
+
 
 def status_style(*, found: bool) -> str:
     """The style for a found/missing tool status (success / danger)."""
@@ -78,6 +102,16 @@ def method_style(method: str | None) -> str:
 def severity_style(severity: str) -> str:
     """The style for a finding severity."""
     return _SEVERITY.get(severity.lower(), _SEVERITY_DEFAULT)
+
+
+def severity_hex(severity: str) -> str:
+    """The print (hex) colour for a finding severity."""
+    return _SEVERITY_HEX.get(severity.lower(), _SEVERITY_HEX_DEFAULT)
+
+
+def method_hex(method: str | None) -> str:
+    """The print (hex) colour for an engagement method category."""
+    return _METHOD_HEX.get((method or "").lower(), _METHOD_HEX_DEFAULT)
 
 
 def methods() -> tuple[str, ...]:
