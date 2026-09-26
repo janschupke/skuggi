@@ -91,8 +91,9 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--import-mode=importlib",
-    # The eval layer talks to real providers; it is opt-in only.
-    "-m", "not eval",
+    # The eval layer talks to real providers and the e2e layer drives the real
+    # pipeline against the docker lab; both are opt-in only.
+    "-m", "not eval and not e2e",
     "--cov=skuggi",
     "--cov-branch",
     "--cov-fail-under=90",
@@ -112,6 +113,7 @@ filterwarnings = [
 ]
 markers = [
     "eval: talks to a real LLM provider; needs credentials, deselected by default",
+    "e2e: drives the real pipeline against the docker lab; needs the lab up, deselected by default",
     "mock_http: drives a mocked HTTP transport; the blanket network block is lifted",
     "runs_commands: spawns a real subprocess; the blanket subprocess block is lifted",
 ]

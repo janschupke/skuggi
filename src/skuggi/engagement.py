@@ -159,7 +159,11 @@ def _extract_targets(
     force_next = False
     for token in argv[1:]:
         if force_next:
-            found.append(token)
+            # A flag-forced value is still classified: a URL yields its host
+            # (so `-u http://192.0.2.10/x` is checked as `192.0.2.10`, in scope,
+            # not as the whole string). It falls back to the verbatim token only
+            # when it does not classify, preserving `-t localhost` forcing.
+            found.append(_as_target(token) or token)
             force_next = False
             continue
         if token in target_flags:

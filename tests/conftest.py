@@ -1,9 +1,10 @@
 """Shared fixtures and offline-session factories.
 
-The suite is four layers: L1 = tests/unit (pure functions/models), L2 =
+The suite is five layers: L1 = tests/unit (pure functions/models), L2 =
 tests/integration (real subsystems), L3 = tests/harness (front-ends + AgentCore
-offline), L4 = tests/eval (real providers). L1-L3 run fully offline; L4 (eval)
-is exempt from the isolation fixtures below.
+offline), L4 = tests/eval (real providers), L5 = tests/e2e (the real pipeline
+against the docker lab). L1-L3 run fully offline; the live layers (L4 eval, L5
+e2e) are exempt from the isolation fixtures below -- see `_is_live`.
 
 The three autouse fixtures here are load-bearing for isolation. Read the note in
 `isolate_credentials` before changing it. `offline_settings` / `wire_offline_core`
@@ -100,6 +101,23 @@ def _is_eval(request: pytest.FixtureRequest) -> bool:
     return request.node.get_closest_marker("eval") is not None
 
 
+def _is_e2e(request: pytest.FixtureRequest) -> bool:
+    return request.node.get_closest_marker("e2e") is not None
+
+
+def _is_live(request: pytest.FixtureRequest) -> bool:
+    """A live layer talks to the real world (a provider, or the docker lab).
+
+    Both eval and e2e are exempt from the offline isolation below: eval needs a
+    real provider; e2e needs the network block lifted (the lab health poll and
+    real curl/nmap against loopback) and the subprocess block lifted (the real
+    ``execution.run``). e2e uses a scripted LLM, so it needs no credentials, but
+    exempting it from ``isolate_credentials`` also stops the chdir-to-tmp so its
+    fixtures can read the repo's ``lab/``/``configs`` by path.
+    """
+    return _is_eval(request) or _is_e2e(request)
+
+
 @pytest.fixture(autouse=True)
 def isolate_credentials(
     request: pytest.FixtureRequest,
@@ -121,7 +139,7 @@ def isolate_credentials(
     Get any of these wrong and the suite passes while reading real credentials --
     a bad outcome for a project whose subject matter is credential files.
     """
-    if _is_eval(request):
+    if _is_live(request):
         return
     for name in _VENDOR_ENV:
         monkeypatch.delenv(name, raising=False)
@@ -143,7 +161,7 @@ def no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) 
     Lifted for tests marked `mock_http`, which install their own transport-level
     interception and would otherwise be blocked before reaching it.
     """
-    if _is_eval(request) or request.node.get_closest_marker("mock_http"):
+    if _is_live(request) or request.node.get_closest_marker("mock_http"):
         return
 
     def _blocked(*args: object, **kwargs: object) -> object:
@@ -165,7 +183,7 @@ def no_subprocess(
     commands, so a forgotten stub must fail loudly rather than spawn a real
     process. A test that genuinely needs to exec marks itself `runs_commands`.
     """
-    if _is_eval(request) or request.node.get_closest_marker("runs_commands"):
+    if _is_live(request) or request.node.get_closest_marker("runs_commands"):
         return
 
     def _blocked(*args: object, **kwargs: object) -> object:

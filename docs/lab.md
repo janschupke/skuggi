@@ -160,17 +160,40 @@ command only when every extracted target falls inside `target_networks` /
 `allowed_hosts`, so `nmap 192.0.2.10` passes while `nmap 8.8.8.8` is denied —
 a quick way to confirm the boundary is live.
 
-**A note on target extraction.** The guard classifies bare IPs/hostnames and,
-for `curl`, the host inside a URL. But a value that follows a registry
-`target_flag` (`-u`, `-h`, `-H`) is captured *verbatim*, so a full URL passed
-that way (`sqlmap -u http://192.0.2.10/…`, `gobuster -u http://192.0.2.10`) is
-compared as a whole string and denied even though the host is in scope. Give
-those tools a bare IP/host where they accept one, or run them directly against
-`192.0.2.10` outside the guard. `nmap`, `curl`, and flag-with-bare-IP tools
-(`nikto -h 192.0.2.10`, `hydra … 192.0.2.10`) pass cleanly.
+**A note on target extraction.** The guard classifies bare IPs/hostnames and
+the host inside a URL — including a URL that follows a registry `target_flag`
+(`-u`, `-h`, `-H`): the host is extracted before the scope check, so
+`sqlmap -u http://192.0.2.10/…` and `gobuster -u http://192.0.2.10` pass while
+`sqlmap -u http://8.8.8.8/…` is denied. A flag-forced value that is *not* a URL
+or IP (`hydra -t localhost`) is still forced verbatim as a target. `nmap`,
+`curl`, and flag-with-bare-IP tools (`nikto -h 192.0.2.10`, `hydra … 192.0.2.10`)
+pass cleanly too.
 
 > On macOS the WireGuard tunnel must be active for skuggi (running on the host)
 > to actually reach `192.0.2.10`; on Linux the bridge is routable directly.
+
+## Automated e2e
+
+The lab is also the target for the **L5 e2e** test layer
+([tests/e2e/](../tests/e2e/), see [docs/testing.md](testing.md)). It drives the
+real pipeline — the engagement guard, the tool registry, the ledger, and the
+real `skuggi.execution.run` subprocess — against the running lab with a scripted
+worker (no LLM), and asserts on real output: the IDOR draft (`post.php?id=4`) is
+readable, a SQLi UNION dumps the seeded admin md5, `nmap` sees the open port, an
+out-of-scope command is still blocked while the app is live, and a `/report` is
+produced from real findings.
+
+```sh
+cd lab && docker compose up -d --wait     # bring the lab up first
+cd .. && make e2e                          # runs `pytest -m e2e --no-cov`
+```
+
+The layer is deselected by default and **skips cleanly** when the lab is down
+(with a "bring it up" hint), so it is safe to leave in the default `pytest`
+selection. It targets the loopback-published port (`127.0.0.1:<port>`, discovered
+via `docker compose port web 80`), so it runs on macOS and Linux without
+WireGuard; the direct-`192.0.2.10` variants run only when that IP is routable
+(Linux, or macOS with the tunnel up) and skip otherwise.
 
 ## Adding more hosts later
 

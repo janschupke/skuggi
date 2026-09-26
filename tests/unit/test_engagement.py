@@ -86,6 +86,17 @@ def test_a_target_flag_forces_a_bare_word() -> None:
     assert parse_command("hydra -t localhost", REGISTRY).targets == ("localhost",)
 
 
+def test_a_url_after_a_target_flag_is_classified_to_its_host() -> None:
+    """`sqlmap -u http://10.0.0.5/x` is the host `10.0.0.5`, not the whole URL."""
+    cmd = parse_command("sqlmap -u http://10.0.0.5/dumps?id=1", REGISTRY)
+    assert cmd.targets == ("10.0.0.5",)
+
+
+def test_a_url_with_a_port_after_a_target_flag_strips_the_port() -> None:
+    cmd = parse_command("sqlmap -u http://10.0.0.5:8080/x", REGISTRY)
+    assert cmd.targets == ("10.0.0.5",)
+
+
 def test_unparseable_command_yields_empty_binary() -> None:
     assert parse_command('nmap "', REGISTRY).binary == ""
 
@@ -126,6 +137,27 @@ def test_unauthorized_method_is_denied() -> None:
     )
     assert not verdict.allowed
     assert "method" in verdict.reason
+
+
+def test_in_scope_url_after_a_target_flag_is_allowed() -> None:
+    """The unhack: a flag-forced in-scope URL passes the guard cleanly."""
+    verdict = check_command(
+        parse_command("sqlmap -u http://10.0.0.5/x", REGISTRY),
+        _engagement(allowed_methods=frozenset({"scan", "recon", "enumerate"})),
+        now=NOW,
+    )
+    assert verdict.allowed
+
+
+def test_out_of_scope_url_after_a_target_flag_is_denied() -> None:
+    """The extracted host is still scope-checked -- security is preserved."""
+    verdict = check_command(
+        parse_command("sqlmap -u http://8.8.8.8/x", REGISTRY),
+        _engagement(allowed_methods=frozenset({"scan", "recon", "enumerate"})),
+        now=NOW,
+    )
+    assert not verdict.allowed
+    assert "8.8.8.8" in verdict.reason
 
 
 def test_before_the_window_is_denied() -> None:

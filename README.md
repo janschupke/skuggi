@@ -356,10 +356,12 @@ drops these fields even if a file mistakenly contains one.
 make install     # uv sync --all-groups, plus the git hooks
 make check       # ruff format --check, ruff, mypy --strict, pytest — what CI runs
 make eval        # the real-provider layer; costs money, needs credentials
+make e2e         # the real pipeline against the docker lab (bring it up first)
 ```
 
-`make check` is the gate. The test suite is four layers, three of them offline —
-see [docs/testing.md](docs/testing.md).
+`make check` is the gate. The test suite is five layers, three of them offline;
+`make eval` (real providers) and `make e2e` (the [dockerized lab](docs/lab.md))
+are opt-in — see [docs/testing.md](docs/testing.md).
 
 ## Further reading
 

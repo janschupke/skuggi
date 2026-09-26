@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install lint format typecheck test eval check clean pdf
+.PHONY: install lint format typecheck test eval e2e check clean pdf
 
 ## sync the locked environment and install the git hooks
 install:
@@ -23,8 +23,16 @@ test:
 	$(UV) run pytest
 
 ## talks to real providers, costs money, needs credentials. Never part of `check`.
+## --no-cov: a partial selection would trip the global --cov-fail-under=90 and
+## exit non-zero even when every selected test passes.
 eval:
-	$(UV) run pytest -m eval
+	$(UV) run pytest -m eval --no-cov
+
+## drives the real pipeline against the docker lab (bring it up first:
+## `cd lab && docker compose up -d --wait`). Skips cleanly when the lab is down.
+## --no-cov for the same reason as `eval`. Never part of `check`.
+e2e:
+	$(UV) run pytest -m e2e --no-cov
 
 ## The gate. Same commands, same order as .github/workflows/ci.yml.
 ## `ruff format --check` and never `ruff format`: a target that rewrites files
