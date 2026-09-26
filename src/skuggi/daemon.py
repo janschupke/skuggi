@@ -28,6 +28,7 @@ from pathlib import Path
 from langchain_core.messages import AIMessage
 
 from skuggi import verbs
+from skuggi.commands import raw_command
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, doctor_ansi
 from skuggi.ledger import finding_line
@@ -83,6 +84,7 @@ class Daemon:
 
     def _control(self, verb: str, arg: str) -> Iterator[str]:
         handler = {
+            "run": self._run,
             "findings": self._findings,
             "report": self._report,
             "engagement": self._engagement,
@@ -103,6 +105,39 @@ class Daemon:
         yield from handler(arg)
 
     # ----- control handlers (plain text over the socket) --------------------
+
+    def _run(self, arg: str) -> Iterator[str]:
+        name, _, rest = arg.partition(" ")
+        if not name or name == "list":
+            yield from self._run_list()
+            return
+        plan = self.core.plan_run(name, rest.split())
+        if not plan.known:
+            yield plan.note + "\n"
+            return
+        yield f"$ {plan.raw}\n"  # the resolved raw command, always shown
+        if plan.verdict is not None and not plan.verdict.allowed:
+            yield f"OUT OF SCOPE: {plan.note}\n"
+            return
+        if plan.verdict is None:
+            yield plan.note + "\n"
+        else:
+            yield (
+                f"in scope -- recorded proposed (cmd:{plan.command_id}); "
+                "submit it yourself\n"
+            )
+        yield from self._agent(
+            "Briefly evaluate this proposed command and note any risks; do not "
+            f"run anything, just advise: {plan.raw}"
+        )
+
+    def _run_list(self) -> Iterator[str]:
+        aliases = self.core.commands.commands
+        if not aliases:
+            yield "no command aliases configured\n"
+            return
+        for a in aliases:
+            yield f"  {a.name:<16} {raw_command(list(a.argv))}  -- {a.description}\n"
 
     def _report(self, _arg: str) -> Iterator[str]:
         yield f"report written: {self.core.write_report()}\n"

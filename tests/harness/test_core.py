@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from skuggi import probe as probe_mod
+from skuggi.commands import CommandAlias, CommandRegistry
 from skuggi.core import AgentCore
 from skuggi.registry import ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
@@ -122,5 +123,57 @@ def test_no_engagement_degrades(tmp_path: Path) -> None:
         assert "run_command" not in {t.name for t in core.tools_list}
         with pytest.raises(ValueError, match="no engagement"):
             core.set_autonomous(True)
+    finally:
+        core.close()
+
+
+# --- run command aliases (plan_run) -----------------------------------------
+
+_ALIASES = CommandRegistry(
+    commands=(
+        CommandAlias(name="nmap-network", argv=("nmap", "-sn")),
+        CommandAlias(name="nmap-host", argv=("nmap", "-sV", "-sC")),
+    )
+)
+
+
+def test_plan_run_in_scope_records_proposed(core: AgentCore) -> None:
+    core.commands = _ALIASES
+    plan = core.plan_run("nmap-network", ["10.0.0.5"])
+    assert plan.known
+    assert plan.raw == "nmap -sn 10.0.0.5"  # the transparent resolved command
+    assert plan.verdict is not None
+    assert plan.verdict.allowed
+    assert plan.command_id is not None
+    row = core.ledger.commands_for(core.session_id)[-1]
+    assert row.status == "proposed"
+    assert row.command == "nmap -sn 10.0.0.5"
+
+
+def test_plan_run_out_of_scope_is_blocked(core: AgentCore) -> None:
+    core.commands = _ALIASES
+    plan = core.plan_run("nmap-host", ["8.8.8.8"])  # not in target networks/hosts
+    assert plan.known
+    assert plan.verdict is not None
+    assert not plan.verdict.allowed
+    assert core.ledger.commands_for(core.session_id)[-1].status == "blocked"
+
+
+def test_plan_run_unknown_alias(core: AgentCore) -> None:
+    core.commands = _ALIASES
+    plan = core.plan_run("bogus", [])
+    assert not plan.known
+    assert "unknown alias" in plan.note
+
+
+def test_plan_run_without_engagement_skips_scope(tmp_path: Path) -> None:
+    core = _build_core(tmp_path, engagement=None)
+    try:
+        core.commands = _ALIASES
+        plan = core.plan_run("nmap-host", ["10.0.0.5"])
+        assert plan.known
+        assert plan.verdict is None
+        assert "no engagement" in plan.note
+        assert plan.raw == "nmap -sV -sC 10.0.0.5"
     finally:
         core.close()

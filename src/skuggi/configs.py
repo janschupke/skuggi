@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from skuggi.commands import CommandRegistry
 from skuggi.engagement import EngagementConfig
 from skuggi.registry import ToolRegistry
 from skuggi.workspace import WorkspaceLayout
@@ -46,6 +47,22 @@ def load_registry(path: Path) -> ToolRegistry:
         return ToolRegistry.model_validate_json(_read(path, what="tool registry"))
     except ValueError as exc:
         msg = f"invalid tool registry at {path}: {exc}"
+        raise ConfigError(msg) from exc
+
+
+def load_commands(path: Path) -> CommandRegistry:
+    """Load the command-alias registry, or return an empty one when absent.
+
+    Optional like the workspace layout: a missing file just means no aliases,
+    not an error. A present-but-malformed file fails loudly like the others.
+    """
+    resolved = path.expanduser()
+    if not resolved.is_file():
+        return CommandRegistry()
+    try:
+        return CommandRegistry.model_validate_json(resolved.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        msg = f"invalid command registry at {path}: {exc}"
         raise ConfigError(msg) from exc
 
 

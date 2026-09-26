@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.configs import ConfigError, load_layout, load_registry, load_scope
+from skuggi.configs import (
+    ConfigError,
+    load_commands,
+    load_layout,
+    load_registry,
+    load_scope,
+)
 
 
 def test_loads_a_valid_scope(pentest_configs: Callable[..., Path]) -> None:
@@ -85,3 +91,26 @@ def test_example_registry_includes_the_new_tools() -> None:
     assert hydra is not None
     assert john.requires_target is False
     assert hydra.requires_target is True
+
+
+# --- command aliases --------------------------------------------------------
+
+
+def test_missing_commands_returns_empty(tmp_path: Path) -> None:
+    assert load_commands(tmp_path / "absent.json").commands == ()
+
+
+def test_commands_loaded(tmp_path: Path) -> None:
+    cfg = tmp_path / "commands.json"
+    cfg.write_text(
+        '{"commands": [{"name": "x", "argv": ["nmap", "-sn"]}]}', encoding="utf-8"
+    )
+    reg = load_commands(cfg)
+    assert reg.alias_for("x") is not None
+
+
+def test_invalid_commands_raises_config_error(tmp_path: Path) -> None:
+    cfg = tmp_path / "commands.json"
+    cfg.write_text('{"commands": [{"argv": 5}]}', encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_commands(cfg)

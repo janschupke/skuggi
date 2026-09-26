@@ -23,6 +23,7 @@ from rich.spinner import Spinner
 from rich.table import Table
 
 from skuggi import palette, verbs
+from skuggi.commands import raw_command
 from skuggi.config import Settings
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, render_doctor
@@ -91,6 +92,7 @@ class Tui:
             "history": self._cmd_history,
             "trace": self._cmd_trace,
             "engagement": self._cmd_engagement,
+            "run": self._cmd_run,
             "doctor": self._cmd_doctor,
             "findings": self._cmd_findings,
             "report": self._cmd_report,
@@ -309,6 +311,43 @@ class Tui:
             )
         else:
             self.console.print(f"[red]install failed or unavailable[/red] for {binary}")
+
+    def _cmd_run(self, arg: str) -> None:
+        name, _, rest = arg.partition(" ")
+        if not name or name == "list":
+            self._run_list()
+            return
+        plan = self.core.plan_run(name, rest.split())
+        if not plan.known:
+            self.console.print(f"[yellow]{plan.note}[/yellow]")
+            return
+        self.console.print(f"[bold]$ {plan.raw}[/bold]")  # the resolved raw command
+        if plan.verdict is not None and not plan.verdict.allowed:
+            self.console.print(
+                palette.paint(f"OUT OF SCOPE: {plan.note}", palette.DANGER)
+            )
+            return
+        if plan.verdict is None:
+            self.console.print(f"[yellow]{plan.note}[/yellow]")
+        else:
+            self.console.print(
+                f"[green]in scope[/green] -- recorded proposed "
+                f"(cmd:{plan.command_id}); submit it yourself"
+            )
+        self.turn(
+            "Briefly evaluate this proposed command and note any risks; do not "
+            f"run anything, just advise: {plan.raw}"
+        )
+
+    def _run_list(self) -> None:
+        aliases = self.core.commands.commands
+        if not aliases:
+            self.console.print("[dim]no command aliases configured[/dim]")
+            return
+        for a in aliases:
+            self.console.print(
+                f"[cyan]{a.name}[/cyan] {raw_command(list(a.argv))} -- {a.description}"
+            )
 
     def _cmd_findings(self, _arg: str) -> None:
         rows = self.core.findings()

@@ -18,6 +18,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
 
@@ -29,9 +30,21 @@ from langgraph.types import StreamMode
 
 from skuggi import ledger as ledger_mod
 from skuggi import memory, pentest_tools, probe, providers, reports, tools
+from skuggi.commands import CommandRegistry, raw_command
 from skuggi.config import Provider, Settings
-from skuggi.configs import ConfigError, load_layout, load_registry, load_scope
-from skuggi.engagement import EngagementConfig
+from skuggi.configs import (
+    ConfigError,
+    load_commands,
+    load_layout,
+    load_registry,
+    load_scope,
+)
+from skuggi.engagement import (
+    EngagementConfig,
+    GuardVerdict,
+    check_command,
+    parse_command,
+)
 from skuggi.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.ledger import FindingRow
 from skuggi.modes import MODES, Mode, prompt_set
@@ -69,6 +82,24 @@ class TurnEvent:
     node: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class RunPlan:
+    """The result of resolving a ``run`` alias: the raw command + scope verdict.
+
+    ``raw`` is the fully-resolved command string shown to the operator (the
+    transparency invariant). ``run`` never executes -- an in-scope command is
+    recorded ``proposed`` for the operator to submit; an out-of-scope one is
+    recorded ``blocked``.
+    """
+
+    alias: str
+    raw: str
+    known: bool
+    verdict: GuardVerdict | None
+    command_id: int | None
+    note: str
+
+
 class AgentCore:
     """Owns the agent session; front-ends render its output."""
 
@@ -85,6 +116,7 @@ class AgentCore:
         self.workspace = self._open_workspace()
         self.engagement = self._load_scope()
         self.registry = self._load_registry()
+        self.commands = self._load_commands()
 
         self._embeddings = providers.get_embeddings(self.settings)
         self.store = Store.from_settings(self.settings, self._embeddings)
@@ -139,6 +171,13 @@ class AgentCore:
         except ConfigError as exc:
             self.warnings.append(f"no tool registry loaded: {exc}")
             return ToolRegistry()
+
+    def _load_commands(self) -> CommandRegistry:
+        try:
+            return load_commands(self.settings.commands_path)
+        except ConfigError as exc:
+            self.warnings.append(f"no command aliases loaded: {exc}")
+            return CommandRegistry()
 
     def _ledger_path(self) -> Path:
         if self.workspace is not None:
@@ -312,6 +351,57 @@ class AgentCore:
             spec,
             source=self.settings.tool_source,
             managed_dir=self.settings.managed_tools_dir,
+        )
+
+    def plan_run(self, name: str, extra: list[str]) -> RunPlan:
+        """Resolve a ``run`` alias, check it against scope, and record it.
+
+        Returns a plan carrying the resolved raw command and the guard verdict.
+        Never executes: an in-scope command is recorded ``proposed`` (for the
+        operator to submit), an out-of-scope one ``blocked``.
+        """
+        alias = self.commands.alias_for(name)
+        if alias is None:
+            avail = ", ".join(self.commands.names()) or "(none configured)"
+            return RunPlan(
+                alias=name,
+                raw="",
+                known=False,
+                verdict=None,
+                command_id=None,
+                note=f"unknown alias {name!r}. available: {avail}",
+            )
+        raw = raw_command(alias.resolve(extra))
+        if self.engagement is None:
+            return RunPlan(
+                alias=name,
+                raw=raw,
+                known=True,
+                verdict=None,
+                command_id=None,
+                note="no engagement loaded -- scope not checked; review before running",
+            )
+        parsed = parse_command(raw, self.registry)
+        verdict = check_command(
+            parsed, self.engagement, now=datetime.now(self.engagement.tzinfo())
+        )
+        status = "proposed" if verdict.allowed else "blocked"
+        command_id = self.ledger.record_command(
+            session_id=self.session_id,
+            thread_id=self.thread_id,
+            command=raw,
+            binary=parsed.binary,
+            method=parsed.method,
+            status=status,
+            reason="" if verdict.allowed else verdict.reason,
+        )
+        return RunPlan(
+            alias=name,
+            raw=raw,
+            known=True,
+            verdict=verdict,
+            command_id=command_id,
+            note="in scope" if verdict.allowed else verdict.reason,
         )
 
     # ----- the agent turn ----------------------------------------------------

@@ -136,6 +136,8 @@ class Settings(BaseSettings):
     # the optional workspace-layout override. Committed only as `.example`.
     registry_path: Path = Path("./configs/tools.json")
     layout_path: Path = Path("./configs/layout.json")
+    # Named command shorthands the `run` verb resolves (optional).
+    commands_path: Path = Path("./configs/commands.json")
     # Engagement setup lives in a per-engagement workspace under this root; the
     # active engagement selects the directory (engagements/<engagement>/). Its
     # scope.json, ledger and reports live inside that workspace. With no active

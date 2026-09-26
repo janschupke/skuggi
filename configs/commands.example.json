@@ -1,0 +1,14 @@
+{
+  "commands": [
+    {"name": "nmap-network", "argv": ["nmap", "-sn"],
+     "description": "host discovery (ping sweep) across a network"},
+    {"name": "nmap-host", "argv": ["nmap", "-sV", "-sC"],
+     "description": "service/version + default scripts against a host"},
+    {"name": "nmap-full", "argv": ["nmap", "-p-", "-sV"],
+     "description": "all TCP ports with service detection"},
+    {"name": "web-fetch", "argv": ["curl", "-sSIL"],
+     "description": "fetch a URL's response headers, following redirects"},
+    {"name": "web-dir", "argv": ["gobuster", "dir", "-u"],
+     "description": "directory brute-force against a web host (append -w wordlist)"}
+  ]
+}

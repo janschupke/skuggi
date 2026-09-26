@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from skuggi import probe as probe_mod
+from skuggi.commands import CommandAlias, CommandRegistry
 from skuggi.core import AgentCore
 from skuggi.daemon import Daemon
 from skuggi.registry import ToolSpec, ToolStatus
@@ -152,3 +153,26 @@ def test_doctor_install(daemon: Daemon, monkeypatch: pytest.MonkeyPatch) -> None
     assert "unknown tool" in _chunks(
         daemon, {"op": "input", "text": "doctor install ghost"}
     )
+
+
+def test_run_alias_in_scope(daemon: Daemon) -> None:
+    daemon.core.commands = CommandRegistry(
+        commands=(CommandAlias(name="nmap-network", argv=("nmap", "-sn")),)
+    )
+    out = _chunks(daemon, {"op": "input", "text": "run nmap-network 10.0.0.5"})
+    assert "$ nmap -sn 10.0.0.5" in out  # transparent raw command
+    assert "in scope" in out
+
+
+def test_run_alias_out_of_scope(daemon: Daemon) -> None:
+    daemon.core.commands = CommandRegistry(
+        commands=(CommandAlias(name="nmap-host", argv=("nmap", "-sV", "-sC")),)
+    )
+    out = _chunks(daemon, {"op": "input", "text": "run nmap-host 8.8.8.8"})
+    assert "$ nmap -sV -sC 8.8.8.8" in out
+    assert "OUT OF SCOPE" in out
+
+
+def test_run_list_and_unknown(daemon: Daemon) -> None:
+    assert "no command aliases" in _chunks(daemon, {"op": "input", "text": "run"})
+    assert "unknown alias" in _chunks(daemon, {"op": "input", "text": "run bogus"})

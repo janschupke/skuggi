@@ -25,6 +25,7 @@ class Verb:
 # Ordered for the help listing: the everyday agent path first, controls after.
 VERBS: tuple[Verb, ...] = (
     Verb("ask", "send a prompt to the agent", "<prompt>"),
+    Verb("run", "resolve a command alias, check scope, advise", "<alias> [args]"),
     Verb("findings", "list findings recorded this session"),
     Verb("report", "write a Markdown engagement report"),
     Verb("engagement", "show the loaded engagement scope"),
