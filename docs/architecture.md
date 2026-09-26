@@ -108,3 +108,36 @@ Enforcement scope, stated honestly: the boundary applies to commands the *agent*
 proposes through `run_command`. Commands you free-type in the shell are your own
 and are not vetoed — reliable pre-exec interception of a live interactive shell
 is not feasible across shells.
+
+## Dispatch and the attach protocol
+
+Both front-ends are **verb-first**: the first word is the action, the rest is
+its input. One registry ([verbs.py](../src/skuggi/verbs.py)) is the single
+source of the known-verb set, argument hints and the `/help` listing, so the
+REPL's `/verb` table and the daemon's socket dispatch can never drift. The
+handlers live in each front-end (Rich tables and colour in the REPL, plain text
+over the socket) but route off the same registry; the REPL additionally treats
+bare text as an implicit `ask`.
+
+The wire protocol is line-delimited JSON with two shapes:
+
+- **one-shot** — the client sends `{"op":"input","text":…}`, the daemon streams
+  `{"chunk":…}` frames and closes with `{"end":true,"exit":<bool>}`. This is
+  every `/skuggi <verb>` invocation; `exit` true tells the client to leave the
+  shell.
+- **attach** — a bare `/skuggi` sends `{"op":"attach"}` and then runs an
+  interactive loop over the *same* connection: each line is sent, its reply
+  streamed, and the session (thread, ledger, engagement) stays live between
+  lines. `Daemon.run_attached` drives it with the same dispatch as a one-shot
+  input. Leaving the loop (blank line / `exit` / `Ctrl-D`) returns to the shell
+  with the daemon still warm; only the one-shot `/skuggi exit` leaves the shell.
+
+Interactive verbs prompt back through an **`{"ask":…}` frame**: the daemon emits
+a question, the client prompts the operator and sends the answer as the next
+`input`, and the whole exchange runs inside one attach reply. This is how the
+`engagement setup` wizard ([wizard.py](../src/skuggi/wizard.py)) and the
+natural-language `config` escalation ([configflow.py](../src/skuggi/configflow.py))
+work; both are front-end-agnostic (the REPL supplies its `PromptSession`, the
+attach loop supplies the socket round-trip) so one implementation serves both.
+`AgentCore.load_engagement` hot-reloads a rewritten scope into the running
+session — new workspace, ledger, tools and graph — without a restart.

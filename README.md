@@ -8,8 +8,11 @@ finding traceable to the command that produced it — and exportable as a Markdo
 report.
 
 The default `skuggi` command wraps your **real shell**: you keep your prompt,
-colours, completion, history and signals, and only `/skuggi <prompt>` reaches
-the agent (a warm in-process daemon). `skuggi-repl` is the pure agent chat.
+colours, completion, history and signals, and only `/skuggi <verb> …` reaches
+the agent (a warm in-process daemon). Interaction is **verb-first** — the first
+word is the action, the rest is its input (`/skuggi ask scan the web host`); a
+bare `/skuggi` opens an interactive chat loop against the warm daemon and hands
+the shell back when you leave it. `skuggi-repl` is the pure agent chat.
 
 Four LLM providers, switchable at runtime:
 
@@ -53,14 +56,16 @@ With no `SKUGGI_ENGAGEMENT` set, skuggi runs agent-only (no scope, no ledger).
 uv run skuggi          # the native shell wrapper (🐐 prompt)
 ```
 
-Inside the wrapped shell your normal commands run natively; `/skuggi` reaches
-the agent:
+Inside the wrapped shell your normal commands run natively; `/skuggi <verb>`
+reaches the agent:
 
 ```
-🐐 ~ %  ls                            # your real shell, native colours
-🐐 ~ %  /skuggi scan the web host     # → agent proposes an in-scope command
-🐐 ~ %  /skuggi /findings             # → harness control
-🐐 ~ %  /skuggi exit                  # → leave the harness
+🐐 ~ %  ls                              # your real shell, native colours
+🐐 ~ %  /skuggi ask scan the web host   # → agent proposes an in-scope command
+🐐 ~ %  /skuggi run nmap-host 10.0.0.5  # → resolve an alias, check scope, advise
+🐐 ~ %  /skuggi findings                # → harness control
+🐐 ~ %  /skuggi                         # → open the chat loop (blank line leaves)
+🐐 ~ %  /skuggi exit                    # → leave the harness
 ```
 
 For the pure agent chat instead:
@@ -70,35 +75,70 @@ uv run skuggi-repl     # or: python -m skuggi
 ```
 
 ```
-> what is exposed on the target?
+> what is exposed on the target?     # bare text is an implicit `ask`
 > /provider anthropic
 > /ingest docs
 > /quit
 ```
 
-## Commands
+## Verbs
 
-In `skuggi-repl` these are typed directly; in the wrapped `skuggi` shell they
-are reached as `/skuggi <prompt>` and `/skuggi /findings`, etc. Anything not
-starting with `/` goes to the agent.
+The first word after `/skuggi` (or after `/` in `skuggi-repl`) is the verb; the
+rest is its input. In `skuggi-repl`, bare text with no leading `/` is an
+implicit `ask`. The two front-ends share one registry
+([src/skuggi/verbs.py](src/skuggi/verbs.py)), so `/help` always matches.
 
-| Command | Effect |
+| Verb | Effect |
 |---|---|
-| `/help` | Command reference |
-| `/provider <openai\|chatgpt\|anthropic\|ollama>` | Switch provider, recompile graph |
-| `/model <name>` | Switch model on the current provider |
-| `/mode <pentest\|redteam\|blueteam>` | Switch the prompt set (see below) |
-| `/thread new\|list\|<id>` | Start / list / resume a conversation thread |
-| `/history [n]` | Show the last `n` messages on the current thread |
-| `/trace` | Show the worker's tool calls on the current thread |
-| `/engagement` | Show the loaded engagement scope |
-| `/doctor [install <tool>]` | Probe host tools; install a missing one on request |
-| `/findings` | List findings recorded this session |
-| `/report` | Write a Markdown engagement report |
-| `/autonomous [on\|off]` | Toggle autonomous command execution |
-| `/ingest <path>` | Index a file or directory of `*.md` / `*.txt` |
-| `/clear` | Clear the screen |
-| `/quit`, `/exit` | Close cleanly |
+| `ask <prompt>` | Send a prompt to the agent |
+| `run <alias> [args]` | Resolve a command alias, check scope, advise (never runs it) |
+| `findings` | List findings recorded this session |
+| `report` | Write a Markdown engagement report |
+| `engagement [setup]` | Show the scope, or run the interactive setup wizard |
+| `config [show \| <key> <value> \| <request>]` | Show or change app settings |
+| `doctor [install <tool>]` | Probe host tools; install a missing one on request |
+| `mode <pentest\|redteam\|blueteam>` | Switch the prompt set (see below) |
+| `autonomous [on\|off]` | Toggle autonomous command execution |
+| `provider <openai\|chatgpt\|anthropic\|ollama>` | Switch provider, recompile graph |
+| `model <name>` | Switch model on the current provider |
+| `thread new\|list\|<id>` | Start / list / resume a conversation thread |
+| `history [n]` | Show the last `n` messages on the current thread |
+| `trace` | Show the worker's tool calls on the current thread |
+| `ingest <path>` | Index a file or directory of `*.md` / `*.txt` |
+| `update` | Update skuggi in place (`git pull --ff-only` + `uv sync`) |
+| `clear` | Clear the screen (`skuggi-repl` only) |
+| `help` | Verb reference |
+| `exit`, `quit` | Close cleanly |
+
+**Interactive verbs need a loop.** `engagement setup` and a natural-language
+`config <request>` prompt you back and forth, so they run in `skuggi-repl` or in
+the wrapped shell's chat loop (a bare `/skuggi`). Invoked one-shot as
+`/skuggi engagement setup`, they point you at the loop rather than half-running.
+
+## run: command aliases (transparent, suggest-style)
+
+`run <alias> [args]` maps a short name to a CLI invocation
+([configs/commands.example.json](configs/commands.example.json)), resolves it,
+**prints the fully-resolved raw command**, checks it against the engagement
+scope, records it (`proposed` in scope, `blocked` out of scope), and has the
+agent advise — it never executes. `run` / `run list` lists the aliases. Copy the
+example to `configs/commands.json` and extend it. Shipped defaults:
+
+| Alias | Command | Purpose |
+|---|---|---|
+| `nmap-network` | `nmap -sn` | host discovery (ping sweep) |
+| `nmap-host` | `nmap -sV -sC` | service/version + default scripts |
+| `nmap-full` | `nmap -p- -sV` | all TCP ports with service detection |
+| `web-fetch` | `curl -sSIL` | response headers, following redirects |
+| `web-dir` | `gobuster dir -u` | directory brute-force (append `-w <wordlist>`) |
+
+## engagement setup: the scope wizard
+
+`engagement setup` runs a field-by-field wizard (name, timezone, authorized
+window, daily windows, target networks, allowed hosts/tools/methods,
+autonomous), validates the answers, writes `engagements/<name>/scope.json`, and
+**hot-reloads** the boundary into the running session — no restart. A blank
+answer keeps the current value when editing; `Ctrl-D` cancels.
 
 ## The engagement boundary
 
@@ -207,9 +247,17 @@ one-off `SKUGGI_PROVIDER=anthropic` still wins for a single run. Config tiers:
 - **App config** (`configs/config.json`, gitignored except `.example`): the
   settings above; edit it directly or with the `config` verb.
 - **Harness config** (shared, in `configs/`): the recognized-tool registry
-  `tools.json` and the optional workspace-layout override `layout.json`.
+  `tools.json`, the optional workspace-layout override `layout.json`, and the
+  optional `run`-alias file `commands.json`.
 - **Engagement setup** (per-case, in `engagements/<name>/scope.json`): the
   boundary above.
+
+The **`config` verb** edits the app config in place: `config` (or `config show`)
+prints every setting with credentials redacted; `config <key> <value>` validates
+and persists one setting, applying `provider`/`mode` to the live session (other
+keys take effect on restart); and `config <natural-language request>` asks the
+LLM to propose `key=value` edits, shows them, and applies them on your
+confirmation. It never writes a secret.
 
 **Secrets never go in the JSON.** The API keys are read only from the
 environment — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` (or `~/.codex/auth.json`) —
