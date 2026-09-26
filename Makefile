@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install lint format typecheck test eval e2e check clean pdf
+.PHONY: install lint format typecheck test eval e2e eval-det bench check clean pdf
 
 ## sync the locked environment and install the git hooks
 install:
@@ -33,6 +33,19 @@ eval:
 ## --no-cov for the same reason as `eval`. Never part of `check`.
 e2e:
 	$(UV) run pytest -m e2e --no-cov
+
+## The deterministic eval tier as a standalone offline gate (no provider, no
+## network): score compliance/methodology/schema/result_compat vs evals/baseline.json
+## and fail on regression. Also runs inside `make check` via the tests/eval_det suite.
+eval-det:
+	$(UV) run skuggi-eval --tier det --check
+
+## The full eval benchmark across providers: adds the quality tier (factuality,
+## budget, latency) and regenerates evals/scorecard.md. Costs money; needs
+## credentials. Every Braintrust Eval runs local (no_send_logs); nothing uploads.
+bench:
+	$(UV) run skuggi-eval --tier all --provider openai --provider anthropic \
+		--check --scorecard evals/scorecard.md
 
 ## The gate. Same commands, same order as .github/workflows/ci.yml.
 ## `ruff format --check` and never `ruff format`: a target that rewrites files

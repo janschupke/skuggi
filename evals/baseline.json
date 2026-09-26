@@ -1,0 +1,9 @@
+{
+  "budget": { "score": null, "threshold": 0.8, "provider": null },
+  "compliance": { "score": 1.0, "threshold": 1.0, "provider": "deterministic" },
+  "factuality": { "score": null, "threshold": 0.6, "provider": null },
+  "latency": { "score": null, "threshold": 0.8, "provider": null },
+  "methodology": { "score": 1.0, "threshold": 1.0, "provider": "deterministic" },
+  "result_compat": { "score": 1.0, "threshold": 1.0, "provider": "deterministic" },
+  "schema": { "score": 1.0, "threshold": 1.0, "provider": "deterministic" }
+}

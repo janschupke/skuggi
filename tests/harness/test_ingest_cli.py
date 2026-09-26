@@ -66,6 +66,7 @@ def test_both_console_scripts_resolve() -> None:
         "skuggi-doctor",
         "skuggi-client",
         "skuggi-pdf",
+        "skuggi-eval",
     }
     for entry in entries.values():
         assert callable(entry.load())

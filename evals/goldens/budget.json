@@ -1,0 +1,8 @@
+{
+  "dimension": "budget",
+  "description": "Quality tier. One real agent turn per case; token usage (captured via LangChain's usage callback) x the config price table must stay under the per-scenario ceiling. budget_threshold scores 1.0 under the ceiling, graded below.",
+  "cases": [
+    {"id": "single-recon-turn", "scope_ref": "lab", "prompt": "propose a first recon command for the lab web host", "max_cost_usd": 0.03},
+    {"id": "enumerate-turn", "scope_ref": "lab", "prompt": "which parameters on the blog look injectable?", "max_cost_usd": 0.03}
+  ]
+}

@@ -50,6 +50,7 @@ skuggi-ingest = "skuggi.ingest:main"
 skuggi-doctor = "skuggi.doctor:main"
 skuggi-client = "skuggi.client:main"
 skuggi-pdf = "skuggi.pdf:main"
+skuggi-eval = "skuggi.eval.cli:main"
 
 [tool.hatch.version]
 path = "src/skuggi/__init__.py"
@@ -70,6 +71,10 @@ dev = [
     "pytest-timeout>=2.4",
     "respx>=0.23.1",
     "pre-commit>=4.6.2",
+]
+eval = [
+    "autoevals>=0.3,<1",
+    "braintrust>=0.42,<1",
 ]
 # The MD -> HTML -> PDF report pipeline (skuggi-pdf and `/report pdf`). A separate
 # group so the core agent installs without WeasyPrint's native Pango dependency;
@@ -199,6 +204,13 @@ runtime-evaluated-base-classes = [
 "src/skuggi/client.py" = ["T201"]
 # _get_request_payload's **kwargs: Any is fixed by the ChatOpenAI signature.
 "src/skuggi/codex_chat.py" = ["ANN401"]
+# The offline eval model subclasses BaseChatModel (with_structured_output /
+# _generate carry the base's Any signatures); the quality scorers match
+# Braintrust's untyped (output, metadata, **kwargs) score-function contract.
+"src/skuggi/eval/offline.py" = ["ANN401", "ARG002"]
+# skuggi-eval prints its scorecard to stdout.
+"src/skuggi/eval/cli.py" = ["T201"]
+"src/skuggi/eval/quality.py" = ["ANN401"]
 # The shell launcher and the daemon's socket server import their heavy/platform
 # plumbing lazily inside the interactive functions, so importing the module for
 # its unit-tested helpers stays cheap. shell.main prints to the operator's tty.
@@ -259,4 +271,10 @@ warn_required_dynamic_aliases = true
 # markupsafe are all typed.
 [[tool.mypy.overrides]]
 module = ["weasyprint.*", "pygments.*"]
+ignore_missing_imports = true
+
+# autoevals (the LLM-judge scorers for the quality eval tier) ships no type
+# information; braintrust itself is typed. Scoped to autoevals only.
+[[tool.mypy.overrides]]
+module = ["autoevals.*"]
 ignore_missing_imports = true

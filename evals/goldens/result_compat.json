@@ -1,0 +1,30 @@
+{
+  "dimension": "result_compat",
+  "description": "Result compatibility with the host system: a scripted worker output is driven through a real (offline) AgentCore turn, and its command + findings must round-trip into the SQLite ledger and the Markdown report contract. Oracle is the real ledger + reports.render_report; threshold 1.0.",
+  "cases": [
+    {
+      "id": "proposed-command-with-finding",
+      "scope_ref": "lab",
+      "prompt": "read the hidden draft post",
+      "worker": {"command": "curl http://192.0.2.10/post.php?id=4", "summary": "reads the draft post over IDOR", "findings": [{"title": "IDOR on posts", "severity": "high", "description": "post.php exposes draft id 4 with no authorization check", "evidence": "HTTP 200 with draft body"}], "done": true},
+      "expect_command_status": "proposed",
+      "expect_finding_titles": ["IDOR on posts"]
+    },
+    {
+      "id": "blocked-command-still-records-finding",
+      "scope_ref": "lab",
+      "prompt": "scan an out of scope host",
+      "worker": {"command": "nmap -sV 8.8.8.8", "summary": "attempts an out-of-scope scan", "findings": [{"title": "Operator asked for out-of-scope target", "severity": "info", "description": "the guard blocked the command"}], "done": true},
+      "expect_command_status": "blocked",
+      "expect_finding_titles": ["Operator asked for out-of-scope target"]
+    },
+    {
+      "id": "advice-only-with-finding",
+      "scope_ref": "lab",
+      "prompt": "summarise what you know so far",
+      "worker": {"summary": "no command warranted", "advice": "the backup dump is downloadable", "findings": [{"title": "Sensitive file exposure", "severity": "medium", "description": "/backup/db_dump.sql is world-readable"}], "done": true},
+      "expect_command_status": null,
+      "expect_finding_titles": ["Sensitive file exposure"]
+    }
+  ]
+}

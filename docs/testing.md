@@ -51,6 +51,38 @@ subprocess, and `/report`. It reuses the app's own wiring (`AgentCore` via
 `tests.support.engaged_core`) rather than re-assembling a graph, so it can't
 drift from what the REPL/daemon do. It skips cleanly when the lab is down.
 
+## The eval system
+
+Beyond the five layers, `skuggi.eval` is a committed, **local-only** evaluation
+system that scores the agent across five quality dimensions and gates on
+regression. It is documented in [../evals/README.md](../evals/README.md); the
+short version:
+
+- **Deterministic tier** (`tests/eval_det/`, part of the default `make check`
+  run): `compliance` (the engagement guard + phase machine), `schema` and
+  `result_compat` (host-system compatibility -- the protocol schemas, the SQLite
+  ledger, the Markdown report). Each golden case is scored against skuggi's own
+  pure oracles; one parametrized test per case, plus `test_baseline_gate.py`,
+  which fails if any dimension drops below `evals/baseline.json`. This is a
+  **hard CI gate** and it runs inside the network/subprocess block above, so the
+  `result_compat` turns are proven offline.
+- **Quality tier** (`skuggi-eval` / `make bench`): `factuality`
+  (`autoevals.Factuality` LLM judge), `budget` (token cost) and `latency`. Needs
+  a real provider, so it is opt-in and never blocks CI -- the same convention as
+  the `eval` marker.
+
+Both tiers share one golden corpus (`evals/goldens/`) and one set of scorers
+(`skuggi.eval.scorers`). The Braintrust benchmark always runs local
+(`no_send_logs=True`): no experiment is uploaded and the baseline lives in git.
+The deterministic tier is deliberately Braintrust-free -- importing `braintrust`
+pulls in `langsmith`, so keeping it out of the default suite keeps the tier fast
+and its imports clean.
+
+```
+make eval-det   # the deterministic gate as a standalone offline run
+make bench      # the full benchmark across providers; regenerates evals/scorecard.md
+```
+
 ## Rules that keep this honest
 
 **Automated tests never touch a provider or spawn a process.** Three autouse

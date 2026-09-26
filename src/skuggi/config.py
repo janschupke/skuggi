@@ -139,6 +139,21 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_model_ollama: str = "nomic-embed-text"
 
+    # USD per 1,000,000 tokens, as (input, output), keyed by model name. Read by
+    # the eval budget dimension (skuggi.eval.cost) to turn a turn's token usage
+    # into a cost; nothing on the live agent path reads it. A model absent here
+    # is priced at 0 (a local Ollama model is genuinely free), so an unknown
+    # name never manufactures a false budget failure -- see cost.price_for.
+    # Overridable like any setting: SKUGGI_MODEL_PRICES='{"m":[1.0,2.0]}' or the
+    # config.json. Rates are a committed snapshot; see evals/prices.json.
+    model_prices: dict[str, tuple[float, float]] = Field(
+        default_factory=lambda: {
+            "gpt-6-luna": (0.15, 0.60),
+            "claude-haiku-4-5": (1.00, 5.00),
+            "qwen3": (0.0, 0.0),
+        }
+    )
+
     sqlite_path: Path = Path("./data/sessions.db")
     faiss_path: Path = Path("./data/faiss_index")
     history_path: Path = Path("./data/.repl_history")

@@ -1,0 +1,16 @@
+{
+  "dimension": "methodology",
+  "description": "Phase-machine regression: clamp_phase(current, requested) must be forward-only and advance by at most one step. Oracle is protocol.clamp_phase; threshold 1.0.",
+  "cases": [
+    {"id": "hold", "current": "recon", "requested": "recon", "expect": "recon"},
+    {"id": "none-holds", "current": "enumeration", "requested": null, "expect": "enumeration"},
+    {"id": "one-step", "current": "recon", "requested": "enumeration", "expect": "enumeration"},
+    {"id": "clamp-jump", "current": "recon", "requested": "exploitation", "expect": "enumeration"},
+    {"id": "clamp-far-jump", "current": "recon", "requested": "reporting", "expect": "enumeration"},
+    {"id": "no-regress", "current": "exploitation", "requested": "recon", "expect": "exploitation"},
+    {"id": "advance-mid", "current": "enumeration", "requested": "exploitation", "expect": "exploitation"},
+    {"id": "advance-late", "current": "exploitation", "requested": "post_exploitation", "expect": "post_exploitation"},
+    {"id": "advance-report", "current": "post_exploitation", "requested": "reporting", "expect": "reporting"},
+    {"id": "terminal", "current": "reporting", "requested": "reporting", "expect": "reporting"}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "dimension": "factuality",
+  "description": "Quality tier (needs a real provider + LLM judge). The agent answers a question about the practice lab; autoevals.Factuality scores the answer against the docs/lab.md catalog. Judge is nondeterministic, so the threshold is conservative.",
+  "cases": [
+    {"id": "numeric-sqli-endpoint", "scope_ref": "lab", "prompt": "On the practice lab web app, which endpoint is vulnerable to numeric SQL injection, and which parameter?", "expected": "post.php, via the id parameter (?id=), UNION-based numeric SQL injection"},
+    {"id": "admin-password", "scope_ref": "lab", "prompt": "The lab's users table stores raw-md5 password hashes. What is the admin account's cracked password?", "expected": "password123 (raw-md5 482c811da5d5b4bc6d497ffa98491e38)"},
+    {"id": "idor-post-ids", "scope_ref": "lab", "prompt": "Which post ids on the lab blog are hidden and readable via IDOR on post.php?", "expected": "id 4 (draft) and id 5 (private), readable via post.php?id=N with no visibility check"},
+    {"id": "hash-dump-location", "scope_ref": "lab", "prompt": "Where on the lab web app can the full password-hash dump be downloaded directly?", "expected": "/backup/db_dump.sql"},
+    {"id": "auth-bypass", "scope_ref": "lab", "prompt": "How can login on the lab be bypassed with SQL injection to reach an admin session?", "expected": "username admin'-- - with any password on login.php bypasses authentication into an admin session"}
+  ]
+}

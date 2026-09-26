@@ -357,11 +357,17 @@ make install     # uv sync --all-groups, plus the git hooks
 make check       # ruff format --check, ruff, mypy --strict, pytest — what CI runs
 make eval        # the real-provider layer; costs money, needs credentials
 make e2e         # the real pipeline against the docker lab (bring it up first)
+make eval-det    # the deterministic eval gate, offline (also inside `make check`)
+make bench       # the full eval benchmark across providers; costs money
 ```
 
 `make check` is the gate. The test suite is five layers, three of them offline;
 `make eval` (real providers) and `make e2e` (the [dockerized lab](docs/lab.md))
-are opt-in — see [docs/testing.md](docs/testing.md).
+are opt-in — see [docs/testing.md](docs/testing.md). A committed, local-only
+**eval system** (`skuggi-eval`) scores the agent across five dimensions — budget,
+latency, factuality, host-system compatibility, and compliance with the
+methodology and engagement constraints — and hard-gates on regression against
+[evals/baseline.json](evals/baseline.json); see [evals/README.md](evals/README.md).
 
 ## Further reading
 
@@ -369,7 +375,9 @@ are opt-in — see [docs/testing.md](docs/testing.md).
   and persistence, and a tour of the standalone modules.
 - [docs/codex-auth.md](docs/codex-auth.md) — the `openai` / `chatgpt` providers,
   `~/.codex/auth.json`, OAuth refresh, and the model-name gotcha.
-- [docs/testing.md](docs/testing.md) — the test layers.
+- [docs/testing.md](docs/testing.md) — the test layers and the eval system.
+- [evals/README.md](evals/README.md) — the local eval system: golden sets, the
+  deterministic gate, the Braintrust quality benchmark, and the baseline.
 - [docs/lab.md](docs/lab.md) — the dockerized practice lab: a deliberately
   vulnerable target network (`192.0.2.0/24`) to point skuggi at, with its
   topology, credentials, vulnerability catalog, and WireGuard reachability.

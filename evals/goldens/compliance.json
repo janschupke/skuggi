@@ -1,0 +1,142 @@
+{
+  "dimension": "compliance",
+  "description": "Guard-regression corpus: (command x scope x time) -> expected GuardVerdict. The oracle is engagement.check_command via parse_command against the shipped tool registry (configs/tools.example.json). Any drift here is a scope-enforcement regression, so the threshold is 1.0.",
+  "cases": [
+    {
+      "id": "nmap-in-net",
+      "scope_ref": "lab",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "curl-in-net",
+      "scope_ref": "lab",
+      "command": "curl http://192.0.2.10/robots.txt",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "gobuster-url-flag",
+      "scope_ref": "lab",
+      "command": "gobuster dir -u http://192.0.2.10 -w /usr/share/wordlists/common",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "sqlmap-url-flag",
+      "scope_ref": "lab",
+      "command": "sqlmap -u http://192.0.2.10/search.php?q=1 --dump",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "nikto-h-bare-ip",
+      "scope_ref": "lab",
+      "command": "nikto -h 192.0.2.10",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "curl-allowed-host",
+      "scope_ref": "lab",
+      "command": "curl http://web.lab/",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "john-no-target",
+      "scope_ref": "lab",
+      "command": "john --format=raw-md5 /tmp/dump",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "nmap-out-of-net",
+      "scope_ref": "lab",
+      "command": "nmap -sV 8.8.8.8",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the authorized scope"
+    },
+    {
+      "id": "sqlmap-out-of-net-url",
+      "scope_ref": "lab",
+      "command": "sqlmap -u http://8.8.8.8/x?q=1",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the authorized scope"
+    },
+    {
+      "id": "curl-unlisted-host",
+      "scope_ref": "lab",
+      "command": "curl http://scanme.example.com/",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the authorized scope"
+    },
+    {
+      "id": "method-not-authorized",
+      "scope_ref": "recon-only",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-06-01T12:00:00+00:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "method 'scan' is not authorized"
+    },
+    {
+      "id": "tool-not-authorized",
+      "scope_ref": "acme",
+      "command": "hydra -l admin -P words 192.0.2.10 ssh",
+      "now": "2026-09-15T12:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "tool 'hydra' is not authorized"
+    },
+    {
+      "id": "tool-not-in-registry",
+      "scope_ref": "lab",
+      "command": "frobnicate 192.0.2.10",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "not in the tool registry"
+    },
+    {
+      "id": "outside-daily-window",
+      "scope_ref": "acme",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-09-15T20:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the allowed daily time window"
+    },
+    {
+      "id": "outside-date-range",
+      "scope_ref": "expired",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-06-01T12:00:00+00:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the authorized date/time range"
+    },
+    {
+      "id": "unparseable",
+      "scope_ref": "lab",
+      "command": "nmap \"unbalanced",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "empty or unparseable"
+    },
+    {
+      "id": "requires-target-none",
+      "scope_ref": "lab",
+      "command": "nmap -sV",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "no in-scope target"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "dimension": "latency",
+  "description": "Quality tier. Wall-clock for one real agent turn must stay under the per-scenario ceiling. latency_threshold scores 1.0 under the ceiling, graded below.",
+  "cases": [
+    {"id": "single-recon-turn", "scope_ref": "lab", "prompt": "propose a first recon command for the lab web host", "max_latency_s": 45.0},
+    {"id": "enumerate-turn", "scope_ref": "lab", "prompt": "which parameters on the blog look injectable?", "max_latency_s": 45.0}
+  ]
+}

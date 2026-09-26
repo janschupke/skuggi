@@ -1,0 +1,10 @@
+{
+  "as_of": "2026-09-26",
+  "unit": "USD per 1,000,000 tokens, [input, output]",
+  "note": "Operator-editable estimates for the budget dimension; the runtime source is Settings.model_prices. Model names are skuggi's configured defaults, not vendor SKUs -- adjust to your account's real rates.",
+  "prices": {
+    "gpt-6-luna": [0.15, 0.60],
+    "claude-haiku-4-5": [1.00, 5.00],
+    "qwen3": [0.0, 0.0]
+  }
+}
