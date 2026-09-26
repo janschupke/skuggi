@@ -227,14 +227,6 @@ class Settings(BaseSettings):
         """The codex auth.json path, with `~` expanded."""
         return self.codex_auth_path.expanduser()
 
-    def supports_tools(self) -> bool:
-        """Whether the active provider can bind LangChain tools.
-
-        The ChatGPT-account endpoint uses a codex-specific tool schema, so the
-        worker runs as a plain generator there.
-        """
-        return self.provider != "chatgpt"
-
     def supports_structured_output(self) -> bool:
         """Whether the provider supports native ``with_structured_output``.
 

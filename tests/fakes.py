@@ -200,6 +200,35 @@ def _as_messages(value: LanguageModelInput) -> list[BaseMessage]:
     )
 
 
+class StructuredChatModel(BaseChatModel):
+    """A model whose ``with_structured_output`` returns one fixed protocol object.
+
+    For the out-of-graph structured calls (propose_config, memory capture) that
+    take a single response rather than dispatching by role.
+    """
+
+    obj: Any = None
+
+    @property
+    def _llm_type(self) -> str:
+        return "structured"
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=""))])
+
+    def with_structured_output(
+        self, schema: Any, **kwargs: Any
+    ) -> Runnable[LanguageModelInput, BaseModel]:
+        obj = self.obj
+        return RunnableLambda(lambda _input: obj)
+
+
 class FakePromptSession:
     """Feeds queued lines to the REPL, then signals end-of-input."""
 

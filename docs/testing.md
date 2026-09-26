@@ -22,11 +22,12 @@ the path-escape guard, JWT parsing, history windowing, the critic's router,
 settings resolution.
 
 **L2** wires real components together with a fake socket. The graph runs over a
-real `ToolNode` and a real checkpointer; FAISS indexes real vectors from
-deterministic fake embeddings; the codex client is a real `ChatOpenAI` on a real
-openai SDK over `respx`, so those assertions pin the bytes the endpoint
-receives. This layer owns the regression tests for the reply duplication, the
-401 refresh, the scratch reset, the bounded tool loop and the revision cutoff.
+real checkpointer and the real engagement guard + ledger; FAISS indexes real
+vectors from deterministic fake embeddings; the codex client is a real
+`ChatOpenAI` on a real openai SDK over `respx`, so those assertions pin the bytes
+the endpoint receives. This layer owns the regression tests for the structured
+worker/executor cycle, the 401 refresh, the bounded command loop and the revision
+cutoff.
 
 **L3** drives the app through its real entry points with an injected console, so
 rendered output is assertable without a terminal.

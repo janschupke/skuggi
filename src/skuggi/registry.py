@@ -9,7 +9,7 @@ guesswork), and per-installer install commands.
 This module is pure data: the model types and the registry container, with no
 host I/O. Resolving these specs against the host lives in ``skuggi.probe``, and
 rendering them lives in ``skuggi.doctor`` -- so the model can be imported (by
-``configs``, ``engagement``, ``pentest_tools``) without dragging in subprocess or
+``configs``, ``engagement``, ``graph``) without dragging in subprocess or
 Rich machinery.
 """
 

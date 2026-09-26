@@ -16,8 +16,9 @@ import pytest
 
 from skuggi.core import AgentCore
 from skuggi.preferences import PreferenceRow
+from skuggi.protocol import MemoryExtraction
 from tests.conftest import offline_settings, wire_offline_core
-from tests.fakes import ScriptedChatModel
+from tests.fakes import StructuredChatModel
 
 
 @pytest.fixture
@@ -64,7 +65,12 @@ def test_a_remembered_preference_reaches_the_worker_prompt(core: AgentCore) -> N
 
 
 def test_capture_extracts_and_persists_a_directive(core: AgentCore) -> None:
-    core.llm = cast(Any, ScriptedChatModel(replies=["Prefer ffuf over gobuster\nNONE"]))
+    core.llm = cast(
+        Any,
+        StructuredChatModel(
+            obj=MemoryExtraction(directives=("Prefer ffuf over gobuster",))
+        ),
+    )
     before = core.graph
 
     rows = core.maybe_capture_preferences("always prefer ffuf over gobuster")
@@ -98,8 +104,8 @@ def test_capture_respects_the_memory_auto_switch(core: AgentCore) -> None:
     assert core.maybe_capture_preferences("always prefer ffuf") == []
 
 
-def test_capture_none_sentinel_stores_nothing(core: AgentCore) -> None:
-    core.llm = cast(Any, ScriptedChatModel(replies=["NONE"]))
+def test_capture_empty_extraction_stores_nothing(core: AgentCore) -> None:
+    core.llm = cast(Any, StructuredChatModel(obj=MemoryExtraction(directives=())))
     assert core.maybe_capture_preferences("from now on, hmm, never mind") == []
     assert core.list_preferences() == []
 

@@ -16,7 +16,7 @@ def test_defaults() -> None:
     settings = Settings()
     assert settings.provider == "openai"
     assert settings.max_revisions == 2
-    assert settings.supports_tools() is True
+    assert settings.supports_structured_output() is True
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,8 +43,8 @@ def test_frozen() -> None:
         Settings().provider = "ollama"  # type: ignore[misc]
 
 
-def test_chatgpt_cannot_bind_tools() -> None:
-    assert Settings(provider="chatgpt").supports_tools() is False
+def test_chatgpt_has_no_native_structured_output() -> None:
+    assert Settings(provider="chatgpt").supports_structured_output() is False
 
 
 def test_model_for_each_provider() -> None:

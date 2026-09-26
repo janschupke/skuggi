@@ -20,15 +20,18 @@ the shell back when you leave it. `skuggi-repl` is the pure agent chat.
 
 Four LLM providers, switchable at runtime:
 
-| Provider    | Auth                                                        | Tools? |
-|-------------|-------------------------------------------------------------|--------|
-| `openai`    | `~/.codex/auth.json` (`OPENAI_API_KEY`) or `$OPENAI_API_KEY`| yes    |
-| `chatgpt`   | `~/.codex/auth.json` ChatGPT-account OAuth tokens           | no¹    |
-| `anthropic` | `$ANTHROPIC_API_KEY`                                        | yes    |
-| `ollama`    | `$OLLAMA_BASE_URL` (default `http://localhost:11434`)       | yes    |
+| Provider    | Auth                                                        | Structured output |
+|-------------|-------------------------------------------------------------|-------------------|
+| `openai`    | `~/.codex/auth.json` (`OPENAI_API_KEY`) or `$OPENAI_API_KEY`| native            |
+| `chatgpt`   | `~/.codex/auth.json` ChatGPT-account OAuth tokens           | JSON fallback¹    |
+| `anthropic` | `$ANTHROPIC_API_KEY`                                        | native            |
+| `ollama`    | `$OLLAMA_BASE_URL` (default `http://localhost:11434`)       | native            |
 
-¹ The ChatGPT-account endpoint uses a codex-specific tool schema, so the worker
-runs as a plain generator there. See [docs/codex-auth.md](docs/codex-auth.md).
+¹ Every LLM reply is a strict structured response (the request/response protocol
+in [docs/architecture.md](docs/architecture.md)). Most providers get it natively
+(`with_structured_output`); the ChatGPT-account endpoint has no native structured
+output, so it uses a JSON contract with one repair retry. See
+[docs/codex-auth.md](docs/codex-auth.md).
 
 ## Install
 
@@ -110,7 +113,7 @@ implicit `ask`. The two front-ends share one registry
 | `model <name>` | Switch model on the current provider |
 | `thread new\|list\|<id>` | Start / list / resume a conversation thread |
 | `history [n]` | Show the last `n` messages on the current thread |
-| `trace` | Show the worker's tool calls on the current thread |
+| `trace` | Show the command trail on the current thread |
 | `ingest <path>` | Index a file or directory of `*.md` / `*.txt` |
 | `update` | Update skuggi in place (`git pull --ff-only` + `uv sync`) |
 | `clear` | Clear the screen (`skuggi-repl` only) |
@@ -203,23 +206,27 @@ method (`nmap`→`scan`, `curl`→`recon`), so it gates tool *categories* and
 largely reinforces `allowed_tools` — it does not distinguish `nmap -sn` from
 `nmap -A`.
 
-## run_command: suggest by default, autonomous on request
+## Commands: suggest by default, autonomous on request
 
-`run_command` never runs a blocked command. For an in-scope command:
+The worker returns a structured response; when it proposes a `command`, the
+executor node sends it through the engagement guard and never runs a blocked one.
+For an in-scope command:
 
 - **suggest mode (default, `autonomous: false`)** — records the command as
   `proposed` and hands it back for you to run by hand.
 - **autonomous mode (`autonomous: true` in the scope, or `/autonomous on`)** —
   executes it (`shell=False`, argv exec'd directly, output byte-capped,
-  wall-clock timeout) in the workspace's `recon/` directory and records the
-  result. The prompt shows `!` and the banner shows autonomous ON while armed.
+  wall-clock timeout) in the workspace's `recon/` directory, records the result,
+  and feeds it back to the worker for the next step (bounded by
+  `max_tool_rounds`). The prompt shows `!` and the banner shows autonomous ON
+  while armed.
 
 Blocked, proposed and executed commands are all persisted with timestamps.
 
 ## Modes
 
 `/mode pentest|redteam|blueteam` swaps the planner/worker/critic prompt set
-([src/skuggi/modes.py](src/skuggi/modes.py)); the graph, tools and guard are
+([src/skuggi/prompts.py](src/skuggi/prompts.py)); the graph and guard are
 identical across modes. Set the default with `SKUGGI_MODE`.
 
 ## Tools and `skuggi-doctor`

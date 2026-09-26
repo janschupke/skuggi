@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import TypeAdapter, ValidationError
@@ -67,6 +67,7 @@ from skuggi.execution import CommandResult
 from skuggi.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.ledger import FindingRow, SessionRow
 from skuggi.modes import MODES, Mode, prompt_set
+from skuggi.protocol import ConfigProposal, MemoryExtraction, structured_invoke
 from skuggi.registry import RuntimeStatus, ToolRegistry, ToolStatus
 from skuggi.state import AgentState
 from skuggi.text import join_blocks, labeled
@@ -463,27 +464,30 @@ class AgentCore:
         return f"config: {key} = {json_value} ({tail})"
 
     def propose_config(self, request: str) -> list[tuple[str, str]]:
-        """Ask the LLM to map a natural-language request to ``key=value`` edits.
+        """Ask the LLM to map a natural-language request to config edits.
 
         Returns only proposals whose key is an editable setting; the front-end
-        shows them and applies on confirmation. Never proposes a secret.
+        shows them and applies on confirmation. Never proposes a secret. The reply
+        is a strict ``ConfigProposal``, so no free-text key=value parsing.
         """
         keys = ", ".join(sorted(self.settable_config_keys()))
-        prompt = (
-            "You edit a JSON application config. Given the request, output only "
-            "the settings to change, one per line as `key=value`, choosing keys "
-            f"from: {keys}. Output nothing else and never output a secret.\n"
-            f"Request: {request}"
+        proposal = structured_invoke(
+            self.llm,
+            ConfigProposal,
+            [
+                SystemMessage(
+                    content=prompts.PROPOSE_CONFIG_INSTRUCTION.format(keys=keys)
+                ),
+                HumanMessage(content=request),
+            ],
+            native=self.settings.supports_structured_output(),
         )
-        reply = self.llm.invoke(prompt)
-        content = getattr(reply, "content", reply)
         settable = self.settable_config_keys()
-        proposals: list[tuple[str, str]] = []
-        for line in str(content).splitlines():
-            key, sep, value = line.partition("=")
-            if sep and key.strip() in settable:
-                proposals.append((key.strip(), value.strip()))
-        return proposals
+        return [
+            (edit.key.strip(), edit.value.strip())
+            for edit in proposal.edits
+            if edit.key.strip() in settable
+        ]
 
     # ----- self-update (the `update` verb) -----------------------------------
 
@@ -546,8 +550,8 @@ class AgentCore:
         """Log a free-typed shell command the operator ran (the wrapped shell).
 
         The operator's own commands are not vetoed (scope is not checked -- the
-        honest boundary is that skuggi only *proposes* through ``run_command``);
-        this simply records what actually ran. Navigation/builtin noise
+        honest boundary is that skuggi only *proposes* commands, guarded by the
+        executor); this simply records what actually ran. Navigation/builtin noise
         (``settings.passthrough_skip``) goes to the audit ``cli`` channel; every
         other command lands on the engagement timeline as ``passthrough``.
         """
@@ -678,32 +682,35 @@ class AgentCore:
         """Automatically capture any standing directive in `user_text`.
 
         Harness-side automatic memory, run post-turn: gated first by the cheap
-        `preferences.looks_like_directive` heuristic (so an ordinary request
-        never spends a model call), then by a one-shot LLM extraction (a plain
-        ``invoke``, so it works on every provider including the tool-less chatgpt
-        one). Persists each captured directive with source ``auto`` and returns
-        the rows actually stored (deduped). Never raises -- a capture failure
-        must not break the turn that triggered it.
+        `preferences.looks_like_directive` heuristic (so an ordinary request never
+        spends a model call), then by a one-shot structured extraction (a strict
+        ``MemoryExtraction``, which works on every provider including the tool-less
+        chatgpt one via the JSON-contract fallback). Persists each captured
+        directive with source ``auto`` and returns the rows actually stored
+        (deduped). Never raises -- a capture failure must not break the turn.
         """
         if not self.settings.memory_auto or not preferences.looks_like_directive(
             user_text
         ):
             return []
-        prompt = join_blocks(
-            prompts.MEMORY_EXTRACTION_INSTRUCTION,
-            labeled("Operator message", user_text),
-        )
         try:
-            reply = self.llm.invoke(prompt)
-            content = str(getattr(reply, "content", reply))
+            extraction = structured_invoke(
+                self.llm,
+                MemoryExtraction,
+                [
+                    SystemMessage(content=prompts.MEMORY_EXTRACTION_INSTRUCTION),
+                    HumanMessage(content=user_text),
+                ],
+                native=self.settings.supports_structured_output(),
+            )
         except Exception:  # noqa: BLE001 -- best-effort; a failure is not fatal
             return []
         captured: list[preferences.PreferenceRow] = []
-        for line in content.splitlines():
-            directive = line.strip().lstrip("-*").strip()
-            if not directive or directive.upper() == "NONE":
+        for directive in extraction.directives:
+            text = directive.strip()
+            if not text:
                 continue
-            row = self.prefs.add(directive, source="auto")
+            row = self.prefs.add(text, source="auto")
             if row is not None:
                 captured.append(row)
         if captured:

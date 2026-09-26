@@ -16,7 +16,8 @@ the shell. bash and zsh are supported; other shells degrade to a plain child
 with a printed note.
 
 Enforcement scope, stated honestly: the engagement boundary applies to commands
-the *agent* proposes through ``run_command``. Commands the operator free-types
+the *agent* proposes (the worker's ``command``, guarded by the executor).
+Commands the operator free-types
 are the operator's own; skuggi does not veto them (true pre-exec interception of
 a live interactive shell is not feasible here). It does, however, *log* them: a
 zsh ``preexec`` hook (and a bash ``PROMPT_COMMAND`` equivalent) forwards each

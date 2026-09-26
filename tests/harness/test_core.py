@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from langchain_core.messages import AIMessage
 from pydantic import SecretStr
 
 from skuggi import probe as probe_mod
@@ -22,8 +21,10 @@ from skuggi.config import config_path
 from skuggi.configs import ConfigError
 from skuggi.core import AgentCore
 from skuggi.execution import CommandResult
+from skuggi.protocol import ConfigEdit, ConfigProposal
 from skuggi.registry import ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
+from tests.fakes import StructuredChatModel
 
 
 def _build_core(tmp_path: Path, *, engagement: str | None = "test-eng") -> AgentCore:
@@ -270,16 +271,23 @@ def test_apply_config_unknown_key(core: AgentCore) -> None:
     assert "unknown" in core.apply_config("nope", "x")
 
 
-def test_propose_config_parses_llm_lines(core: AgentCore) -> None:
-    class _FakeLLM:
-        def invoke(self, _prompt: object) -> AIMessage:
-            return AIMessage(content="retrieve_k=8\ngarbage line\nprovider=anthropic")
-
-    core.llm = cast(Any, _FakeLLM())
+def test_propose_config_returns_structured_edits(core: AgentCore) -> None:
+    core.llm = cast(
+        Any,
+        StructuredChatModel(
+            obj=ConfigProposal(
+                edits=(
+                    ConfigEdit(key="retrieve_k", value="8"),
+                    ConfigEdit(key="provider", value="anthropic"),
+                    ConfigEdit(key="not_a_setting", value="x"),
+                )
+            )
+        ),
+    )
     proposals = core.propose_config("faster and use anthropic")
     assert ("retrieve_k", "8") in proposals
     assert ("provider", "anthropic") in proposals
-    assert len(proposals) == 2  # the garbage line is dropped
+    assert len(proposals) == 2  # the unknown key is dropped
 
 
 # --- self-update (the `update` verb) ----------------------------------------

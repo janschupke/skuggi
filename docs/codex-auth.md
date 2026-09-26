@@ -43,9 +43,10 @@ that:
   `https://auth.openai.com/oauth/token` with the codex client_id, writes the new
   tokens back to auth.json at mode 0600, and replays the request (`CodexAuth`).
 
-This provider does not bind LangChain tools (the endpoint uses a codex-specific
-tool schema), so the worker runs as a plain generator and gets retrieval through
-the graph's `retriever` node instead.
+This provider has no native structured output, so `protocol.structured_invoke`
+falls back to a JSON contract (with one repair retry) instead of
+`with_structured_output` here — see `Settings.supports_structured_output()`.
+Retrieval reaches every provider through the graph's `retriever` node.
 
 ## The model-name gotcha
 

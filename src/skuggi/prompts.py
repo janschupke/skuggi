@@ -166,15 +166,24 @@ REVIEW_INSTRUCTION = (
 # The automatic-memory extractor's brief. It runs post-turn on messages that
 # pass the cheap ``preferences.looks_like_directive`` gate, and only durable
 # operational preferences (how to work) are wanted -- never target-specific or
-# one-off facts. One directive per line, or the literal NONE.
+# one-off facts. Returns a (possibly empty) list of directives (MemoryExtraction).
 MEMORY_EXTRACTION_INSTRUCTION = (
     "You maintain a list of the operator's standing operational preferences for "
     "a pentesting assistant: durable directives about HOW to work -- a preferred "
     "tool when several would do, the language to write helper scripts in, output "
     "tone or verbosity, reporting conventions. From the operator's message "
-    "below, output each such durable preference as a short, normalized "
-    "imperative on its own line (for example: 'Prefer ffuf over gobuster for "
-    "directory brute-forcing'). Do NOT capture one-off requests, questions, or "
-    "anything specific to one target or engagement. If there is nothing durable "
-    "to remember, output exactly: NONE"
+    "below, extract each such durable preference as a short, normalized "
+    "imperative (for example: 'Prefer ffuf over gobuster for directory "
+    "brute-forcing') into `directives`. Do NOT capture one-off requests, "
+    "questions, or anything specific to one target or engagement; if there is "
+    "nothing durable to remember, return an empty list."
+)
+
+# The `config <natural language>` verb: map a request to key/value edits
+# (ConfigProposal). Format the settable-key list in with ``.format(keys=...)``.
+PROPOSE_CONFIG_INSTRUCTION = (
+    "You edit a JSON application config for a pentesting assistant. Given the "
+    "operator's request, choose the settings to change, picking keys only from: "
+    "{keys}. Never propose a secret. Return each change as a key/value `edit`; "
+    "if nothing should change, return an empty list."
 )
