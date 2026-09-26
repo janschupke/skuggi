@@ -3,9 +3,13 @@
 A locally-hosted **pentesting agent harness**. You drive an authorized
 engagement through a LangGraph agent; for each request it advises, **proposes a
 shell command** (checked against a strict engagement boundary), or summarizes.
-Every command and finding is written to a per-engagement SQLite ledger — each
-finding traceable to the command that produced it — and exportable as a Markdown
-report.
+Every prompt, agent reply, command (including commands you free-type in the
+shell) and finding is written, in order and with timestamps, to a per-engagement
+SQLite ledger — each finding traceable prompt → command → finding. The session
+is retrievable and replayable (`/skuggi replay`), exportable as a Markdown
+report, and can be critiqued privately by the LLM (`/skuggi review`). Harness
+chatter (control verbs, CLI noise) is kept in a separate audit log, out of the
+client-facing report.
 
 The default `skuggi` command wraps your **real shell**: you keep your prompt,
 colours, completion, history and signals, and only `/skuggi <verb> …` reaches
@@ -94,6 +98,8 @@ implicit `ask`. The two front-ends share one registry
 | `run <alias> [args]` | Resolve a command alias, check scope, advise (never runs it) |
 | `findings` | List findings recorded this session |
 | `report [pdf]` | Write a Markdown engagement report (add `pdf` for a styled PDF too) |
+| `replay [list \| <session>]` | Reconstruct & view a session transcript (`list` enumerates sessions) |
+| `review [<session>]` | Private LLM critique of a session — feedback for you, never client-facing |
 | `engagement [setup]` | Show the scope, or run the interactive setup wizard |
 | `config [show \| <key> <value> \| <request>]` | Show or change app settings |
 | `doctor [install <tool>]` | Probe host tools; install a missing one on request |

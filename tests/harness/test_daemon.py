@@ -289,6 +289,38 @@ def test_attach_config_request_confirms_and_applies(
     assert "applied live" in "".join(str(f.get("chunk", "")) for f in emitted)
 
 
+def test_record_op_logs_a_passthrough_command(daemon: Daemon) -> None:
+    """The shell hook's fire-and-forget record op logs without a chat reply."""
+    responses = _responses(daemon, {"op": "record", "text": "nmap -sV 10.0.0.5"})
+    assert responses == [{"end": True, "exit": False}]
+    cmds = daemon.core.ledger.commands_for(daemon.core.session_id)
+    assert [c.status for c in cmds] == ["passthrough"]
+
+
+def test_replay_lists_and_renders(daemon: Daemon) -> None:
+    _chunks(daemon, {"op": "input", "text": "ask what is exposed?"})
+    listing = _chunks(daemon, {"op": "input", "text": "replay list"})
+    assert daemon.core.session_id[:8] in listing
+    assert "*" in listing  # the current session is marked
+    assert "what is exposed?" in _chunks(daemon, {"op": "input", "text": "replay"})
+
+
+def test_review_routes_to_the_core(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(daemon.core, "review_session", lambda _ref: "you rushed recon")
+    assert "you rushed recon" in _chunks(daemon, {"op": "input", "text": "review"})
+
+
+def test_control_verbs_are_audited_but_ask_is_not(daemon: Daemon) -> None:
+    _chunks(daemon, {"op": "input", "text": "mode blueteam"})  # control -> audit
+    _chunks(daemon, {"op": "input", "text": "ask hello"})  # engagement -> timeline
+    audit = daemon.core.ledger.audit_for(daemon.core.session_id)
+    verbs_seen = {a.verb for a in audit if a.kind == "control"}
+    assert "mode" in verbs_seen
+    assert "ask" not in verbs_seen
+
+
 def test_update_verb_streams_core_output(
     daemon: Daemon, monkeypatch: pytest.MonkeyPatch
 ) -> None:

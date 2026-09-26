@@ -175,6 +175,23 @@ class Settings(BaseSettings):
     # Wall-clock cap on any single autonomously executed command.
     command_timeout_s: float = 120.0
 
+    # --- session logging & review ---
+    # Free-typed shell commands whose first word is one of these are treated as
+    # navigation/builtin noise: logged to the audit `cli` channel, never the
+    # engagement timeline (see AgentCore.record_passthrough).
+    passthrough_skip: tuple[str, ...] = (
+        "cd",
+        "ls",
+        "pwd",
+        "clear",
+        "exit",
+        "history",
+        "echo",
+    )
+    # Model for `review` (the private session critique). None uses the active
+    # model; set it to run reviews on a stronger model than the working one.
+    review_model: str | None = None
+
     codex_auth_path: Path = Path("~/.codex/auth.json")
     codex_responses_base: str = CODEX_RESPONSES_BASE
     codex_refresh_url: str = CODEX_REFRESH_URL

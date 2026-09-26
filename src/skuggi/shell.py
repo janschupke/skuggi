@@ -18,7 +18,13 @@ with a printed note.
 Enforcement scope, stated honestly: the engagement boundary applies to commands
 the *agent* proposes through ``run_command``. Commands the operator free-types
 are the operator's own; skuggi does not veto them (true pre-exec interception of
-a live interactive shell is not feasible here).
+a live interactive shell is not feasible here). It does, however, *log* them: a
+zsh ``preexec`` hook (and a bash ``PROMPT_COMMAND`` equivalent) forwards each
+free-typed command to the daemon, which records it on the engagement timeline as
+``passthrough`` (or filters navigation noise to the audit ``cli`` channel). The
+forwarder is guarded (it skips its own ``/skuggi`` / ``skuggi-client`` calls),
+backgrounded (it never blocks the prompt) and fail-open (a dead daemon is
+silently ignored) -- logging must never disrupt the operator's real shell.
 """
 
 from __future__ import annotations
@@ -39,6 +45,14 @@ function /skuggi {{
   skuggi-client "$@"
   [[ $? -eq 42 ]] && exit 0
 }}
+function _skuggi_record {{
+  case "$1" in
+    /skuggi*|skuggi-client*) ;;
+    *) skuggi-client --record "$1" 2>/dev/null &! ;;
+  esac
+}}
+autoload -Uz add-zsh-hook
+add-zsh-hook preexec _skuggi_record
 """
 
 _BASH_HOOK = """\
@@ -49,6 +63,17 @@ function /skuggi {{
   skuggi-client "$@"
   [ $? -eq 42 ] && exit 0
 }}
+_skuggi_last=""
+function _skuggi_record {{
+  local _n cmd
+  read -r _n cmd <<< "$(HISTTIMEFORMAT= history 1)"
+  case "$cmd" in
+    ""|/skuggi*|skuggi-client*|"$_skuggi_last") ;;
+    *) skuggi-client --record "$cmd" 2>/dev/null & ;;
+  esac
+  _skuggi_last="$cmd"
+}}
+PROMPT_COMMAND="_skuggi_record${{PROMPT_COMMAND:+; $PROMPT_COMMAND}}"
 """
 
 

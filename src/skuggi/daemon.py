@@ -102,6 +102,7 @@ class Daemon:
             emit({"ask": prompt})
             return read_line()
 
+        self.core.note_interaction("engagement", "setup")
         with self._lock:
             wizard.run_wizard(
                 ask,
@@ -133,6 +134,7 @@ class Daemon:
             emit({"ask": prompt})
             return read_line()
 
+        self.core.note_interaction("config", arg)
         with self._lock:
             configflow.run_config_request(
                 arg,
@@ -147,6 +149,11 @@ class Daemon:
         if msg.get("op") == "exit":
             yield {"end": True, "exit": True}
             return
+        if msg.get("op") == "record":
+            # A free-typed command forwarded by the shell hook: log it, no reply.
+            self.core.record_passthrough(str(msg.get("text", "")))
+            yield {"end": True, "exit": False}
+            return
         verb, rest = verbs.split_verb(str(msg.get("text", "")))
         if verbs.is_exit(verb):
             yield {"chunk": "leaving\n"}
@@ -155,6 +162,8 @@ class Daemon:
         if not verb:
             yield {"end": True, "exit": False}
             return
+        if verb in verbs.KNOWN and not verbs.is_engagement(verb):
+            self.core.note_interaction(verb, rest)  # control verb -> audit log
         if verb == "help":
             yield {"chunk": self._help_text()}
         elif verb == "ask":
@@ -184,6 +193,8 @@ class Daemon:
             "run": self._run,
             "findings": self._findings,
             "report": self._report,
+            "replay": self._replay,
+            "review": self._review,
             "engagement": self._engagement,
             "config": self._config,
             "doctor": self._doctor,
@@ -242,6 +253,22 @@ class Daemon:
         result = self.core.write_report(pdf=arg.strip().lower() == "pdf")
         for line in reports.report_written_lines(result):
             yield f"{line}\n"
+
+    def _replay(self, arg: str) -> Iterator[str]:
+        a = arg.strip()
+        if a == "list":
+            rows = self.core.list_sessions()
+            if not rows:
+                yield "(no sessions)\n"
+                return
+            for s in rows:
+                mark = " *" if s.session_id == self.core.session_id else ""
+                yield f"  {s.session_id[:8]}  {s.started_at}  {s.mode}{mark}\n"
+            return
+        yield self.core.transcript(a or None) + "\n"
+
+    def _review(self, arg: str) -> Iterator[str]:
+        yield self.core.review_session(arg.strip() or None) + "\n"
 
     def _engagement(self, arg: str) -> Iterator[str]:
         parts = arg.split()

@@ -11,12 +11,33 @@ from skuggi.client import (
     _stream_turn,
     attach_over,
     build_message,
+    build_record_message,
+    record_over,
     run_over,
 )
 
 
 def test_build_message() -> None:
     assert build_message("scan the host") == {"op": "input", "text": "scan the host"}
+
+
+def test_build_record_message() -> None:
+    assert build_record_message("nmap 10.0.0.5") == {
+        "op": "record",
+        "text": "nmap 10.0.0.5",
+    }
+
+
+def test_record_over_sends_one_frame_and_does_not_wait() -> None:
+    client_sock, server_sock = socket.socketpair()
+    try:
+        record_over(client_sock, "nmap -sV 10.0.0.5")
+        server_sock.settimeout(1.0)
+        sent = json.loads(server_sock.recv(4096).decode())
+    finally:
+        client_sock.close()
+        server_sock.close()
+    assert sent == {"op": "record", "text": "nmap -sV 10.0.0.5"}
 
 
 def _server_writes(

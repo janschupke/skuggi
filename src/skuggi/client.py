@@ -69,6 +69,37 @@ def build_message(text: str) -> dict[str, str]:
     return {"op": "input", "text": text}
 
 
+def build_record_message(text: str) -> dict[str, str]:
+    """The request object for logging a free-typed shell command (fire-and-forget)."""
+    return {"op": "record", "text": text}
+
+
+def record_over(conn: socket.socket, text: str) -> None:
+    """Send a passthrough-record request; do not wait for a reply.
+
+    The shell hook backgrounds this, so it must never block on the daemon: it
+    sends one frame and returns. Split from ``record`` so it is testable over a
+    plain socket pair.
+    """
+    conn.sendall((json.dumps(build_record_message(text)) + "\n").encode())
+
+
+def record(sock_path: str, text: str) -> int:  # pragma: no cover -- real socket
+    """Forward a free-typed command to the daemon to log; fail open, never block.
+
+    A dead or slow daemon must never disrupt the operator's shell, so any socket
+    error is swallowed and the exit code is always ``0``.
+    """
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(2.0)
+            conn.connect(sock_path)
+            record_over(conn, text)
+    except OSError:
+        return 0
+    return 0
+
+
 def _iter_lines(conn: socket.socket) -> Iterator[bytes]:
     """Yield newline-delimited frames from `conn` as they arrive.
 
@@ -231,6 +262,8 @@ def main() -> int:  # pragma: no cover -- console entry point
         print("skuggi: not running inside a skuggi shell", file=sys.stderr)
         return 1
     args = sys.argv[1:]
+    if args and args[0] == "--record":  # shell hook logging a free-typed command
+        return record(sock_path, " ".join(args[1:]))
     if not args:  # bare `/skuggi` -> attach an interactive loop to the warm daemon
         return attach(sock_path, _stdin_prompt, sys.stdout)
     return run(sock_path, " ".join(args), sys.stdout)

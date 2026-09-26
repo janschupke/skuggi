@@ -41,6 +41,9 @@ from skuggi import (
     tools,
 )
 from skuggi import ledger as ledger_mod
+from skuggi import (
+    transcript as transcript_mod,
+)
 from skuggi.commands import CommandRegistry, raw_command
 from skuggi.config import (
     _SECRET_FIELDS,
@@ -64,15 +67,33 @@ from skuggi.engagement import (
 )
 from skuggi.execution import CommandResult
 from skuggi.graph import GraphDeps, build_graph, recursion_limit
-from skuggi.ledger import FindingRow
+from skuggi.ledger import FindingRow, SessionRow
 from skuggi.modes import MODES, Mode, prompt_set
 from skuggi.registry import RuntimeStatus, ToolRegistry, ToolStatus
 from skuggi.state import AgentState
+from skuggi.text import join_blocks, labeled
 from skuggi.vectorstore import Store
 from skuggi.workspace import Workspace, WorkspaceLayout
 
 _STREAM_MODES: list[StreamMode] = ["updates", "messages"]
 _PROVIDERS = get_args(Provider)
+
+# How much captured command output to feed the reviewer per command -- enough to
+# judge what happened without blowing the prompt budget on a noisy scan dump.
+_REVIEW_OUTPUT_CAP = 2_000
+
+# The reviewer's brief. This is private feedback for the operator, deliberately
+# not client-facing (it is stored in the audit log, never the report).
+_REVIEW_INSTRUCTION = (
+    "You are reviewing a completed penetration-testing session to give the "
+    "operator private, candid feedback. This is for the operator only and must "
+    "never be shown to a client. From the session timeline below, identify: "
+    "bottlenecks (where effort or attention was wasted), missed opportunities "
+    "(leads, hosts or services that went unexplored), repeated or wrong commands "
+    "(retries, errors, out-of-scope attempts), and process feedback. Be specific "
+    "and cite command ids as cmd:N. Be concise and honest; this is a critique, "
+    "not a report."
+)
 
 EventKind = Literal["reset", "status", "token", "final"]
 
@@ -144,6 +165,9 @@ class AgentCore:
         self.thread_id = str(uuid.uuid4())
         self.session_id = str(uuid.uuid4())
         self.warnings: list[str] = []
+        # The prompt event id of the turn in flight, so commands the agent runs
+        # link back to the directive that drove them. None between turns.
+        self._current_turn_event_id: int | None = None
 
         self.layout = self._load_layout()
         self.workspace = self._open_workspace()
@@ -239,6 +263,7 @@ class AgentCore:
                 thread_id=lambda: self.thread_id,
                 settings=self.settings,
                 cwd=self._recon_cwd(),
+                turn_id=lambda: self._current_turn_event_id,
             )
         return built
 
@@ -527,6 +552,116 @@ class AgentCore:
             pdf=pdf,
         )
 
+    # ----- session logging, retrieval, replay & review ----------------------
+
+    def note_interaction(self, verb: str, detail: str = "") -> None:
+        """Record a harness-control interaction to the audit log (not the timeline).
+
+        Called by both front-ends for every ``control`` verb (config, mode,
+        doctor, help, replay, review, ...). Engagement verbs (ask/run) are left
+        out -- their activity is the timeline itself.
+        """
+        self.ledger.record_audit(
+            session_id=self.session_id, kind="control", verb=verb, detail=detail
+        )
+
+    def record_passthrough(self, cmdline: str) -> None:
+        """Log a free-typed shell command the operator ran (the wrapped shell).
+
+        The operator's own commands are not vetoed (scope is not checked -- the
+        honest boundary is that skuggi only *proposes* through ``run_command``);
+        this simply records what actually ran. Navigation/builtin noise
+        (``settings.passthrough_skip``) goes to the audit ``cli`` channel; every
+        other command lands on the engagement timeline as ``passthrough``.
+        """
+        raw = cmdline.strip()
+        if not raw:
+            return
+        if raw.split()[0] in self.settings.passthrough_skip:
+            self.ledger.record_audit(session_id=self.session_id, kind="cli", detail=raw)
+            return
+        parsed = parse_command(raw, self.registry)
+        self.ledger.record_command(
+            session_id=self.session_id,
+            thread_id=self.thread_id,
+            command=raw,
+            binary=parsed.binary,
+            method=parsed.method,
+            status="passthrough",
+        )
+
+    def list_sessions(self) -> list[SessionRow]:
+        """Every session recorded in this engagement's ledger, newest first."""
+        return self.ledger.sessions()
+
+    def _resolve_session_id(self, ref: str | None) -> str | None:
+        """Resolve a session reference (full id or short prefix) to a session id.
+
+        An empty reference means the current session; otherwise the first
+        session whose id equals or starts with `ref` (the short ids shown by
+        ``replay list``). ``None`` when nothing matches.
+        """
+        if not ref:
+            return self.session_id
+        for row in self.ledger.sessions():
+            if row.session_id == ref or row.session_id.startswith(ref):
+                return row.session_id
+        return None
+
+    def _render_session(
+        self, session_ref: str | None, *, max_output: int | None
+    ) -> tuple[str | None, str]:
+        """Resolve a session and render its transcript; shared by replay + review.
+
+        Returns ``(session_id, text)``; ``session_id`` is ``None`` (and `text` an
+        error message) when the reference matches no session.
+        """
+        sid = self._resolve_session_id(session_ref)
+        if sid is None:
+            return None, f"no session found for {session_ref!r}"
+        session = self.ledger.session(sid)
+        if session is None:  # pragma: no cover -- a resolved id always has a row
+            return None, f"no session recorded for {sid!r}"
+        events = self.ledger.events_for(sid)
+        commands = {c.id: c for c in self.ledger.commands_for(sid)}
+        findings = {f.id: f for f in self.ledger.findings_for(sid)}
+        text = transcript_mod.render_transcript(
+            session, events, commands, findings, max_output=max_output
+        )
+        return sid, text
+
+    def transcript(self, session_ref: str | None = None) -> str:
+        """The ordered, replayable transcript of a session (default: current)."""
+        return self._render_session(session_ref, max_output=None)[1]
+
+    def review_session(self, session_ref: str | None = None) -> str:
+        """Ask the LLM for private feedback on a session, and audit-log it.
+
+        Reads the session timeline, prompts the model (one-shot ``invoke``, so it
+        works on every provider, including the tool-less chatgpt one), records the
+        critique to the audit log (never the client-facing report), and returns
+        it. ``settings.review_model`` overrides the model used.
+        """
+        sid, timeline = self._render_session(session_ref, max_output=_REVIEW_OUTPUT_CAP)
+        if sid is None:
+            return timeline  # the "no session" message
+        prompt = join_blocks(
+            _REVIEW_INSTRUCTION, labeled("Session timeline", timeline, heading=True)
+        )
+        llm = (
+            self.llm
+            if self.settings.review_model is None
+            else providers.get_chat_model(
+                self.settings, model=self.settings.review_model
+            )
+        )
+        reply = llm.invoke(prompt)
+        content = str(getattr(reply, "content", reply))
+        self.ledger.record_audit(
+            session_id=self.session_id, kind="review", detail=content
+        )
+        return content
+
     def doctor_statuses(self) -> list[ToolStatus]:
         """Probe the host for every recognized tool."""
         return probe.probe(
@@ -595,6 +730,7 @@ class AgentCore:
             method=parsed.method,
             status=status,
             reason="" if verdict.allowed else verdict.reason,
+            turn_event_id=self._current_turn_event_id,
         )
         return RunPlan(
             alias=name,
@@ -636,7 +772,16 @@ class AgentCore:
             "max_revisions": self.settings.max_revisions,
             "tool_rounds": 0,
         }
+        # The prompt goes on the timeline first, and its id tags every command
+        # this turn records (so a finding traces prompt -> command -> finding).
+        self._current_turn_event_id = self.ledger.record_event(
+            session_id=self.session_id,
+            thread_id=self.thread_id,
+            kind="prompt",
+            text=user_text,
+        )
         run_id: str | None = None
+        final_text = ""
         try:
             # A multi-mode stream is heterogeneous -- (mode, payload) pairs whose
             # payload shape depends on the mode -- so it is typed loosely and
@@ -656,9 +801,23 @@ class AgentCore:
                         if chunk.text:
                             yield TurnEvent("token", chunk.text)
                 elif event == "updates":
-                    yield from self._turn_updates(payload)
+                    for ev in self._turn_updates(payload):
+                        if ev.kind == "final":
+                            final_text = ev.text
+                        yield ev
         except Exception as e:  # noqa: BLE001 -- a bad turn must not kill the loop
+            final_text = f"[error] {type(e).__name__}: {e}"
             yield TurnEvent("status", f"{type(e).__name__}: {e}", node="error")
+        finally:
+            # Close the turn on the timeline and stop tagging commands with it,
+            # so a later /run proposal is recorded unlinked rather than misattributed.
+            self.ledger.record_event(
+                session_id=self.session_id,
+                thread_id=self.thread_id,
+                kind="response",
+                text=final_text,
+            )
+            self._current_turn_event_id = None
 
     def _turn_updates(self, payload: dict[str, object]) -> Iterator[TurnEvent]:
         for node, update in payload.items():

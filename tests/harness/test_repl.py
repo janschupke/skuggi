@@ -197,3 +197,23 @@ def test_run_loops_until_end_of_input(tui: tuple[Tui, io.StringIO]) -> None:
     app.run()
 
     assert "bye." in _out(buffer)
+
+
+def test_replay_review_and_control_audit(
+    tui: tuple[Tui, io.StringIO], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, buffer = tui
+    # review is stubbed (the LLM path is covered in test_session_logging)
+    monkeypatch.setattr(app.core, "review_session", lambda _ref: "you rushed recon")
+    app.dispatch("/review")
+    assert "you rushed recon" in _out(buffer)
+
+    app.dispatch("/replay list")  # the current session is listed
+    assert app.session_id[:8] in _out(buffer)
+    app.dispatch("/replay")  # render the (empty) current session
+    assert "No activity recorded" in _out(buffer)
+
+    # a control verb is recorded to the audit log, an agent turn is not
+    app.dispatch("/mode blueteam")
+    audit = app.core.ledger.audit_for(app.session_id)
+    assert any(a.kind == "control" and a.verb == "mode" for a in audit)

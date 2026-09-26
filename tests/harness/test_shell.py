@@ -29,6 +29,28 @@ def test_zsh_hook_routes_skuggi_to_the_client(tmp_path: Path) -> None:
     assert "exit 0" in zshrc  # a client exit code of 42 leaves the shell
 
 
+def test_zsh_hook_forwards_free_typed_commands_via_preexec(tmp_path: Path) -> None:
+    build_shell_invocation("/bin/zsh", tmp_path, home=Path("/home/u"))
+    zshrc = (tmp_path / ".zshrc").read_text(encoding="utf-8")
+    assert "add-zsh-hook preexec _skuggi_record" in zshrc
+    assert "skuggi-client --record" in zshrc
+    assert "/skuggi*|skuggi-client*" in zshrc  # re-entrancy guard
+    assert "2>/dev/null &!" in zshrc  # fail-open + backgrounded
+
+
+def test_bash_hook_forwards_free_typed_commands_via_prompt_command(
+    tmp_path: Path,
+) -> None:
+    build_shell_invocation("/bin/bash", tmp_path, home=Path("/home/u"))
+    rcfile = tmp_path / "rcfile"
+    body = rcfile.read_text(encoding="utf-8")
+    assert "_skuggi_record" in body
+    assert "PROMPT_COMMAND=" in body
+    assert "skuggi-client --record" in body
+    assert "/skuggi*|skuggi-client*" in body  # re-entrancy guard
+    assert "2>/dev/null &" in body  # fail-open + backgrounded
+
+
 def test_bash_invocation_uses_an_rcfile(tmp_path: Path) -> None:
     argv, _ = build_shell_invocation("/bin/bash", tmp_path, home=Path("/home/u"))
     assert "--rcfile" in argv

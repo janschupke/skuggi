@@ -60,6 +60,17 @@ def test_model_is_overridable_per_provider(monkeypatch: pytest.MonkeyPatch) -> N
     assert Settings().model_for("anthropic") == "claude-opus-5"
 
 
+def test_session_logging_defaults() -> None:
+    settings = Settings()
+    assert settings.review_model is None  # default: use the active model
+    assert "cd" in settings.passthrough_skip  # navigation noise is filtered
+
+
+def test_review_model_is_overridable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SKUGGI_REVIEW_MODEL", "claude-opus-5")
+    assert Settings().review_model == "claude-opus-5"
+
+
 def test_defaults_carry_no_date_suffixed_or_superseded_ids() -> None:
     """Guards against a stale pin quietly becoming the default again.
 

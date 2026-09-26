@@ -66,8 +66,32 @@ into `./data/sessions.db`, keyed by the current thread id. Killing the process
 and resuming a thread with `/thread <id>` restores the full message history.
 This is separate from the engagement **ledger**
 ([src/skuggi/ledger.py](../src/skuggi/ledger.py)): the checkpointer is
-langgraph's private store, the ledger is the harness's own record of commands
-and findings.
+langgraph's private store, the ledger is the harness's own record. The ledger
+keeps two logs, deliberately apart:
+
+- The **engagement timeline** — an `events` spine records, in order, every
+  operator prompt, agent response, command and finding, with timestamps.
+  `prompt`/`response` events carry their text; `command`/`finding` events point
+  (`ref_id`) at the `commands`/`findings` row with the detail. A command links
+  back to the prompt that drove it (`commands.turn_event_id`), and a finding to
+  its source command (`findings.command_id`), so a finding is traceable
+  prompt → command → finding. Free-typed shell commands are captured here too
+  (status `passthrough`). Replaying the events in order reconstructs the whole
+  session ([transcript.py](../src/skuggi/transcript.py)); the `/replay` verb
+  views any session (`replay list` enumerates them). The outward-facing report
+  ([reports.py](../src/skuggi/reports.py)) reads only `commands`/`findings`, so
+  it never leaks prompts.
+- The **harness-interaction audit** — the `audit` table logs `/skuggi` control
+  verbs, filtered CLI noise, and the private `/review` critique. It is kept
+  *separate* from the timeline and is never part of a client-facing report.
+  `verbs.py` tags each verb `engagement` (ask/run → timeline) or `control`
+  (everything else → audit); the front-ends record control-verb invocations via
+  `AgentCore.note_interaction`.
+
+The `/review` verb reads a session's timeline and asks the LLM (one-shot, so it
+works on every provider) for private feedback — bottlenecks, missed
+opportunities, repeated or wrong commands. It is stored in the audit log, shown
+to the operator, and never client-facing.
 
 ## Standalone modules
 
@@ -107,7 +131,12 @@ shells degrade to a plain child with `/skuggi` disabled.
 Enforcement scope, stated honestly: the boundary applies to commands the *agent*
 proposes through `run_command`. Commands you free-type in the shell are your own
 and are not vetoed — reliable pre-exec interception of a live interactive shell
-is not feasible across shells.
+is not feasible across shells. They are, however, *logged*: a zsh `preexec`
+hook (a bash `PROMPT_COMMAND` equivalent) forwards each free-typed command to
+the daemon, which records it on the timeline as `passthrough` (navigation noise
+like `cd`/`ls` is filtered to the audit `cli` channel). The forwarder guards
+against its own `/skuggi`/`skuggi-client` calls, runs backgrounded, and fails
+open — logging never blocks or breaks your real shell.
 
 ## Dispatch and the attach protocol
 

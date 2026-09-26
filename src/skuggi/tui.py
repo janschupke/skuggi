@@ -97,6 +97,8 @@ class Tui:
             "doctor": self._cmd_doctor,
             "findings": self._cmd_findings,
             "report": self._cmd_report,
+            "replay": self._cmd_replay,
+            "review": self._cmd_review,
             "autonomous": self._cmd_autonomous,
             "clear": self._cmd_clear,
             "ingest": self._cmd_ingest,
@@ -231,6 +233,8 @@ class Tui:
         if verb == "ask":
             self.turn(rest)
             return None
+        if verb in verbs.KNOWN and not verbs.is_engagement(verb):
+            self.core.note_interaction(verb, rest)  # control verb -> audit log
         handler = self._commands.get(verb)
         if handler is None:
             self.console.print(f"[red]unknown command:[/red] /{verb}")
@@ -401,6 +405,27 @@ class Tui:
         result = self.core.write_report(pdf=arg.strip().lower() == "pdf")
         for line in reports.report_written_lines(result):
             self.console.print(f"[green]{line}[/green]")
+
+    def _cmd_replay(self, arg: str) -> None:
+        """Reconstruct & view a session transcript (``list`` enumerates them)."""
+        if arg.strip() == "list":
+            rows = self.core.list_sessions()
+            if not rows:
+                self.console.print("[dim](no sessions)[/dim]")
+                return
+            for s in rows:
+                marker = " *" if s.session_id == self.session_id else ""
+                self.console.print(
+                    f"[cyan]{s.session_id[:8]}[/cyan]  {s.started_at}  {s.mode}{marker}"
+                )
+            return
+        self.console.print(Markdown(self.core.transcript(arg.strip() or None)))
+
+    def _cmd_review(self, arg: str) -> None:
+        """Print the private LLM critique of a session (also audit-logged)."""
+        with self.console.status("reviewing the session...", spinner="dots"):
+            text = self.core.review_session(arg.strip() or None)
+        self.console.print(Markdown(text))
 
     def _cmd_autonomous(self, arg: str) -> None:
         try:
