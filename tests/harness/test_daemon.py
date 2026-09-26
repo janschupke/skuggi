@@ -176,3 +176,34 @@ def test_run_alias_out_of_scope(daemon: Daemon) -> None:
 def test_run_list_and_unknown(daemon: Daemon) -> None:
     assert "no command aliases" in _chunks(daemon, {"op": "input", "text": "run"})
     assert "unknown alias" in _chunks(daemon, {"op": "input", "text": "run bogus"})
+
+
+# --- persistent interactive attach ------------------------------------------
+
+
+def test_attach_routes_multiple_lines_over_one_session(daemon: Daemon) -> None:
+    """One attach session dispatches successive lines against the warm core."""
+    lines = iter(["/findings", "ask what is exposed?", "exit"])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(lines, None), emitted.append)
+    text = "".join(str(f.get("chunk", "")) for f in emitted)
+    assert "no findings" in text  # first line routed as a control
+    assert "the answer" in text  # second line reached the agent
+    assert emitted[-1] == {"end": True, "exit": True}  # `exit` closed the session
+
+
+def test_attach_stops_when_client_disconnects(daemon: Daemon) -> None:
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: None, emitted.append)  # immediate EOF
+    assert emitted == []
+
+
+def test_attach_continues_after_a_non_exit_turn(daemon: Daemon) -> None:
+    """A non-exit line ends its turn (`exit` False) but keeps the session open."""
+    lines = iter(["/findings", None])
+    ends = []
+    daemon.run_attached(
+        lambda: next(lines, None),
+        lambda r: ends.append(r) if r.get("end") else None,
+    )
+    assert ends == [{"end": True, "exit": False}]  # session stayed open, then EOF

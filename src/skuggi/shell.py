@@ -108,8 +108,9 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
         argv, env_overrides = build_shell_invocation(shell_path, tmp, home=Path.home())
         env = {**os.environ, **env_overrides, "SKUGGI_SOCK": sock_path}
         print(
-            f"{SHIELD} skuggi shell -- '/skuggi ask <prompt>' asks the agent, "
-            "'/skuggi help' lists verbs, '/skuggi exit' leaves"
+            f"{SHIELD} skuggi shell -- '/skuggi' opens a chat loop, "
+            "'/skuggi ask <prompt>' asks once, '/skuggi help' lists verbs, "
+            "'/skuggi exit' leaves"
         )
         if not supports_hook(shell_path):
             print(

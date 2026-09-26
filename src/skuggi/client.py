@@ -6,6 +6,12 @@ daemon, not here. It reads ``$SKUGGI_SOCK`` (set by the shell wrapper), sends th
 operator's input as one request, streams the reply to stdout, and exits ``42``
 when the daemon says to leave -- the shell's ``/skuggi`` function hook turns
 that into a shell ``exit``. ``Ctrl+C`` during a turn just returns to the prompt.
+
+A bare ``/skuggi`` (no arguments) instead **attaches** an interactive loop to the
+same warm daemon: the client runs a local prompt, sending each line and
+streaming the reply over one persistent connection, so the session (thread,
+ledger, engagement) stays live across lines. A blank line, ``exit``/``quit`` or
+``Ctrl+D`` leaves the loop and hands the shell back -- the daemon stays warm.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ import os
 import socket
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import TextIO
 
 _EXIT_SHELL = 42
@@ -125,13 +131,90 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
         return 1
 
 
+def _stream_turn(frames: Iterator[bytes], out: TextIO) -> bool:
+    """Consume one reply (through its terminal frame) from `frames`.
+
+    Writes each chunk to `out`; returns the daemon's exit flag. Returns ``False``
+    if `frames` runs dry before an ``end`` frame (the connection closed
+    mid-turn). Shared by the attach loop, which reads many replies off one
+    long-lived frame stream.
+    """
+    for line in frames:
+        try:
+            resp = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        chunk = resp.get("chunk")
+        if chunk:
+            out.write(chunk)
+            out.flush()
+        if resp.get("end"):
+            return bool(resp.get("exit"))
+    return False
+
+
+def attach_over(
+    conn: socket.socket, prompt_in: Callable[[], str | None], out: TextIO
+) -> int:
+    """Run an interactive attach session over an open connection.
+
+    Sends the ``attach`` op, then loops: read an operator line from `prompt_in`
+    (a ``None`` return, EOF, ``Ctrl+C`` or a blank line ends the session), send
+    it, and stream the reply. Leaving the loop always returns to the shell
+    (``0``): fully quitting the wrapped shell is the one-shot ``/skuggi exit``,
+    handled by the shell hook before it reaches here. Split from ``attach`` so it
+    is testable over a plain socket pair.
+    """
+    conn.sendall((json.dumps({"op": "attach"}) + "\n").encode())
+    frames = _iter_lines(conn)
+    while True:
+        try:
+            line = prompt_in()
+        except (EOFError, KeyboardInterrupt):
+            out.write("\n")
+            break
+        if line is None:
+            break
+        line = line.strip()
+        if not line:
+            break
+        conn.sendall((json.dumps(build_message(line)) + "\n").encode())
+        if _stream_turn(frames, out):  # the daemon closed this session
+            break
+    return 0
+
+
+def attach(  # pragma: no cover -- interactive loop over a real socket
+    sock_path: str, prompt_in: Callable[[], str | None], out: TextIO
+) -> int:
+    """Connect to the daemon and run an interactive attach loop (see above)."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.connect(sock_path)
+            return attach_over(conn, prompt_in, out)
+    except OSError as e:
+        print(f"skuggi: cannot reach the harness: {e}", file=sys.stderr)
+        return 1
+
+
+def _stdin_prompt() -> str | None:  # pragma: no cover -- reads a real terminal
+    """Read one line from the operator, returning ``None`` on EOF."""
+    try:
+        return input("🐐 skuggi> ")
+    except EOFError:
+        return None
+
+
 def main() -> int:  # pragma: no cover -- console entry point
     """Console entry point invoked by the shell's ``/skuggi`` hook."""
     sock_path = os.environ.get("SKUGGI_SOCK")
     if not sock_path:
         print("skuggi: not running inside a skuggi shell", file=sys.stderr)
         return 1
-    return run(sock_path, " ".join(sys.argv[1:]), sys.stdout)
+    args = sys.argv[1:]
+    if not args:  # bare `/skuggi` -> attach an interactive loop to the warm daemon
+        return attach(sock_path, _stdin_prompt, sys.stdout)
+    return run(sock_path, " ".join(args), sys.stdout)
 
 
 if __name__ == "__main__":  # pragma: no cover

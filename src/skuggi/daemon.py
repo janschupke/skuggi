@@ -22,7 +22,7 @@ time.
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from langchain_core.messages import AIMessage
@@ -46,13 +46,40 @@ class Daemon:
         with self._lock:
             yield from self._dispatch(msg)
 
+    def run_attached(
+        self,
+        read_line: Callable[[], str | None],
+        emit: Callable[[dict[str, object]], None],
+    ) -> None:
+        """Drive a persistent attach session against the one warm core.
+
+        Reads a line of operator input (``read_line`` returns ``None`` when the
+        client disconnects), routes it through the shared verb dispatch, emits
+        every response frame, and repeats -- until the client closes or a turn
+        signals ``exit``. The connection stays open across turns, so the whole
+        session (thread, ledger, engagement) persists between lines; the routing
+        is identical to a one-shot ``{"op":"input"}``, so this is the same code
+        the REPL and the one-shot client run.
+        """
+        while True:
+            line = read_line()
+            if line is None:  # client disconnected
+                return
+            exit_session = False
+            for resp in self.handle_request({"op": "input", "text": line}):
+                emit(resp)
+                if resp.get("end"):
+                    exit_session = bool(resp.get("exit"))
+            if exit_session:
+                return
+
     def _dispatch(self, msg: dict[str, object]) -> Iterator[dict[str, object]]:
         if msg.get("op") == "exit":
             yield {"end": True, "exit": True}
             return
         verb, rest = verbs.split_verb(str(msg.get("text", "")))
         if verbs.is_exit(verb):
-            yield {"chunk": "leaving skuggi shell\n"}
+            yield {"chunk": "leaving\n"}
             yield {"end": True, "exit": True}
             return
         if not verb:
@@ -282,6 +309,10 @@ def serve(core: AgentCore, sock_path: str) -> ServerHandle:  # pragma: no cover
     daemon = Daemon(core)
 
     class _Handler(socketserver.StreamRequestHandler):
+        def _emit(self, resp: dict[str, object]) -> None:
+            self.wfile.write((json.dumps(resp) + "\n").encode())
+            self.wfile.flush()
+
         def handle(self) -> None:
             line = self.rfile.readline()
             if not line:
@@ -290,9 +321,25 @@ def serve(core: AgentCore, sock_path: str) -> ServerHandle:  # pragma: no cover
                 msg = json.loads(line)
             except json.JSONDecodeError:
                 msg = {}
+            if msg.get("op") == "attach":
+                self._attach()
+                return
             for resp in daemon.handle_request(msg):
-                self.wfile.write((json.dumps(resp) + "\n").encode())
-                self.wfile.flush()
+                self._emit(resp)
+
+        def _attach(self) -> None:
+            """Serve a persistent interactive session over this connection."""
+
+            def read_line() -> str | None:
+                raw = self.rfile.readline()
+                if not raw:
+                    return None
+                try:
+                    return str(json.loads(raw).get("text", ""))
+                except json.JSONDecodeError:
+                    return ""
+
+            daemon.run_attached(read_line, self._emit)
 
     class _Server(socketserver.ThreadingUnixStreamServer):
         daemon_threads = True

@@ -5,8 +5,14 @@ from __future__ import annotations
 import io
 import json
 import socket
+from typing import cast
 
-from skuggi.client import build_message, run_over
+from skuggi.client import (
+    _stream_turn,
+    attach_over,
+    build_message,
+    run_over,
+)
 
 
 def test_build_message() -> None:
@@ -61,4 +67,90 @@ def test_run_over_ignores_malformed_frames() -> None:
         client_sock.close()
         server_sock.close()
     assert code == 0
+    assert out.getvalue() == ""
+
+
+# --- interactive attach loop ------------------------------------------------
+
+
+def _reply(*frames: dict[str, object]) -> bytes:
+    return "".join(json.dumps(f) + "\n" for f in frames).encode()
+
+
+class _FakeConn:
+    """A scripted duplex socket: each sent input line buffers a canned reply.
+
+    ``sendall`` eagerly queues the whole reply for the following ``recv``, so
+    ``attach_over`` drives a full request/response cycle single-threaded without
+    a deadlock.
+    """
+
+    def __init__(self, replies: dict[str, bytes]) -> None:
+        self._replies = replies
+        self._inbox = b""
+
+    def sendall(self, data: bytes) -> None:
+        msg = json.loads(data)
+        if msg.get("op") == "attach":
+            return
+        self._inbox += self._replies.get(str(msg.get("text", "")), b"")
+
+    def recv(self, _n: int) -> bytes:
+        chunk, self._inbox = self._inbox[:_n], self._inbox[_n:]
+        return chunk
+
+
+def _as_socket(conn: _FakeConn) -> socket.socket:
+    return cast(socket.socket, conn)
+
+
+def test_stream_turn_writes_chunks_and_defaults_exit_to_false() -> None:
+    out = io.StringIO()
+    lines = _reply({"chunk": "hi\n"}, {"end": True}).splitlines()  # no exit key
+    assert _stream_turn(iter(lines), out) is False
+    assert out.getvalue() == "hi\n"
+
+
+def test_stream_turn_reports_exit_flag() -> None:
+    out = io.StringIO()
+    lines = _reply({"chunk": "bye\n"}, {"end": True, "exit": True}).splitlines()
+    assert _stream_turn(iter(lines), out) is True
+    assert out.getvalue() == "bye\n"
+
+
+def test_stream_turn_returns_false_when_frames_run_dry() -> None:
+    out = io.StringIO()
+    assert _stream_turn(iter([]), out) is False
+
+
+def test_attach_over_streams_replies_then_ends_on_blank_line() -> None:
+    conn = _FakeConn(
+        {
+            "one": _reply({"chunk": "r1\n"}, {"end": True, "exit": False}),
+            "two": _reply({"chunk": "r2\n"}, {"end": True, "exit": False}),
+        }
+    )
+    lines = iter(["one", "two", ""])  # blank line ends the loop
+    out = io.StringIO()
+    code = attach_over(_as_socket(conn), lambda: next(lines), out)
+    assert code == 0
+    assert out.getvalue() == "r1\nr2\n"
+
+
+def test_attach_over_stops_when_daemon_signals_exit() -> None:
+    conn = _FakeConn(
+        {"bye": _reply({"chunk": "leaving\n"}, {"end": True, "exit": True})}
+    )
+    lines = iter(["bye", "unreached"])
+    out = io.StringIO()
+    code = attach_over(_as_socket(conn), lambda: next(lines), out)
+    assert code == 0
+    assert out.getvalue() == "leaving\n"
+    assert next(lines) == "unreached"  # the loop stopped before a second prompt
+
+
+def test_attach_over_ends_immediately_on_eof() -> None:
+    conn = _FakeConn({})
+    out = io.StringIO()
+    assert attach_over(_as_socket(conn), lambda: None, out) == 0
     assert out.getvalue() == ""
