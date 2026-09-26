@@ -1,0 +1,45 @@
+# WireGuard reachability overlay (macOS fallback).
+#
+# Docker Desktop on macOS does not route to container IPs, so to reach the lab's
+# defined addresses (192.0.2.0/24) by IP, run this overlay alongside the base
+# stack. It joins a WireGuard gateway to the lab network, masquerades tunnel
+# traffic onto the subnet, and hands your host a client config whose AllowedIPs
+# route 192.0.2.0/24 through the tunnel.
+#
+#   docker compose -f docker-compose.yml -f wireguard/docker-compose.wg.yml up -d
+#
+# The generated client config appears at wireguard/config/peer1/peer1.conf.
+# Import it into the WireGuard app on the host, activate it, then skuggi (on the
+# host) can nmap/curl/sqlmap 192.0.2.10 directly. On Linux you do NOT need this —
+# the bridge network is directly routable.
+name: skuggi-lab
+
+services:
+  wg-gw:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: skuggi-lab-wg
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - SERVERURL=127.0.0.1          # host connects via the loopback-published port
+      - SERVERPORT=${WG_PORT:-51820}
+      - PEERS=${WG_PEERS:-1}
+      - PEERDNS=auto
+      - INTERNAL_SUBNET=10.13.13.0
+      - ALLOWEDIPS=192.0.2.0/24       # what the client routes through the tunnel
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    ports:
+      - "127.0.0.1:${WG_PORT:-51820}:51820/udp"
+    volumes:
+      - ./wireguard/config:/config
+      - /lib/modules:/lib/modules:ro
+    networks:
+      lab-net:
+        ipv4_address: 192.0.2.2
+    restart: unless-stopped

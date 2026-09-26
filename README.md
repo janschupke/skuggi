@@ -302,3 +302,6 @@ see [docs/testing.md](docs/testing.md).
 - [docs/codex-auth.md](docs/codex-auth.md) — the `openai` / `chatgpt` providers,
   `~/.codex/auth.json`, OAuth refresh, and the model-name gotcha.
 - [docs/testing.md](docs/testing.md) — the test layers.
+- [docs/lab.md](docs/lab.md) — the dockerized practice lab: a deliberately
+  vulnerable target network (`192.0.2.0/24`) to point skuggi at, with its
+  topology, credentials, vulnerability catalog, and WireGuard reachability.

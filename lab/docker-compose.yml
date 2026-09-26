@@ -1,0 +1,49 @@
+# skuggi practice lab — deliberately vulnerable target network.
+# ┌─ SAFETY ────────────────────────────────────────────────────────────────┐
+# │ This stack is INTENTIONALLY insecure. Run it only on a machine you       │
+# │ control, only for authorized/offline practice. Ports are published to    │
+# │ 127.0.0.1 ONLY — never bind it to a routable interface or expose it.     │
+# └──────────────────────────────────────────────────────────────────────────┘
+name: skuggi-lab
+
+networks:
+  lab-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${LAB_SUBNET:-192.0.2.0/24}
+          gateway: 192.0.2.1
+
+volumes:
+  dbdata:
+
+services:
+  # One host = one container: Apache/PHP + MariaDB co-located ("mysql on the
+  # same host"). Static IP 192.0.2.10 on the lab network.
+  web:
+    build: ./web
+    image: skuggi-lab-web
+    container_name: skuggi-lab-web
+    hostname: web.lab
+    restart: unless-stopped
+    environment:
+      DB_HOST: 127.0.0.1
+      DB_USER: bloguser
+      DB_PASS: blogpass123
+      DB_NAME: blog
+    networks:
+      lab-net:
+        ipv4_address: 192.0.2.10
+    ports:
+      # Convenience access from the host, loopback-only. On Linux you can also
+      # reach 192.0.2.10 directly; on macOS use the WireGuard overlay.
+      - "127.0.0.1:${WEB_HTTP_PORT:-8080}:80"
+      - "127.0.0.1:${WEB_MYSQL_PORT:-3306}:3306"
+    volumes:
+      - dbdata:/var/lib/mysql-lab
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
