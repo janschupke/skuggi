@@ -312,6 +312,24 @@ def test_review_routes_to_the_core(
     assert "you rushed recon" in _chunks(daemon, {"op": "input", "text": "review"})
 
 
+def test_memory_add_list_and_forget(daemon: Daemon) -> None:
+    assert "nothing remembered yet" in _chunks(
+        daemon, {"op": "input", "text": "memory"}
+    )
+    added = _chunks(
+        daemon, {"op": "input", "text": "memory add Prefer ffuf over gobuster"}
+    )
+    assert "remembered" in added
+    assert "Prefer ffuf over gobuster" in _chunks(
+        daemon, {"op": "input", "text": "memory"}
+    )
+    [row] = daemon.core.list_preferences()
+    assert "forgotten" in _chunks(
+        daemon, {"op": "input", "text": f"memory forget {row.id}"}
+    )
+    assert daemon.core.list_preferences() == []
+
+
 def test_control_verbs_are_audited_but_ask_is_not(daemon: Daemon) -> None:
     _chunks(daemon, {"op": "input", "text": "mode blueteam"})  # control -> audit
     _chunks(daemon, {"op": "input", "text": "ask hello"})  # engagement -> timeline

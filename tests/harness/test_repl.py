@@ -217,3 +217,37 @@ def test_replay_review_and_control_audit(
     app.dispatch("/mode blueteam")
     audit = app.core.ledger.audit_for(app.session_id)
     assert any(a.kind == "control" and a.verb == "mode" for a in audit)
+
+
+def test_memory_add_list_and_forget(tui: tuple[Tui, io.StringIO]) -> None:
+    app, buffer = tui
+    app.dispatch("/memory")  # nothing yet
+    assert "nothing remembered yet" in _out(buffer)
+
+    app.dispatch("/memory add Prefer ffuf over gobuster")
+    assert "remembered" in _out(buffer)
+    app.dispatch("/memory")
+    assert "Prefer ffuf over gobuster" in _out(buffer)
+
+    [row] = app.core.list_preferences()
+    app.dispatch(f"/memory forget {row.id}")
+    assert "forgotten" in _out(buffer)
+    assert app.core.list_preferences() == []
+
+
+def test_memory_add_requires_text(tui: tuple[Tui, io.StringIO]) -> None:
+    app, buffer = tui
+    app.dispatch("/memory add")
+    assert "usage:" in _out(buffer)
+
+
+def test_memory_duplicate_forget_usage_and_clear(tui: tuple[Tui, io.StringIO]) -> None:
+    app, buffer = tui
+    app.dispatch("/memory add prefer ffuf")
+    app.dispatch("/memory add PREFER ffuf")  # case-insensitive duplicate
+    assert "already remembered" in _out(buffer)
+    app.dispatch("/memory forget nope")  # non-numeric id
+    assert "usage:" in _out(buffer)
+    app.dispatch("/memory clear")
+    assert "cleared 1 preference" in _out(buffer)
+    assert app.core.list_preferences() == []

@@ -99,6 +99,7 @@ class Tui:
             "report": self._cmd_report,
             "replay": self._cmd_replay,
             "review": self._cmd_review,
+            "memory": self._cmd_memory,
             "autonomous": self._cmd_autonomous,
             "clear": self._cmd_clear,
             "ingest": self._cmd_ingest,
@@ -426,6 +427,45 @@ class Tui:
         with self.console.status("reviewing the session...", spinner="dots"):
             text = self.core.review_session(arg.strip() or None)
         self.console.print(Markdown(text))
+
+    def _cmd_memory(self, arg: str) -> None:
+        """Show, add or forget remembered operator preferences (harness memory)."""
+        sub, _, rest = arg.partition(" ")
+        sub, rest = sub.strip().lower(), rest.strip()
+        if sub == "add":
+            if not rest:
+                self.console.print("[red]usage:[/red] /memory add <preference>")
+                return
+            row = self.core.add_preference(rest)
+            if row is None:
+                self.console.print("[dim]already remembered[/dim]")
+            else:
+                self.console.print(f"[green]remembered[/green] [{row.id}] {row.text}")
+            return
+        if sub == "forget":
+            if not rest.isdigit():
+                self.console.print("[red]usage:[/red] /memory forget <id>")
+                return
+            removed = self.core.forget_preference(int(rest))
+            self.console.print(
+                "[dim]forgotten[/dim]"
+                if removed
+                else f"[yellow]no preference {rest}[/yellow]"
+            )
+            return
+        if sub == "clear":
+            self.console.print(
+                f"[dim]cleared {self.core.clear_preferences()} preference(s)[/dim]"
+            )
+            return
+        rows = self.core.list_preferences()
+        if not rows:
+            self.console.print("[dim](nothing remembered yet)[/dim]")
+            return
+        for row in rows:
+            self.console.print(
+                f"[cyan][{row.id}][/cyan] {row.text} [dim]({row.source})[/dim]"
+            )
 
     def _cmd_autonomous(self, arg: str) -> None:
         try:

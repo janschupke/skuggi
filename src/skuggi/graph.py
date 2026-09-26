@@ -66,6 +66,10 @@ class GraphDeps:
     retrieve_k: int = 4
     history_messages: int = 8
     history_chars: int = 4_000
+    # The operator's standing preferences, pre-rendered as a bullet list (see
+    # preferences.PreferenceStore.render_block). Injected into every role's
+    # prompt; empty by default, in which case the block self-elides.
+    preferences: str = ""
     # The mode's prompts. Defaults to pentest so an unset caller still gets a
     # coherent (and role-dispatchable) set; the REPL passes the active mode's.
     prompts: PromptSet = field(default_factory=lambda: prompt_set("pentest"))
@@ -186,6 +190,7 @@ def build_graph(
             HumanMessage(
                 content=join_blocks(
                     labeled("Conversation so far", history(state)),
+                    labeled("Operator preferences", deps.preferences),
                     labeled("Request", last_user_text(state["messages"])),
                     labeled("Prior critique", state.get("critique") or ""),
                 )
@@ -215,6 +220,7 @@ def build_graph(
                 HumanMessage(
                     content=join_blocks(
                         labeled("Conversation so far", history(state)),
+                        labeled("Operator preferences", deps.preferences),
                         labeled("Retrieved context", state.get("context") or ""),
                         labeled("Request", last_user_text(state["messages"])),
                         labeled("Plan", state.get("plan") or ""),
@@ -236,6 +242,7 @@ def build_graph(
             HumanMessage(
                 content=join_blocks(
                     labeled("Conversation so far", history(state, divisor=2)),
+                    labeled("Operator preferences", deps.preferences),
                     labeled("Request", last_user_text(state["messages"])),
                     labeled("Draft", state.get("draft") or ""),
                 )

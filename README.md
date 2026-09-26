@@ -100,6 +100,7 @@ implicit `ask`. The two front-ends share one registry
 | `report [pdf]` | Write a Markdown engagement report (add `pdf` for a styled PDF too) |
 | `replay [list \| <session>]` | Reconstruct & view a session transcript (`list` enumerates sessions) |
 | `review [<session>]` | Private LLM critique of a session — feedback for you, never client-facing |
+| `memory [add <text> \| forget <id> \| clear]` | Show / add / forget remembered operator preferences |
 | `engagement [setup]` | Show the scope, or run the interactive setup wizard |
 | `config [show \| <key> <value> \| <request>]` | Show or change app settings |
 | `doctor [install <tool>]` | Probe host tools; install a missing one on request |
@@ -137,6 +138,28 @@ example to `configs/commands.json` and extend it. Shipped defaults:
 | `nmap-full` | `nmap -p- -sV` | all TCP ports with service detection |
 | `web-fetch` | `curl -sSIL` | response headers, following redirects |
 | `web-dir` | `gobuster dir -u` | directory brute-force (append `-w <wordlist>`) |
+
+## memory: standing operator preferences
+
+`memory` is the harness's durable memory of how *you* like to work — which tool
+to prefer when several would do, the language to write helper scripts in, how
+terse a reply should be, reporting conventions. Remembered preferences are
+injected into the planner, worker and critic every turn, so the agent follows
+your standing instructions across threads and sessions.
+
+They fill two ways:
+
+- **Automatically.** After a turn whose message reads like a standing directive
+  (`always…`, `prefer…`, `from now on…`, `use X over Y`), the harness extracts
+  the durable preference and saves it, announcing `remembered: … (forget N to
+  undo)`. One-off requests and target-specific facts are ignored. Turn it off
+  with `config memory_auto false` (or `SKUGGI_MEMORY_AUTO=0`).
+- **Manually.** `memory add <text>` stores one; `memory` (or `memory list`)
+  shows them with ids; `memory forget <id>` drops one; `memory clear` empties
+  the store.
+
+Memory is **global** across engagements — a preference is about the operator,
+not a target — and lives in `./data/preferences.db`, separate from the ledger.
 
 ## engagement setup: the scope wizard
 
@@ -303,6 +326,7 @@ drops these fields even if a file mistakenly contains one.
 - `./configs/*.json` — harness config (only `.example` templates are committed)
 - `./engagements/<name>/` — per-engagement workspace (gitignored)
 - `./data/sessions.db` — LangGraph checkpoint store
+- `./data/preferences.db` — harness memory (global operator preferences)
 - `./data/faiss_index/` — FAISS retrieval index
 - `./data/toolbox/` — the managed tool venv (`SKUGGI_TOOL_SOURCE=managed|combine`)
 - `./data/.repl_history` — REPL input history

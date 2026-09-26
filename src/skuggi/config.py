@@ -192,6 +192,15 @@ class Settings(BaseSettings):
     # model; set it to run reviews on a stronger model than the working one.
     review_model: str | None = None
 
+    # --- harness memory ---
+    # The operator's durable operational preferences (the `memory` verb + the
+    # post-turn automatic capture). GLOBAL across engagements -- a preference is
+    # about the operator, not a target -- so it is NOT under the workspace.
+    preferences_path: Path = Path("./data/preferences.db")
+    # Whether the harness automatically captures standing directives it detects
+    # in your messages, post-turn. Manual `memory add` is unaffected by this.
+    memory_auto: bool = True
+
     codex_auth_path: Path = Path("~/.codex/auth.json")
     codex_responses_base: str = CODEX_RESPONSES_BASE
     codex_refresh_url: str = CODEX_REFRESH_URL

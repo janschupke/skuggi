@@ -47,6 +47,11 @@ VERBS: tuple[Verb, ...] = (
     ),
     Verb("replay", "reconstruct & view a session transcript", "[list | <session>]"),
     Verb("review", "private LLM review of a session (feedback for you)", "[<session>]"),
+    Verb(
+        "memory",
+        "show / add / forget remembered operator preferences",
+        "[add <text> | forget <id> | clear]",
+    ),
     Verb("engagement", "show scope, or run the setup wizard", "[setup]"),
     Verb("config", "show or change app settings", "[show | <key> <value> | <request>]"),
     Verb("doctor", "probe host tools / runtimes / net tools", "[install <tool>]"),

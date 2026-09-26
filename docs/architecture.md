@@ -93,6 +93,19 @@ works on every provider) for private feedback — bottlenecks, missed
 opportunities, repeated or wrong commands. It is stored in the audit log, shown
 to the operator, and never client-facing.
 
+**Harness memory** is a third store ([preferences.py](../src/skuggi/preferences.py),
+`./data/preferences.db`), holding the operator's standing operational
+preferences — which tool to prefer, the language for helper scripts, reply tone.
+It is deliberately *global* (one file, not per-engagement — a preference is
+about the operator, not the target). `AgentCore` renders it into every role's
+prompt (`GraphDeps.preferences` → an "Operator preferences" block in
+planner/worker/critic), so a rebuild of the graph is what makes an edit take
+effect. It fills two ways: the manual `memory` verb, and a post-turn automatic
+capture — after the stream drains, `AgentCore.maybe_capture_preferences` gates
+the message on a cheap heuristic (`looks_like_directive`) and, if it passes,
+asks the LLM (one-shot) to extract any durable directive, saving it and emitting
+a `remembered: …` status. `settings.memory_auto` switches the automatic path off.
+
 ## Standalone modules
 
 Files that can be read top-to-bottom in one sitting:
@@ -106,6 +119,9 @@ Files that can be read top-to-bottom in one sitting:
   tool data model, host probing + install, and the doctor tables respectively.
 - [memory.py](../src/skuggi/memory.py) — a `SqliteSaver` wrapper and thread
   enumeration through the checkpointer's own `list` API.
+- [preferences.py](../src/skuggi/preferences.py) — the harness-memory store: a
+  lock-guarded SQLite table of operator preferences, plus the cheap
+  `looks_like_directive` gate for automatic capture.
 - [vectorstore.py](../src/skuggi/vectorstore.py) — a lazily-loaded FAISS index;
   nothing is embedded until the first `ingest`, so the REPL boots without
   embedding credentials.

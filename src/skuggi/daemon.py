@@ -195,6 +195,7 @@ class Daemon:
             "report": self._report,
             "replay": self._replay,
             "review": self._review,
+            "memory": self._memory,
             "engagement": self._engagement,
             "config": self._config,
             "doctor": self._doctor,
@@ -269,6 +270,35 @@ class Daemon:
 
     def _review(self, arg: str) -> Iterator[str]:
         yield self.core.review_session(arg.strip() or None) + "\n"
+
+    def _memory(self, arg: str) -> Iterator[str]:
+        sub, _, rest = arg.partition(" ")
+        sub, rest = sub.strip().lower(), rest.strip()
+        if sub == "add":
+            if not rest:
+                yield "usage: memory add <preference>\n"
+                return
+            row = self.core.add_preference(rest)
+            yield (
+                f"remembered [{row.id}] {row.text}\n" if row else "already remembered\n"
+            )
+            return
+        if sub == "forget":
+            if not rest.isdigit():
+                yield "usage: memory forget <id>\n"
+                return
+            removed = self.core.forget_preference(int(rest))
+            yield "forgotten\n" if removed else f"no preference {rest}\n"
+            return
+        if sub == "clear":
+            yield f"cleared {self.core.clear_preferences()} preference(s)\n"
+            return
+        rows = self.core.list_preferences()
+        if not rows:
+            yield "(nothing remembered yet)\n"
+            return
+        for row in rows:
+            yield f"  [{row.id}] {row.text} ({row.source})\n"
 
     def _engagement(self, arg: str) -> Iterator[str]:
         parts = arg.split()

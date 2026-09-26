@@ -35,6 +35,7 @@ from skuggi import (
     execution,
     memory,
     pentest_tools,
+    preferences,
     probe,
     providers,
     reports,
@@ -93,6 +94,22 @@ _REVIEW_INSTRUCTION = (
     "(retries, errors, out-of-scope attempts), and process feedback. Be specific "
     "and cite command ids as cmd:N. Be concise and honest; this is a critique, "
     "not a report."
+)
+
+# The automatic-memory extractor's brief. It runs post-turn on messages that
+# pass the cheap `preferences.looks_like_directive` gate, and only durable
+# operational preferences (how to work) are wanted -- never target-specific or
+# one-off facts. One directive per line, or the literal NONE.
+_MEMORY_EXTRACTION_INSTRUCTION = (
+    "You maintain a list of the operator's standing operational preferences for "
+    "a pentesting assistant: durable directives about HOW to work -- a preferred "
+    "tool when several would do, the language to write helper scripts in, output "
+    "tone or verbosity, reporting conventions. From the operator's message "
+    "below, output each such durable preference as a short, normalized "
+    "imperative on its own line (for example: 'Prefer ffuf over gobuster for "
+    "directory brute-forcing'). Do NOT capture one-off requests, questions, or "
+    "anything specific to one target or engagement. If there is nothing durable "
+    "to remember, output exactly: NONE"
 )
 
 EventKind = Literal["reset", "status", "token", "final"]
@@ -188,6 +205,9 @@ class AgentCore:
             engagement_name=self.engagement.name if self.engagement else "(none)",
             mode=self.mode,
         )
+        # Harness memory: global operator preferences, injected into every turn.
+        self._prefs_ctx = preferences.open_preferences(self.settings.preferences_path)
+        self.prefs = self._prefs_ctx.__enter__()
 
         self.tools_list = self.build_tools()
         self.graph = self._build()
@@ -289,6 +309,7 @@ class AgentCore:
             retrieve_k=self.settings.retrieve_k,
             history_messages=self.settings.history_messages,
             history_chars=self.settings.history_chars,
+            preferences=self.prefs.render_block(),
             prompts=prompt_set(self.mode),
         )
 
@@ -296,7 +317,8 @@ class AgentCore:
         return build_graph(self._deps(), self.saver)
 
     def close(self) -> None:
-        """Close the ledger and checkpointer connections held for the session."""
+        """Close the ledger, preferences and checkpointer connections."""
+        self._prefs_ctx.__exit__(None, None, None)
         self._ledger_ctx.__exit__(None, None, None)
         self._saver_ctx.__exit__(None, None, None)
 
@@ -662,6 +684,75 @@ class AgentCore:
         )
         return content
 
+    # ----- harness memory (operator preferences) -----------------------------
+
+    def list_preferences(self) -> list[preferences.PreferenceRow]:
+        """Every remembered operator preference (grouped by category)."""
+        return self.prefs.all()
+
+    def add_preference(
+        self, text: str, *, source: str = "manual"
+    ) -> preferences.PreferenceRow | None:
+        """Remember one preference, rebuilding the graph so the next turn sees it.
+
+        Returns the stored row, or ``None`` if it was blank or a duplicate.
+        """
+        row = self.prefs.add(text, source=source)
+        if row is not None:
+            self.graph = self._build()
+        return row
+
+    def forget_preference(self, pref_id: int) -> bool:
+        """Drop one preference by id; ``True`` if it existed. Rebuilds the graph."""
+        removed = self.prefs.forget(pref_id)
+        if removed:
+            self.graph = self._build()
+        return removed
+
+    def clear_preferences(self) -> int:
+        """Drop every preference; returns how many. Rebuilds the graph if any."""
+        removed = self.prefs.clear()
+        if removed:
+            self.graph = self._build()
+        return removed
+
+    def maybe_capture_preferences(
+        self, user_text: str
+    ) -> list[preferences.PreferenceRow]:
+        """Automatically capture any standing directive in `user_text`.
+
+        Harness-side automatic memory, run post-turn: gated first by the cheap
+        `preferences.looks_like_directive` heuristic (so an ordinary request
+        never spends a model call), then by a one-shot LLM extraction (a plain
+        ``invoke``, so it works on every provider including the tool-less chatgpt
+        one). Persists each captured directive with source ``auto`` and returns
+        the rows actually stored (deduped). Never raises -- a capture failure
+        must not break the turn that triggered it.
+        """
+        if not self.settings.memory_auto or not preferences.looks_like_directive(
+            user_text
+        ):
+            return []
+        prompt = join_blocks(
+            _MEMORY_EXTRACTION_INSTRUCTION, labeled("Operator message", user_text)
+        )
+        try:
+            reply = self.llm.invoke(prompt)
+            content = str(getattr(reply, "content", reply))
+        except Exception:  # noqa: BLE001 -- best-effort; a failure is not fatal
+            return []
+        captured: list[preferences.PreferenceRow] = []
+        for line in content.splitlines():
+            directive = line.strip().lstrip("-*").strip()
+            if not directive or directive.upper() == "NONE":
+                continue
+            row = self.prefs.add(directive, source="auto")
+            if row is not None:
+                captured.append(row)
+        if captured:
+            self.graph = self._build()
+        return captured
+
     def doctor_statuses(self) -> list[ToolStatus]:
         """Probe the host for every recognized tool."""
         return probe.probe(
@@ -805,6 +896,14 @@ class AgentCore:
                         if ev.kind == "final":
                             final_text = ev.text
                         yield ev
+            # The turn is answered; now let the harness remember any standing
+            # directive it carried (best-effort, never raises).
+            for row in self.maybe_capture_preferences(user_text):
+                yield TurnEvent(
+                    "status",
+                    f"remembered: {row.text} (forget {row.id} to undo)",
+                    node="memory",
+                )
         except Exception as e:  # noqa: BLE001 -- a bad turn must not kill the loop
             final_text = f"[error] {type(e).__name__}: {e}"
             yield TurnEvent("status", f"{type(e).__name__}: {e}", node="error")
