@@ -27,7 +27,7 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
-from skuggi import verbs
+from skuggi import verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, doctor_ansi
@@ -65,6 +65,9 @@ class Daemon:
             line = read_line()
             if line is None:  # client disconnected
                 return
+            if self._is_wizard(line):
+                self._attach_wizard(read_line, emit)
+                continue
             exit_session = False
             for resp in self.handle_request({"op": "input", "text": line}):
                 emit(resp)
@@ -72,6 +75,38 @@ class Daemon:
                     exit_session = bool(resp.get("exit"))
             if exit_session:
                 return
+
+    @staticmethod
+    def _is_wizard(line: str) -> bool:
+        """Whether `line` opens the interactive engagement wizard."""
+        verb, rest = verbs.split_verb(line)
+        parts = rest.split()
+        return verb == "engagement" and bool(parts) and parts[0] in wizard.WIZARD_ARGS
+
+    def _attach_wizard(
+        self,
+        read_line: Callable[[], str | None],
+        emit: Callable[[dict[str, object]], None],
+    ) -> None:
+        """Run the engagement wizard over the attach connection.
+
+        Each question is an ``{"ask": prompt}`` frame; the client prompts the
+        operator and sends the answer back, which arrives as the next line. The
+        turn closes with the usual non-exit ``end`` frame.
+        """
+
+        def ask(prompt: str) -> str | None:
+            emit({"ask": prompt})
+            return read_line()
+
+        with self._lock:
+            wizard.run_wizard(
+                ask,
+                self.core.create_engagement,
+                lambda text: emit({"chunk": text + "\n"}),
+                existing=self.core.engagement,
+            )
+        emit({"end": True, "exit": False})
 
     def _dispatch(self, msg: dict[str, object]) -> Iterator[dict[str, object]]:
         if msg.get("op") == "exit":
@@ -169,7 +204,14 @@ class Daemon:
     def _report(self, _arg: str) -> Iterator[str]:
         yield f"report written: {self.core.write_report()}\n"
 
-    def _engagement(self, _arg: str) -> Iterator[str]:
+    def _engagement(self, arg: str) -> Iterator[str]:
+        parts = arg.split()
+        if parts and parts[0] in wizard.WIZARD_ARGS:
+            yield (
+                "engagement setup is interactive: run '/skuggi' (no args) to open "
+                "the chat loop, then 'engagement setup'\n"
+            )
+            return
         described = self.core.describe_engagement()
         yield (described + "\n") if described else "no engagement loaded\n"
 
@@ -310,8 +352,11 @@ def serve(core: AgentCore, sock_path: str) -> ServerHandle:  # pragma: no cover
 
     class _Handler(socketserver.StreamRequestHandler):
         def _emit(self, resp: dict[str, object]) -> None:
-            self.wfile.write((json.dumps(resp) + "\n").encode())
-            self.wfile.flush()
+            # A wizard may still emit after the operator aborted (Ctrl-D closed
+            # the socket); dropping those writes beats crashing the handler.
+            with contextlib.suppress(OSError):
+                self.wfile.write((json.dumps(resp) + "\n").encode())
+                self.wfile.flush()
 
         def handle(self) -> None:
             line = self.rfile.readline()

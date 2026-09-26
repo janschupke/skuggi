@@ -22,7 +22,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi import palette, verbs
+from skuggi import palette, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.config import Settings
 from skuggi.core import AgentCore, parse_toggle
@@ -276,7 +276,11 @@ class Tui:
             return
         self.console.print(f"[dim]mode:[/dim] {self.mode}")
 
-    def _cmd_engagement(self, _arg: str) -> None:
+    def _cmd_engagement(self, arg: str) -> None:
+        parts = arg.split()
+        if parts and parts[0] in wizard.WIZARD_ARGS:
+            self._engagement_wizard()
+            return
         eng = self.engagement
         if eng is None:
             self.console.print("[yellow]no engagement loaded[/yellow]")
@@ -285,6 +289,22 @@ class Tui:
             eng.describe(
                 method_paint=lambda m: palette.paint(m, palette.method_style(m))
             )
+        )
+
+    def _engagement_wizard(self) -> None:
+        """Collect a scope field-by-field via the prompt session and load it."""
+
+        def ask(prompt: str) -> str | None:
+            try:
+                return self.session.prompt(prompt)
+            except (EOFError, KeyboardInterrupt):
+                return None
+
+        wizard.run_wizard(
+            ask,
+            self.core.create_engagement,
+            lambda text: self.console.print(f"[dim]{text}[/dim]"),
+            existing=self.core.engagement,
         )
 
     def _cmd_doctor(self, arg: str) -> None:

@@ -13,6 +13,7 @@ import pytest
 
 from skuggi import probe as probe_mod
 from skuggi.commands import CommandAlias, CommandRegistry
+from skuggi.configs import ConfigError
 from skuggi.core import AgentCore
 from skuggi.registry import ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
@@ -177,3 +178,42 @@ def test_plan_run_without_engagement_skips_scope(tmp_path: Path) -> None:
         assert plan.raw == "nmap -sV -sC 10.0.0.5"
     finally:
         core.close()
+
+
+# --- engagement wizard: create + hot-reload ---------------------------------
+
+
+def _valid_scope(name: str) -> dict[str, object]:
+    return {
+        "name": name,
+        "timezone": "UTC",
+        "authorized_start": "2026-01-01T00:00:00+00:00",
+        "authorized_end": "2026-12-31T23:59:59+00:00",
+        "target_networks": ["10.0.0.0/24"],
+        "allowed_tools": ["nmap"],
+        "allowed_methods": ["scan"],
+    }
+
+
+def test_create_engagement_writes_scope_and_hot_loads(core: AgentCore) -> None:
+    eng = core.create_engagement(_valid_scope("acme"))
+    assert eng.name == "acme"
+    assert core.engagement is not None
+    assert core.engagement.name == "acme"  # hot-reloaded into the session
+    # scope.json was written under the new engagement's workspace
+    assert core.workspace is not None
+    assert core.workspace.scope_path.is_file()
+    assert "acme" in core.workspace.scope_path.read_text(encoding="utf-8")
+
+
+def test_create_engagement_rejects_invalid_scope(core: AgentCore) -> None:
+    with pytest.raises(ConfigError):
+        core.create_engagement({"name": "bad"})  # missing required fields
+
+
+def test_load_engagement_reopens_ledger_at_new_path(core: AgentCore) -> None:
+    core.create_engagement(_valid_scope("beta"))
+    assert core.workspace is not None
+    # the ledger now lives under the beta workspace and has this session
+    assert core.workspace.ledger_path.parent.name == "beta"
+    assert core.ledger.findings_for(core.session_id) == []

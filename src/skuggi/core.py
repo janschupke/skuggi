@@ -27,6 +27,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
+from pydantic import ValidationError
 
 from skuggi import ledger as ledger_mod
 from skuggi import memory, pentest_tools, probe, providers, reports, tools
@@ -312,6 +313,52 @@ class AgentCore:
     def describe_engagement(self) -> str | None:
         """The loaded scope summary, or None when no engagement is loaded."""
         return self.engagement.describe() if self.engagement is not None else None
+
+    def create_engagement(self, raw: dict[str, object]) -> EngagementConfig:
+        """Validate a scope dict, persist it to the engagement's scope.json, load it.
+
+        Raises ``ConfigError`` if the scope does not validate (the wizard shows
+        the reason and re-asks). On success the scope is written under
+        ``engagements/<name>/`` and hot-loaded via ``load_engagement``.
+        """
+        try:
+            scope = EngagementConfig.model_validate(raw)
+        except ValidationError as exc:
+            msg = f"invalid scope: {exc}"
+            raise ConfigError(msg) from exc
+        workspace = Workspace.for_engagement(
+            self.settings.engagements_dir, scope.name, layout=self.layout
+        )
+        workspace.ensure()
+        workspace.scope_path.write_text(
+            scope.model_dump_json(indent=2), encoding="utf-8"
+        )
+        return self.load_engagement(scope.name)
+
+    def load_engagement(self, name: str) -> EngagementConfig:
+        """Switch the active engagement to `name`, hot-reloading scope + tools.
+
+        Reopens the workspace and scope, reopens the ledger at the new
+        engagement's path under a fresh session, and rebuilds the tool set and
+        graph -- so a running session reflects the new boundary with no restart.
+        Raises ``ConfigError`` if the scope is missing or invalid.
+        """
+        self.settings = self.settings.model_copy(update={"engagement": name})
+        self.workspace = self._open_workspace()
+        if self.workspace is None:  # pragma: no cover -- name is always truthy here
+            msg = f"could not open workspace for engagement {name!r}"
+            raise ConfigError(msg)
+        self.engagement = load_scope(self.workspace.scope_path)
+
+        self._ledger_ctx.__exit__(None, None, None)
+        self._ledger_ctx = ledger_mod.open_ledger(self._ledger_path())
+        self.ledger = self._ledger_ctx.__enter__()
+        self.session_id = str(uuid.uuid4())
+        self.ledger.start_session(self.session_id, engagement_name=name, mode=self.mode)
+
+        self.tools_list = self.build_tools()
+        self.graph = self._build()
+        return self.engagement
 
     def findings(self) -> list[FindingRow]:
         """Findings recorded this session."""

@@ -207,3 +207,33 @@ def test_attach_continues_after_a_non_exit_turn(daemon: Daemon) -> None:
         lambda r: ends.append(r) if r.get("end") else None,
     )
     assert ends == [{"end": True, "exit": False}]  # session stayed open, then EOF
+
+
+def test_engagement_setup_one_shot_guides_to_the_loop(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "engagement setup"})
+    assert "interactive" in out  # one-shot cannot prompt; points at the loop
+
+
+def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
+    answers = iter(
+        [
+            "engagement setup",
+            "acme",
+            "UTC",
+            "2026-01-01T00:00:00+00:00",
+            "2026-12-31T23:59:59+00:00",
+            "",  # daily windows -> any
+            "10.0.0.0/24",
+            "",  # hosts
+            "nmap",
+            "scan",
+            "no",
+        ]
+    )
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(answers, None), emitted.append)
+    asks = [f["ask"] for f in emitted if "ask" in f]
+    assert len(asks) == 10  # one prompt per field, round-tripped over the socket
+    assert daemon.core.engagement is not None
+    assert daemon.core.engagement.name == "acme"  # hot-loaded into the warm core
+    assert "loaded" in "".join(str(f.get("chunk", "")) for f in emitted)

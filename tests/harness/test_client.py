@@ -132,7 +132,7 @@ def test_attach_over_streams_replies_then_ends_on_blank_line() -> None:
     )
     lines = iter(["one", "two", ""])  # blank line ends the loop
     out = io.StringIO()
-    code = attach_over(_as_socket(conn), lambda: next(lines), out)
+    code = attach_over(_as_socket(conn), lambda _p: next(lines), out)
     assert code == 0
     assert out.getvalue() == "r1\nr2\n"
 
@@ -143,7 +143,7 @@ def test_attach_over_stops_when_daemon_signals_exit() -> None:
     )
     lines = iter(["bye", "unreached"])
     out = io.StringIO()
-    code = attach_over(_as_socket(conn), lambda: next(lines), out)
+    code = attach_over(_as_socket(conn), lambda _p: next(lines), out)
     assert code == 0
     assert out.getvalue() == "leaving\n"
     assert next(lines) == "unreached"  # the loop stopped before a second prompt
@@ -152,5 +152,44 @@ def test_attach_over_stops_when_daemon_signals_exit() -> None:
 def test_attach_over_ends_immediately_on_eof() -> None:
     conn = _FakeConn({})
     out = io.StringIO()
-    assert attach_over(_as_socket(conn), lambda: None, out) == 0
+    assert attach_over(_as_socket(conn), lambda _p: None, out) == 0
     assert out.getvalue() == ""
+
+
+class _RecordingConn:
+    """Records what was sent, for the wizard's ask/answer round-trip."""
+
+    def __init__(self) -> None:
+        self.sent: list[dict[str, object]] = []
+
+    def sendall(self, data: bytes) -> None:
+        self.sent.append(json.loads(data))
+
+
+def test_stream_turn_answers_ask_frames_over_the_connection() -> None:
+    """An `ask` frame prompts the operator and sends the answer back."""
+    conn = _RecordingConn()
+    frames = iter(
+        [
+            json.dumps({"ask": "name? "}).encode(),
+            json.dumps({"chunk": "loaded\n"}).encode(),
+            json.dumps({"end": True, "exit": False}).encode(),
+        ]
+    )
+    out = io.StringIO()
+    exit_flag = _stream_turn(
+        frames, out, conn=cast(socket.socket, conn), ask=lambda _q: "acme"
+    )
+    assert exit_flag is False
+    assert conn.sent == [{"op": "input", "text": "acme"}]  # answer sent back
+    assert out.getvalue() == "loaded\n"
+
+
+def test_stream_turn_leaves_loop_when_wizard_aborted() -> None:
+    conn = _RecordingConn()
+    frames = iter([json.dumps({"ask": "name? "}).encode()])
+    out = io.StringIO()
+    assert _stream_turn(
+        frames, out, conn=cast(socket.socket, conn), ask=lambda _q: None
+    )  # abort -> leave
+    assert conn.sent == []  # nothing sent; the socket close aborts the daemon

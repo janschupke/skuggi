@@ -131,18 +131,36 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
         return 1
 
 
-def _stream_turn(frames: Iterator[bytes], out: TextIO) -> bool:
+_PROMPT = "🐐 skuggi> "
+
+
+def _stream_turn(
+    frames: Iterator[bytes],
+    out: TextIO,
+    *,
+    conn: socket.socket | None = None,
+    ask: Callable[[str], str | None] | None = None,
+) -> bool:
     """Consume one reply (through its terminal frame) from `frames`.
 
-    Writes each chunk to `out`; returns the daemon's exit flag. Returns ``False``
-    if `frames` runs dry before an ``end`` frame (the connection closed
-    mid-turn). Shared by the attach loop, which reads many replies off one
-    long-lived frame stream.
+    Writes each chunk to `out`; returns the daemon's exit flag. An ``{"ask": …}``
+    frame is an interactive prompt (the engagement wizard): `ask` reads the
+    operator's answer and it is sent back over `conn`, so a whole wizard runs
+    inside one reply stream. A ``None`` answer (operator aborted) leaves the
+    loop. Returns ``False`` if `frames` runs dry before an ``end`` frame (the
+    connection closed mid-turn). Shared by the attach loop, which reads many
+    replies off one long-lived frame stream.
     """
     for line in frames:
         try:
             resp = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if "ask" in resp and conn is not None and ask is not None:
+            answer = ask(str(resp["ask"]))
+            if answer is None:  # operator aborted the wizard
+                return True
+            conn.sendall((json.dumps(build_message(answer)) + "\n").encode())
             continue
         chunk = resp.get("chunk")
         if chunk:
@@ -154,22 +172,23 @@ def _stream_turn(frames: Iterator[bytes], out: TextIO) -> bool:
 
 
 def attach_over(
-    conn: socket.socket, prompt_in: Callable[[], str | None], out: TextIO
+    conn: socket.socket, prompt_in: Callable[[str], str | None], out: TextIO
 ) -> int:
     """Run an interactive attach session over an open connection.
 
-    Sends the ``attach`` op, then loops: read an operator line from `prompt_in`
-    (a ``None`` return, EOF, ``Ctrl+C`` or a blank line ends the session), send
-    it, and stream the reply. Leaving the loop always returns to the shell
-    (``0``): fully quitting the wrapped shell is the one-shot ``/skuggi exit``,
-    handled by the shell hook before it reaches here. Split from ``attach`` so it
-    is testable over a plain socket pair.
+    Sends the ``attach`` op, then loops: read an operator line via
+    ``prompt_in(prompt)`` (a ``None`` return, EOF, ``Ctrl+C`` or a blank line
+    ends the session), send it, and stream the reply -- passing `prompt_in` on
+    so a wizard's ``ask`` frames prompt with their own text. Leaving the loop
+    always returns to the shell (``0``): fully quitting the wrapped shell is the
+    one-shot ``/skuggi exit``, handled by the shell hook before it reaches here.
+    Split from ``attach`` so it is testable over a plain socket pair.
     """
     conn.sendall((json.dumps({"op": "attach"}) + "\n").encode())
     frames = _iter_lines(conn)
     while True:
         try:
-            line = prompt_in()
+            line = prompt_in(_PROMPT)
         except (EOFError, KeyboardInterrupt):
             out.write("\n")
             break
@@ -179,13 +198,13 @@ def attach_over(
         if not line:
             break
         conn.sendall((json.dumps(build_message(line)) + "\n").encode())
-        if _stream_turn(frames, out):  # the daemon closed this session
+        if _stream_turn(frames, out, conn=conn, ask=prompt_in):
             break
     return 0
 
 
 def attach(  # pragma: no cover -- interactive loop over a real socket
-    sock_path: str, prompt_in: Callable[[], str | None], out: TextIO
+    sock_path: str, prompt_in: Callable[[str], str | None], out: TextIO
 ) -> int:
     """Connect to the daemon and run an interactive attach loop (see above)."""
     try:
@@ -197,10 +216,10 @@ def attach(  # pragma: no cover -- interactive loop over a real socket
         return 1
 
 
-def _stdin_prompt() -> str | None:  # pragma: no cover -- reads a real terminal
-    """Read one line from the operator, returning ``None`` on EOF."""
+def _stdin_prompt(prompt: str) -> str | None:  # pragma: no cover -- real terminal
+    """Read one line from the operator with `prompt`, returning ``None`` on EOF."""
     try:
-        return input("🐐 skuggi> ")
+        return input(prompt)
     except EOFError:
         return None
 
