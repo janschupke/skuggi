@@ -27,12 +27,18 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from skuggi import ledger as ledger_mod
 from skuggi import memory, pentest_tools, probe, providers, reports, tools
 from skuggi.commands import CommandRegistry, raw_command
-from skuggi.config import Provider, Settings
+from skuggi.config import (
+    _SECRET_FIELDS,
+    Provider,
+    Settings,
+    config_path,
+    write_config,
+)
 from skuggi.configs import (
     ConfigError,
     load_commands,
@@ -359,6 +365,97 @@ class AgentCore:
         self.tools_list = self.build_tools()
         self.graph = self._build()
         return self.engagement
+
+    # ----- app config (the `config` verb) ------------------------------------
+
+    @staticmethod
+    def settable_config_keys() -> frozenset[str]:
+        """Config keys the operator may edit -- every setting except secrets."""
+        return frozenset(Settings.model_fields) - _SECRET_FIELDS
+
+    def config_summary(self) -> str:
+        """Every setting, one per line, with credentials redacted."""
+        data = self.settings.model_dump(mode="json")
+        lines = []
+        for key in sorted(data):
+            value = "***" if key in _SECRET_FIELDS and data[key] else data[key]
+            lines.append(f"{key} = {value}")
+        return "\n".join(lines)
+
+    def config_line(self, arg: str) -> str | None:
+        """Handle the mechanical `config` forms; None means "escalate to the LLM".
+
+        ``config`` / ``config show`` prints the settings; ``config <key> <value>``
+        for a known setting applies it. A first word that is not a setting is a
+        natural-language request, which the interactive front-end escalates.
+        """
+        key, _, rest = arg.strip().partition(" ")
+        if not key or key == "show":
+            return self.config_summary()
+        if key not in self.settable_config_keys():
+            return None
+        value = rest.strip()
+        if not value:
+            return f"usage: config {key} <value>"
+        return self.apply_config(key, value)
+
+    def apply_config(self, key: str, value: str) -> str:
+        """Validate, persist and (where possible) hot-apply one setting.
+
+        Coerces `value` to the field's type, writes it to ``configs/config.json``
+        (never a secret), and applies ``provider``/``mode`` to the live session;
+        other keys persist and take effect on restart.
+        """
+        if key in _SECRET_FIELDS:
+            return f"config: {key} is a secret -- set it in the environment"
+        if key not in Settings.model_fields:
+            return f"config: unknown setting {key!r}"
+        adapter: TypeAdapter[object] = TypeAdapter(
+            Settings.model_fields[key].annotation
+        )
+        try:
+            coerced = adapter.validate_python(value)
+        except ValidationError:
+            return f"config: invalid value for {key}: {value!r}"
+        json_value = adapter.dump_python(coerced, mode="json")
+        write_config(config_path(), {key: json_value})
+        try:
+            if key == "provider":
+                self.set_provider(str(coerced))
+                applied = True
+            elif key == "mode":
+                self.set_mode(str(coerced))
+                applied = True
+            else:
+                self.settings = self.settings.model_copy(update={key: coerced})
+                applied = False
+        except (ValueError, RuntimeError, ImportError) as exc:
+            return f"config: {key} written, but the live switch failed: {exc}"
+        tail = "applied live" if applied else "written; restart to apply"
+        return f"config: {key} = {json_value} ({tail})"
+
+    def propose_config(self, request: str) -> list[tuple[str, str]]:
+        """Ask the LLM to map a natural-language request to ``key=value`` edits.
+
+        Returns only proposals whose key is an editable setting; the front-end
+        shows them and applies on confirmation. Never proposes a secret.
+        """
+        keys = ", ".join(sorted(self.settable_config_keys()))
+        prompt = (
+            "You edit a JSON application config. Given the request, output only "
+            "the settings to change, one per line as `key=value`, choosing keys "
+            f"from: {keys}. Output nothing else and never output a secret.\n"
+            f"Request: {request}"
+        )
+        reply = self.llm.invoke(prompt)
+        content = getattr(reply, "content", reply)
+        settable = self.settable_config_keys()
+        proposals: list[tuple[str, str]] = []
+        for line in str(content).splitlines():
+            key, sep, value = line.partition("=")
+            if sep and key.strip() in settable:
+                proposals.append((key.strip(), value.strip()))
+        return proposals
 
     def findings(self) -> list[FindingRow]:
         """Findings recorded this session."""

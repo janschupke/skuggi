@@ -22,7 +22,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi import palette, verbs, wizard
+from skuggi import configflow, palette, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.config import Settings
 from skuggi.core import AgentCore, parse_toggle
@@ -92,6 +92,7 @@ class Tui:
             "history": self._cmd_history,
             "trace": self._cmd_trace,
             "engagement": self._cmd_engagement,
+            "config": self._cmd_config,
             "run": self._cmd_run,
             "doctor": self._cmd_doctor,
             "findings": self._cmd_findings,
@@ -291,20 +292,33 @@ class Tui:
             )
         )
 
+    def _ask(self, prompt: str) -> str | None:
+        """Prompt the operator for one line; None on EOF / Ctrl-C (an abort)."""
+        try:
+            return self.session.prompt(prompt)
+        except (EOFError, KeyboardInterrupt):
+            return None
+
     def _engagement_wizard(self) -> None:
         """Collect a scope field-by-field via the prompt session and load it."""
-
-        def ask(prompt: str) -> str | None:
-            try:
-                return self.session.prompt(prompt)
-            except (EOFError, KeyboardInterrupt):
-                return None
-
         wizard.run_wizard(
-            ask,
+            self._ask,
             self.core.create_engagement,
             lambda text: self.console.print(f"[dim]{text}[/dim]"),
             existing=self.core.engagement,
+        )
+
+    def _cmd_config(self, arg: str) -> None:
+        text = self.core.config_line(arg)
+        if text is not None:  # show / mechanical key-value
+            self.console.print(text)
+            return
+        configflow.run_config_request(  # natural-language request -> LLM + confirm
+            arg,
+            ask=self._ask,
+            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
+            propose=self.core.propose_config,
+            apply=self.core.apply_config,
         )
 
     def _cmd_doctor(self, arg: str) -> None:

@@ -27,7 +27,7 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
-from skuggi import verbs, wizard
+from skuggi import configflow, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, doctor_ansi
@@ -68,6 +68,9 @@ class Daemon:
             if self._is_wizard(line):
                 self._attach_wizard(read_line, emit)
                 continue
+            if self._is_config_request(line):
+                self._attach_config(verbs.split_verb(line)[1], read_line, emit)
+                continue
             exit_session = False
             for resp in self.handle_request({"op": "input", "text": line}):
                 emit(resp)
@@ -105,6 +108,38 @@ class Daemon:
                 self.core.create_engagement,
                 lambda text: emit({"chunk": text + "\n"}),
                 existing=self.core.engagement,
+            )
+        emit({"end": True, "exit": False})
+
+    def _is_config_request(self, line: str) -> bool:
+        """Whether `line` is a natural-language `config` request (LLM escalation)."""
+        verb, rest = verbs.split_verb(line)
+        if verb != "config":
+            return False
+        parts = rest.split(maxsplit=1)
+        if not parts or parts[0] == "show":
+            return False
+        return parts[0] not in self.core.settable_config_keys()
+
+    def _attach_config(
+        self,
+        arg: str,
+        read_line: Callable[[], str | None],
+        emit: Callable[[dict[str, object]], None],
+    ) -> None:
+        """Run the LLM config escalation over the attach connection."""
+
+        def ask(prompt: str) -> str | None:
+            emit({"ask": prompt})
+            return read_line()
+
+        with self._lock:
+            configflow.run_config_request(
+                arg,
+                ask=ask,
+                notify=lambda text: emit({"chunk": text + "\n"}),
+                propose=self.core.propose_config,
+                apply=self.core.apply_config,
             )
         emit({"end": True, "exit": False})
 
@@ -150,6 +185,7 @@ class Daemon:
             "findings": self._findings,
             "report": self._report,
             "engagement": self._engagement,
+            "config": self._config,
             "doctor": self._doctor,
             "mode": self._mode,
             "autonomous": self._autonomous,
@@ -214,6 +250,16 @@ class Daemon:
             return
         described = self.core.describe_engagement()
         yield (described + "\n") if described else "no engagement loaded\n"
+
+    def _config(self, arg: str) -> Iterator[str]:
+        text = self.core.config_line(arg)
+        if text is None:  # a natural-language request; needs the interactive loop
+            yield (
+                "config from a natural-language request needs the chat loop: run "
+                "'/skuggi' (no args), then 'config <request>'\n"
+            )
+            return
+        yield text + "\n"
 
     def _doctor(self, arg: str) -> Iterator[str]:
         if arg.split()[:1] == ["install"]:

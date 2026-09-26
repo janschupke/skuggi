@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from skuggi.config import Settings
+from skuggi.config import Settings, write_config
 
 
 def test_defaults() -> None:
@@ -131,3 +131,32 @@ def test_example_config_loads(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings()
     assert settings.provider == "openai"
     assert settings.mode == "pentest"
+
+
+# --- write_config -----------------------------------------------------------
+
+
+def test_write_config_merges_into_existing(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    write_config(path, {"provider": "anthropic"})
+    write_config(path, {"retrieve_k": 8})
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data == {"provider": "anthropic", "retrieve_k": 8}
+
+
+def test_write_config_refuses_secrets(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="secret"):
+        write_config(tmp_path / "config.json", {"openai_api_key": "sk-x"})
+
+
+def test_write_config_creates_parent(tmp_path: Path) -> None:
+    path = tmp_path / "nested" / "config.json"
+    write_config(path, {"mode": "blueteam"})
+    assert path.is_file()
+
+
+def test_write_config_survives_a_malformed_file(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text("{ not json", encoding="utf-8")
+    write_config(path, {"provider": "ollama"})
+    assert json.loads(path.read_text(encoding="utf-8")) == {"provider": "ollama"}

@@ -237,3 +237,39 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
     assert daemon.core.engagement is not None
     assert daemon.core.engagement.name == "acme"  # hot-loaded into the warm core
     assert "loaded" in "".join(str(f.get("chunk", "")) for f in emitted)
+
+
+# --- config verb ------------------------------------------------------------
+
+
+def test_config_show_one_shot(daemon: Daemon) -> None:
+    assert "provider = ollama" in _chunks(
+        daemon, {"op": "input", "text": "config show"}
+    )
+
+
+def test_config_mechanical_one_shot(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "config retrieve_k 7"})
+    assert "retrieve_k = 7" in out
+    assert daemon.core.settings.retrieve_k == 7
+
+
+def test_config_nl_one_shot_points_at_the_loop(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "config make it faster"})
+    assert "chat loop" in out  # one-shot cannot confirm; needs the attach loop
+
+
+def test_attach_config_request_confirms_and_applies(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The LLM proposal is unit-tested in test_core; stub it so the attach flow
+    # (propose -> confirm -> apply, applied to the warm core) is what's exercised.
+    monkeypatch.setattr(
+        daemon.core, "propose_config", lambda _request: [("mode", "blueteam")]
+    )
+    answers = iter(["config switch to blue team", "y"])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(answers, None), emitted.append)
+    assert [f["ask"] for f in emitted if "ask" in f]  # asked to confirm
+    assert daemon.core.mode == "blueteam"  # applied to the warm core
+    assert "applied live" in "".join(str(f.get("chunk", "")) for f in emitted)

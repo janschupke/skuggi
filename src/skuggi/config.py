@@ -19,6 +19,8 @@ data directory belongs to the project you run it from.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 from pathlib import Path
 from typing import Literal
@@ -32,6 +34,7 @@ from pydantic_settings import (
 )
 
 from skuggi.modes import Mode
+from skuggi.paths import ensure_parent
 
 Provider = Literal["openai", "chatgpt", "anthropic", "ollama"]
 ToolSource = Literal["host", "managed", "combine"]
@@ -56,6 +59,28 @@ _SECRET_FIELDS = frozenset({"openai_api_key", "anthropic_api_key"})
 def config_path() -> Path:
     """The active config.json path (``SKUGGI_CONFIG_PATH`` or the default)."""
     return Path(os.environ.get(CONFIG_PATH_ENV, DEFAULT_CONFIG_PATH))
+
+
+def write_config(path: Path, updates: dict[str, object]) -> None:
+    """Merge `updates` into the JSON config at `path` (read-modify-write).
+
+    Credentials are refused -- they live only in the environment, never in the
+    JSON (mirrors ``_NonSecretJsonSource`` on the read side). A missing or
+    unreadable file starts from an empty object; the parent directory is created.
+    """
+    secret = {k for k in updates if k.lower() in _SECRET_FIELDS}
+    if secret:
+        msg = f"secrets are env-only, never config.json: {', '.join(sorted(secret))}"
+        raise ValueError(msg)
+    resolved = ensure_parent(path)
+    current: dict[str, object] = {}
+    if resolved.is_file():
+        with contextlib.suppress(OSError, json.JSONDecodeError):
+            loaded = json.loads(resolved.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                current = loaded
+    current.update(updates)
+    resolved.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
 
 
 class _NonSecretJsonSource(JsonConfigSettingsSource):
