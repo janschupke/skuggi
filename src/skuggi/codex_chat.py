@@ -35,6 +35,7 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_openai import ChatOpenAI
 
 from skuggi.config import CODEX_REFRESH_URL, CODEX_RESPONSES_BASE
+from skuggi.prompts import CODEX_DEFAULT_INSTRUCTIONS
 
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_OPENAI_BETA = "responses=experimental"
@@ -42,7 +43,6 @@ CODEX_ORIGINATOR = "codex_cli_rs"
 
 _AUTH_PATH_DEFAULT = Path("~/.codex/auth.json").expanduser()
 _REFRESH_SKEW_SECONDS = 60
-_DEFAULT_INSTRUCTIONS = "You are a helpful assistant."
 
 
 def jwt_expiry(token: str) -> int | None:
@@ -211,7 +211,7 @@ class CodexAuth(httpx.Auth):
 class CodexChatModel(ChatOpenAI):
     """ChatOpenAI pointed at the codex Responses endpoint."""
 
-    codex_instructions: str = _DEFAULT_INSTRUCTIONS
+    codex_instructions: str = CODEX_DEFAULT_INSTRUCTIONS
 
     @property
     def _llm_type(self) -> str:

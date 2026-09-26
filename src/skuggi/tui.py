@@ -22,7 +22,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi import configflow, palette, reports, verbs, wizard
+from skuggi import configflow, palette, prompts, reports, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.config import Settings
 from skuggi.core import AgentCore, parse_toggle
@@ -374,10 +374,7 @@ class Tui:
                 f"[green]in scope[/green] -- recorded proposed "
                 f"(cmd:{plan.command_id}); submit it yourself"
             )
-        self.turn(
-            "Briefly evaluate this proposed command and note any risks; do not "
-            f"run anything, just advise: {plan.raw}"
-        )
+        self.turn(prompts.EVALUATE_RUN.format(command=plan.raw))
 
     def _run_list(self) -> None:
         aliases = self.core.commands.commands

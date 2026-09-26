@@ -27,7 +27,7 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
-from skuggi import configflow, reports, verbs, wizard
+from skuggi import configflow, prompts, reports, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, doctor_ansi
@@ -237,10 +237,7 @@ class Daemon:
                 f"in scope -- recorded proposed (cmd:{plan.command_id}); "
                 "submit it yourself\n"
             )
-        yield from self._agent(
-            "Briefly evaluate this proposed command and note any risks; do not "
-            f"run anything, just advise: {plan.raw}"
-        )
+        yield from self._agent(prompts.EVALUATE_RUN.format(command=plan.raw))
 
     def _run_list(self) -> Iterator[str]:
         aliases = self.core.commands.commands

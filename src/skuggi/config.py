@@ -234,3 +234,12 @@ class Settings(BaseSettings):
         worker runs as a plain generator there.
         """
         return self.provider != "chatgpt"
+
+    def supports_structured_output(self) -> bool:
+        """Whether the provider supports native ``with_structured_output``.
+
+        The tool-less chatgpt endpoint cannot; ``protocol.structured_invoke``
+        falls back to a JSON contract there. Every other provider gets the
+        native, schema-enforced path.
+        """
+        return self.provider != "chatgpt"

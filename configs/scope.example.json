@@ -8,5 +8,6 @@
   "allowed_hosts": ["scanme.example.com"],
   "allowed_tools": ["nmap", "nikto", "curl", "gobuster", "sqlmap", "whatweb"],
   "allowed_methods": ["recon", "scan", "enumerate"],
+  "stance": "cautious",
   "autonomous": false
 }

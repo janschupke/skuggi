@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, IPvAnyNetwork, field_validator
 
+from skuggi.protocol import Stance
 from skuggi.registry import ToolRegistry
 
 # A dotted name with an alphabetic TLD. Deliberately strict: a bare word with
@@ -67,6 +68,9 @@ class EngagementConfig(BaseModel):
     allowed_tools: frozenset[str] = frozenset()
     allowed_methods: frozenset[str] = frozenset()
     autonomous: bool = False
+    # The engagement posture. Advisory only: it calibrates what the agent
+    # proposes (see skuggi.prompts), never what the guard allows.
+    stance: Stance = "cautious"
 
     @field_validator("timezone")
     @classmethod
@@ -112,6 +116,7 @@ class EngagementConfig(BaseModel):
             f"  hosts:  {hosts}\n"
             f"  tools:  {', '.join(sorted(self.allowed_tools))}\n"
             f"  methods: {methods}\n"
+            f"  stance: {self.stance}\n"
             f"  autonomous: {self.autonomous}"
         )
 

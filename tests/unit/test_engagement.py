@@ -211,3 +211,16 @@ def test_unknown_timezone_is_rejected() -> None:
 def test_midnight_spanning_window(moment: str, inside: bool) -> None:
     window = TimeWindow(start=time(22), end=time(2))
     assert window.contains(time.fromisoformat(moment)) is inside
+
+
+# --- stance (advisory posture) ----------------------------------------------
+
+
+def test_stance_defaults_to_cautious() -> None:
+    assert _engagement().stance == "cautious"
+
+
+def test_stance_loads_from_scope_and_shows_in_describe() -> None:
+    eng = _engagement(stance="aggressive")
+    assert eng.stance == "aggressive"
+    assert "stance: aggressive" in eng.describe()

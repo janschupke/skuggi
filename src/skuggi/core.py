@@ -37,6 +37,7 @@ from skuggi import (
     pentest_tools,
     preferences,
     probe,
+    prompts,
     providers,
     reports,
     tools,
@@ -82,35 +83,6 @@ _PROVIDERS = get_args(Provider)
 # How much captured command output to feed the reviewer per command -- enough to
 # judge what happened without blowing the prompt budget on a noisy scan dump.
 _REVIEW_OUTPUT_CAP = 2_000
-
-# The reviewer's brief. This is private feedback for the operator, deliberately
-# not client-facing (it is stored in the audit log, never the report).
-_REVIEW_INSTRUCTION = (
-    "You are reviewing a completed penetration-testing session to give the "
-    "operator private, candid feedback. This is for the operator only and must "
-    "never be shown to a client. From the session timeline below, identify: "
-    "bottlenecks (where effort or attention was wasted), missed opportunities "
-    "(leads, hosts or services that went unexplored), repeated or wrong commands "
-    "(retries, errors, out-of-scope attempts), and process feedback. Be specific "
-    "and cite command ids as cmd:N. Be concise and honest; this is a critique, "
-    "not a report."
-)
-
-# The automatic-memory extractor's brief. It runs post-turn on messages that
-# pass the cheap `preferences.looks_like_directive` gate, and only durable
-# operational preferences (how to work) are wanted -- never target-specific or
-# one-off facts. One directive per line, or the literal NONE.
-_MEMORY_EXTRACTION_INSTRUCTION = (
-    "You maintain a list of the operator's standing operational preferences for "
-    "a pentesting assistant: durable directives about HOW to work -- a preferred "
-    "tool when several would do, the language to write helper scripts in, output "
-    "tone or verbosity, reporting conventions. From the operator's message "
-    "below, output each such durable preference as a short, normalized "
-    "imperative on its own line (for example: 'Prefer ffuf over gobuster for "
-    "directory brute-forcing'). Do NOT capture one-off requests, questions, or "
-    "anything specific to one target or engagement. If there is nothing durable "
-    "to remember, output exactly: NONE"
-)
 
 EventKind = Literal["reset", "status", "token", "final"]
 
@@ -668,7 +640,8 @@ class AgentCore:
         if sid is None:
             return timeline  # the "no session" message
         prompt = join_blocks(
-            _REVIEW_INSTRUCTION, labeled("Session timeline", timeline, heading=True)
+            prompts.REVIEW_INSTRUCTION,
+            labeled("Session timeline", timeline, heading=True),
         )
         llm = (
             self.llm
@@ -734,7 +707,8 @@ class AgentCore:
         ):
             return []
         prompt = join_blocks(
-            _MEMORY_EXTRACTION_INSTRUCTION, labeled("Operator message", user_text)
+            prompts.MEMORY_EXTRACTION_INSTRUCTION,
+            labeled("Operator message", user_text),
         )
         try:
             reply = self.llm.invoke(prompt)
