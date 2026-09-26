@@ -22,7 +22,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi import palette
+from skuggi import palette, verbs
 from skuggi.config import Settings
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, render_doctor
@@ -79,23 +79,24 @@ class Tui:
         for warning in self.core.warnings:
             self.console.print(f"[yellow]{warning}[/yellow]")
 
+        # Keyed by bare verb (the shared registry in `verbs`); `ask` and `exit`
+        # are handled directly in `dispatch`. Kept in sync with `verbs.KNOWN` by
+        # a drift test.
         self._commands: dict[str, Callable[[str], bool | None]] = {
-            "/help": self._cmd_help,
-            "/provider": self._cmd_provider,
-            "/model": self._cmd_model,
-            "/mode": self._cmd_mode,
-            "/thread": self._cmd_thread,
-            "/history": self._cmd_history,
-            "/trace": self._cmd_trace,
-            "/engagement": self._cmd_engagement,
-            "/doctor": self._cmd_doctor,
-            "/findings": self._cmd_findings,
-            "/report": self._cmd_report,
-            "/autonomous": self._cmd_autonomous,
-            "/clear": self._cmd_clear,
-            "/ingest": self._cmd_ingest,
-            "/quit": self._cmd_quit,
-            "/exit": self._cmd_quit,
+            "help": self._cmd_help,
+            "provider": self._cmd_provider,
+            "model": self._cmd_model,
+            "mode": self._cmd_mode,
+            "thread": self._cmd_thread,
+            "history": self._cmd_history,
+            "trace": self._cmd_trace,
+            "engagement": self._cmd_engagement,
+            "doctor": self._cmd_doctor,
+            "findings": self._cmd_findings,
+            "report": self._cmd_report,
+            "autonomous": self._cmd_autonomous,
+            "clear": self._cmd_clear,
+            "ingest": self._cmd_ingest,
         }
 
     # ----- delegated read state ----------------------------------------------
@@ -214,21 +215,31 @@ class Tui:
     # ----- dispatch ----------------------------------------------------------
 
     def dispatch(self, line: str) -> bool | None:
-        """Run a slash command. Returns False to end the session."""
-        parts = line.split(maxsplit=1)
-        handler = self._commands.get(parts[0].lower())
-        if handler is None:
-            self.console.print(f"[red]unknown command:[/red] {parts[0]}")
+        """Run a `/verb` control. Returns False to end the session.
+
+        Verb-first over the shared registry: `exit`/`quit` leave, `ask` routes to
+        an agent turn (so `/ask x` and bare `x` behave the same), everything else
+        is a control handler.
+        """
+        verb, rest = verbs.split_verb(line)
+        if verbs.is_exit(verb):
+            return False
+        if verb == "ask":
+            self.turn(rest)
             return None
-        return handler(parts[1].strip() if len(parts) > 1 else "")
+        handler = self._commands.get(verb)
+        if handler is None:
+            self.console.print(f"[red]unknown command:[/red] /{verb}")
+            return None
+        return handler(rest)
 
     def _cmd_quit(self, _arg: str) -> bool:
         return False
 
     def _cmd_help(self, _arg: str) -> None:
         table = Table(show_header=False, box=None)
-        for command, description in HELP:
-            table.add_row(f"[cyan]{command}[/cyan]", description)
+        for invocation, summary in verbs.help_rows():
+            table.add_row(f"[cyan]/{invocation}[/cyan]", summary)
         self.console.print(table)
 
     def _cmd_provider(self, arg: str) -> None:
@@ -401,22 +412,3 @@ class Tui:
                     view.push_text(ev.text)
                 elif ev.kind == "final":
                     view.show(ev.text)
-
-
-HELP: list[tuple[str, str]] = [
-    ("/help", "show this help"),
-    ("/provider <openai|chatgpt|anthropic|ollama>", "switch LLM provider"),
-    ("/model <name>", "switch model (current provider)"),
-    ("/mode <pentest|redteam|blueteam>", "switch operating mode (prompts)"),
-    ("/thread new|list|<id>", "new/list/switch session thread"),
-    ("/history [n]", "show last n messages on the current thread"),
-    ("/trace", "show the worker's tool calls on the current thread"),
-    ("/engagement", "show the loaded engagement scope"),
-    ("/doctor [install <tool>]", "probe host tools; install a missing one"),
-    ("/findings", "list findings recorded this session"),
-    ("/report", "write a Markdown engagement report"),
-    ("/autonomous [on|off]", "toggle autonomous command execution"),
-    ("/clear", "clear the screen"),
-    ("/ingest <path>", "index a file or directory into FAISS"),
-    ("/quit", "exit (alias /exit)"),
-]

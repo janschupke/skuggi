@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from skuggi.tui import HELP, Tui
+from skuggi import verbs
+from skuggi.tui import Tui
 from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import FakePromptSession
 
@@ -53,8 +54,7 @@ def test_help_and_dispatch_do_not_drift(tui: tuple[Tui, io.StringIO]) -> None:
     This is the drift a help table and an if/elif chain always develop.
     """
     app, _ = tui
-    documented = {row[0].split()[0] for row in HELP} | {"/exit"}
-    assert documented == set(app._commands)
+    assert set(app._commands) == verbs.KNOWN - {"ask", "exit"}
 
 
 def test_provider_switch_rebuilds_the_graph(tui: tuple[Tui, io.StringIO]) -> None:
