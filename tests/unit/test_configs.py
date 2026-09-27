@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from skuggi import home
 from skuggi.configs import (
     ConfigError,
     load_commands,
@@ -14,6 +15,7 @@ from skuggi.configs import (
     load_registry,
     load_scope,
 )
+from tests.support import template
 
 
 def test_loads_a_valid_scope(pentest_configs: Callable[..., Path]) -> None:
@@ -25,7 +27,7 @@ def test_loads_a_valid_scope(pentest_configs: Callable[..., Path]) -> None:
 
 def test_loads_a_valid_registry(pentest_configs: Callable[..., Path]) -> None:
     pentest_configs()
-    registry = load_registry(Path("configs") / "tools.json")
+    registry = load_registry(home.config_home() / "tools.json")
     assert registry.method_for("nmap") == "scan"
 
 
@@ -71,7 +73,7 @@ def test_invalid_layout_raises_config_error(tmp_path: Path) -> None:
 
 def test_example_registry_includes_the_new_tools() -> None:
     """The shipped tools.example.json parses and carries the extended set."""
-    example = Path(__file__).parents[2] / "configs" / "tools.example.json"
+    example = template("tools.example.json")
     registry = load_registry(example)
     assert registry.method_for("hydra") == "bruteforce"
     assert registry.method_for("nxc") == "bruteforce"

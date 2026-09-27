@@ -14,6 +14,7 @@ pipeline is exercised, not a paid model.
 from __future__ import annotations
 
 import json
+from importlib.resources import files
 from pathlib import Path
 
 from skuggi.config import Provider, Settings
@@ -22,8 +23,21 @@ from skuggi.vectorstore import Store
 from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def template(name: str) -> Path:
+    """Path to a packaged config template (``src/skuggi/templates/<name>``).
+
+    Resolved through the package rather than as a repo path: these are what
+    ``skuggi-init`` seeds a config home from, so they live inside ``skuggi`` and
+    travel with an installed wheel. Going through ``importlib.resources`` here
+    means a test asserts against the same bytes an operator actually gets.
+    """
+    return Path(str(files("skuggi") / "templates" / name))
+
+
 # The shipped registry -- the same tool set the operator runs with.
-DEFAULT_REGISTRY = REPO_ROOT / "configs" / "tools.example.json"
+DEFAULT_REGISTRY = template("tools.example.json")
 
 
 def engaged_core(
@@ -53,6 +67,13 @@ def engaged_core(
         faiss_path=tmp_path / "faiss",
         history_path=tmp_path / ".repl_history",
         preferences_path=tmp_path / "preferences.db",
+        # Pinned under tmp_path even though all three are optional: their defaults
+        # are in the operator's config home, and the live layers (L4 eval, L5 e2e)
+        # are exempt from `isolate_credentials`. Without these, an e2e run would
+        # pick up whatever layout or aliases the developer happens to have.
+        layout_path=tmp_path / "layout.json",
+        commands_path=tmp_path / "commands.json",
+        managed_tools_dir=tmp_path / "toolbox",
         **settings_overrides,  # type: ignore[arg-type]
     )
     return AgentCore(settings)

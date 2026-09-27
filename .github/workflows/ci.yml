@@ -22,7 +22,7 @@ jobs:
           cache-dependency-glob: uv.lock
       - run: uv python install 3.12
       # --frozen: a stale uv.lock is a red build, not a silently drifting env.
-      - run: uv sync --frozen --all-groups
+      - run: uv sync --frozen --all-groups --all-extras
       - run: uv run ruff check --output-format=github
       # --check, never the rewriting formatter: CI reports, it does not fix.
       - run: uv run ruff format --check
@@ -48,7 +48,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv python install ${{ matrix.python }}
-      - run: uv sync --frozen --all-groups --python ${{ matrix.python }}
+      - run: uv sync --frozen --all-groups --all-extras --python ${{ matrix.python }}
       # The eval layer is deselected by default, so no credentials are needed
       # and the suite must pass on a machine that has none.
       - run: uv run --python ${{ matrix.python }} pytest
@@ -69,7 +69,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv python install 3.12
-      - run: uv sync --frozen --all-groups
+      - run: uv sync --frozen --all-groups --all-extras
       # Bring the vulnerable lab up. On the Linux runner the lab-net bridge is
       # directly routable, so both the loopback and the 192.0.2.10 cases run.
       - run: cp lab/.env.example lab/.env

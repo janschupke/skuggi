@@ -12,9 +12,12 @@ coverage.xml
 htmlcov/
 dist/
 *.egg-info/
-# Harness case files hold live target data: commit only the .example templates.
-configs/*.json
-!configs/*.example.json
+# Harness config now lives in the config home (~/.config/skuggi), and the
+# templates ship inside the package at src/skuggi/templates/. A ./configs left in
+# a checkout is pre-migration leftovers or a deliberate local override
+# (SKUGGI_CONFIG_PATH=./configs/config.json); either way it holds live target
+# data and is never committed.
+configs/
 # Per-engagement workspaces (scope.json, ledger, reports, recon output) are live
 # engagement data -- never committed.
 engagements/

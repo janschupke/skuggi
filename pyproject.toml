@@ -43,9 +43,27 @@ dependencies = [
     "httpx>=0.28",
 ]
 
+# The MD -> HTML -> PDF report pipeline (skuggi-pdf and `/report pdf`). Optional so
+# the core agent installs without WeasyPrint's native Pango dependency, and an
+# EXTRA rather than a dependency-group because it has to reach a global install:
+# `uv tool install` has no --group flag of any kind, so a group can only ever
+# populate a dev checkout and `skuggi-pdf` would be broken for every operator who
+# installed skuggi as a command. `make install` and CI pass --all-extras, so the
+# gate still exercises it.
+# WeasyPrint needs a system Pango: `brew install pango` / `apt install libpango-1.0-0`.
+[project.optional-dependencies]
+pdf = [
+    "weasyprint>=63",
+    "markdown-it-py>=3",
+    "mdit-py-plugins>=0.4",
+    "pygments>=2.17",
+    "jinja2>=3.1",
+]
+
 [project.scripts]
 skuggi = "skuggi.shell:main"
 skuggi-repl = "skuggi.__main__:main"
+skuggi-init = "skuggi.init:main"
 skuggi-ingest = "skuggi.ingest:main"
 skuggi-doctor = "skuggi.doctor:main"
 skuggi-client = "skuggi.client:main"
@@ -56,6 +74,12 @@ skuggi-eval = "skuggi.eval.cli:main"
 path = "src/skuggi/__init__.py"
 
 [tool.hatch.build.targets.wheel]
+# Includes src/skuggi/templates/ -- the report stylesheet and the `*.example.json`
+# config templates `skuggi-init` seeds the config home from. Those templates live
+# inside the package rather than at ./configs so that BOTH install shapes can read
+# them: a wheel has no repo to look in, and an editable install resolves
+# `importlib.resources` to this source tree, which a build-time include would not
+# have populated.
 packages = ["src/skuggi"]
 
 [dependency-groups]
@@ -75,17 +99,6 @@ dev = [
 eval = [
     "autoevals>=0.3,<1",
     "braintrust>=0.42,<1",
-]
-# The MD -> HTML -> PDF report pipeline (skuggi-pdf and `/report pdf`). A separate
-# group so the core agent installs without WeasyPrint's native Pango dependency;
-# `make install` (uv sync --all-groups) and CI pull it, so the gate exercises it.
-# WeasyPrint needs a system Pango: `brew install pango` / `apt install libpango-1.0-0`.
-pdf = [
-    "weasyprint>=63",
-    "markdown-it-py>=3",
-    "mdit-py-plugins>=0.4",
-    "pygments>=2.17",
-    "jinja2>=3.1",
 ]
 
 [tool.pytest.ini_options]
@@ -200,6 +213,8 @@ runtime-evaluated-base-classes = [
 [tool.ruff.lint.per-file-ignores]
 "src/skuggi/__init__.py" = ["D104"]
 "src/skuggi/ingest.py" = ["T201"]          # print() is this module's output
+# skuggi-init reports what it seeded/migrated to the operator's tty.
+"src/skuggi/init.py" = ["T201"]
 # The shell launcher and the thin client print directly to the operator's tty.
 "src/skuggi/client.py" = ["T201"]
 # _get_request_payload's **kwargs: Any is fixed by the ChatOpenAI signature.

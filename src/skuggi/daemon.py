@@ -326,6 +326,7 @@ class Daemon:
             self.core.doctor_statuses(),
             self.core.runtime_statuses(),
             self.core.net_tool_statuses(),
+            self.core.settings,
         )
 
     def _install(self, binary: str) -> Iterator[str]:

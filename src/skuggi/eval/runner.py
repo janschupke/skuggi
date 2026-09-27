@@ -39,6 +39,7 @@ from skuggi.eval.scorers import (
     result_compat,
     schema_compat,
 )
+from skuggi.paths import packaged_template
 from skuggi.protocol import (
     CriticResponse,
     FindingDraft,
@@ -50,7 +51,7 @@ from skuggi.protocol import (
 from skuggi.registry import ToolRegistry
 from skuggi.reports import render_report
 
-DEFAULT_REGISTRY = Path("configs/tools.example.json")
+DEFAULT_REGISTRY = packaged_template("tools.example.json")
 
 _SCHEMAS: dict[str, type[BaseModel]] = {
     "WorkerResponse": WorkerResponse,

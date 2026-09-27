@@ -1,12 +1,24 @@
 UV ?= uv
 
-.PHONY: install lint format typecheck test eval e2e eval-det bench check clean pdf
+.PHONY: install install-cli lint format typecheck test eval e2e eval-det bench check clean pdf
 
 ## sync the locked environment and install the git hooks
 install:
-	$(UV) sync --all-groups
+	$(UV) sync --all-groups --all-extras
 	$(UV) run pre-commit install
 	$(UV) run pre-commit install --hook-type pre-push
+
+## put the `skuggi` keyword on $$PATH, then seed the config and data homes.
+## --editable: the tool env's .pth points back at this checkout, so code edits are
+## live and the `update` verb can still find a git repo to pull.
+## '.[pdf]': `uv tool install` has no --group flag, so the report pipeline has to
+## travel as an extra or a global install cannot render a PDF.
+## --force makes this a safe re-run (it also overwrites the bin/ entry points).
+## Re-run it after changing a DEPENDENCY: `uv sync` only updates ./.venv.
+install-cli:
+	$(UV) tool install --editable '.[pdf]' --force
+	$(UV) tool update-shell
+	$(UV) run skuggi-init
 
 lint:
 	$(UV) run ruff check

@@ -39,28 +39,58 @@ Requires Python ≥3.12 and [uv](https://docs.astral.sh/uv/) (developed on 3.14;
 CI covers 3.12–3.14).
 
 ```sh
-uv sync --all-groups
+make install-cli
+```
 
-# app config (persisted, edited by the `config` verb); tune it freely
-cp configs/config.example.json configs/config.json
-# secrets stay in the environment, never in the JSON:
-export ANTHROPIC_API_KEY=sk-ant-...      # easiest; or arrange OpenAI/ChatGPT auth
+That installs `skuggi` (and every `skuggi-*` command) onto your `$PATH`, puts
+uv's bin directory on `$PATH` if it is not already there, and seeds the harness
+config. **Open a new shell**, then check it:
 
-# harness config (shared across engagements): the recognized-tool registry
-cp configs/tools.example.json configs/tools.json
+```sh
+command -v skuggi        # → ~/.local/bin/skuggi
+skuggi-doctor            # → the install table: both homes, config files, tools
+```
 
-# one engagement: a workspace with its scope. Edit the scope to your targets.
-mkdir -p engagements/acme-2026
-cp configs/scope.example.json engagements/acme-2026/scope.json
+If `skuggi: command not found` persists, uv's bin directory is not on your
+`$PATH`; add it and reopen the shell:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"     # `uv tool dir --bin` prints the directory
+```
+
+Then give it a credential — any one of these:
+
+```sh
+printf 'ANTHROPIC_API_KEY=sk-ant-...\n' > ~/.config/skuggi/env && chmod 600 ~/.config/skuggi/env
+export ANTHROPIC_API_KEY=sk-ant-...      # or just export it from your shell rc
+codex login                              # or arrange OpenAI/ChatGPT auth
+```
+
+Now `skuggi` runs **from any directory**. Its config and databases live in two
+fixed homes, so every invocation reads the same harness (see
+[Configuration](#configuration)); only the engagement workspace is relative to
+where you are, because that is where the client's data belongs.
+
+To start an engagement, `cd` to where you want its workspace to live:
+
+```sh
+mkdir -p ~/work/acme-2026 && cd ~/work/acme-2026
+cp ~/.config/skuggi/scope.example.json ./scope-draft.json   # or use the wizard
 export SKUGGI_ENGAGEMENT=acme-2026
+skuggi                                   # → /skuggi engagement setup
 ```
 
 With no `SKUGGI_ENGAGEMENT` set, skuggi runs agent-only (no scope, no ledger).
 
+Installing from an existing checkout moves any `configs/` and `data/` you already
+had into the two homes, once — that state is gitignored, so it is not left behind.
+It is a move, not a copy, so there is only ever one live copy of each database.
+For the full story, and for troubleshooting, see [docs/install.md](docs/install.md).
+
 ## Usage
 
 ```sh
-uv run skuggi          # the native shell wrapper (🐐 prompt)
+skuggi                 # the native shell wrapper (🐐 prompt), from anywhere
 ```
 
 Inside the wrapped shell your normal commands run natively; `/skuggi <verb>`
@@ -78,7 +108,7 @@ reaches the agent:
 For the pure agent chat instead:
 
 ```sh
-uv run skuggi-repl     # or: python -m skuggi
+skuggi-repl            # or: python -m skuggi
 ```
 
 ```
@@ -115,7 +145,7 @@ implicit `ask`. The two front-ends share one registry
 | `history [n]` | Show the last `n` messages on the current thread |
 | `trace` | Show the command trail on the current thread |
 | `ingest <path>` | Index a file or directory of `*.md` / `*.txt` |
-| `update` | Update skuggi in place (`git pull --ff-only` + `uv sync`) |
+| `update` | Update skuggi in place (`git pull --ff-only`, then refresh the install) |
 | `clear` | Clear the screen (`skuggi-repl` only) |
 | `help` | Verb reference |
 | `exit`, `quit` | Close cleanly |
@@ -128,11 +158,11 @@ the wrapped shell's chat loop (a bare `/skuggi`). Invoked one-shot as
 ## run: command aliases (transparent, suggest-style)
 
 `run <alias> [args]` maps a short name to a CLI invocation
-([configs/commands.example.json](configs/commands.example.json)), resolves it,
+([src/skuggi/templates/commands.example.json](src/skuggi/templates/commands.example.json)), resolves it,
 **prints the fully-resolved raw command**, checks it against the engagement
 scope, records it (`proposed` in scope, `blocked` out of scope), and has the
 agent advise — it never executes. `run` / `run list` lists the aliases. Copy the
-example to `configs/commands.json` and extend it. Shipped defaults:
+example to `<config home>/commands.json` and extend it. Shipped defaults:
 
 | Alias | Command | Purpose |
 |---|---|---|
@@ -175,7 +205,7 @@ answer keeps the current value when editing; `Ctrl-D` cancels.
 ## The engagement boundary
 
 The authorized scope for one engagement is its workspace's `scope.json`
-(template: [configs/scope.example.json](configs/scope.example.json)), loaded at
+(template: [src/skuggi/templates/scope.example.json](src/skuggi/templates/scope.example.json)), loaded at
 start and never committed:
 
 ```json
@@ -232,7 +262,7 @@ identical across modes. Set the default with `SKUGGI_MODE`.
 ## Tools and `skuggi-doctor`
 
 Recognized tools live in the JSON registry
-([configs/tools.example.json](configs/tools.example.json)): each tool's binary,
+([src/skuggi/templates/tools.example.json](src/skuggi/templates/tools.example.json)): each tool's binary,
 its engagement method, how to read its version, which flags carry targets, and
 per-installer install commands. `skuggi-doctor` (or `/doctor`) probes the host
 `PATH` and/or a skuggi-managed venv (per `SKUGGI_TOOL_SOURCE=host|managed|combine`),
@@ -296,25 +326,47 @@ engagements/<name>/
 ```
 
 The layout is configurable
-([configs/layout.example.json](configs/layout.example.json)). Everything under
+([src/skuggi/templates/layout.example.json](src/skuggi/templates/layout.example.json)). Everything under
 `engagements/` is gitignored.
 
 ## Configuration
 
-App settings (providers/models, embedding models, storage paths, graph bounds,
-mode, the pentest-harness paths) live in **`configs/config.json`** — copy it from
-[configs/config.example.json](configs/config.example.json). Values resolve in
-priority order: an environment variable (prefix `SKUGGI_*`, or the unprefixed
-vendor names) overrides the JSON, which overrides the built-in defaults. So a
-one-off `SKUGGI_PROVIDER=anthropic` still wins for a single run. Config tiers:
+skuggi is a command you run from anywhere, so its config does not live next to
+your cwd. It lives in **two fixed homes**, seeded by `skuggi-init`:
 
-- **App config** (`configs/config.json`, gitignored except `.example`): the
-  settings above; edit it directly or with the `config` verb.
-- **Harness config** (shared, in `configs/`): the recognized-tool registry
+| | Default | Overrides | Holds |
+|---|---|---|---|
+| **Config home** | `~/.config/skuggi` | `SKUGGI_CONFIG_HOME`, else `XDG_CONFIG_HOME/skuggi` | `config.json`, `tools.json`, `layout.json`, `commands.json`, `env` |
+| **Data home** | `~/.local/share/skuggi` | `SKUGGI_DATA_HOME`, else `XDG_DATA_HOME/skuggi` | `sessions.db`, `preferences.db`, `faiss_index/`, `toolbox/`, `.repl_history` |
+
+**`./engagements/<name>/` stays relative to your working directory.** That is the
+one deliberate exception, and the reason for the split: an engagement's scope,
+ledger, recon output and reports belong to the client directory you ran skuggi
+in, not to a global dotdir. Harness config is about *you*; a workspace is about
+*a case*. `skuggi-doctor` prints where every one of these resolved.
+
+Values resolve in priority order, highest first:
+
+1. an environment variable (prefix `SKUGGI_*`, or the unprefixed vendor names)
+2. `<config home>/env` — same spelling as the environment, so
+   `SKUGGI_PROVIDER=anthropic` and a bare `ANTHROPIC_API_KEY=...`
+3. `<config home>/config.json`
+4. the built-in defaults
+
+So a one-off `SKUGGI_PROVIDER=anthropic` still wins for a single run. Config tiers:
+
+- **App config** (`<config home>/config.json`): providers/models, embedding
+  models, storage paths, graph bounds, mode, the pentest-harness paths. Edit it
+  directly or with the `config` verb.
+- **Harness config** (shared, same home): the recognized-tool registry
   `tools.json`, the optional workspace-layout override `layout.json`, and the
   optional `run`-alias file `commands.json`.
-- **Engagement setup** (per-case, in `engagements/<name>/scope.json`): the
+- **Engagement setup** (per-case, in `./engagements/<name>/scope.json`): the
   boundary above.
+
+A path you set explicitly is taken as written, so a *relative* one still resolves
+against the working directory — `SKUGGI_CONFIG_PATH=./configs/config.json` gives
+you a project-local config if you want one.
 
 The **`config` verb** edits the app config in place: `config` (or `config show`)
 prints every setting with credentials redacted; `config <key> <value>` validates
@@ -323,37 +375,58 @@ keys take effect on restart); and `config <natural-language request>` asks the
 LLM to propose `key=value` edits, shows them, and applies them on your
 confirmation. It never writes a secret.
 
-**Secrets never go in the JSON.** The API keys are read only from the
-environment — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` (or `~/.codex/auth.json`) —
-and `OLLAMA_BASE_URL`; see [.env.example](.env.example). The JSON config source
-drops these fields even if a file mistakenly contains one.
+**Secrets never go in `config.json`.** The API keys — `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, plus `OLLAMA_BASE_URL` — are read from the environment, from
+`<config home>/env`, or from `~/.codex/auth.json`; see
+[.env.example](.env.example) for the `env` template. The JSON config source drops
+these fields even if a file mistakenly contains one; the `env` file is *not*
+filtered, because holding credentials is the only reason it exists. Keep it at
+`chmod 600` — `skuggi-doctor` warns if it is group- or world-readable.
 
 ## Storage layout
 
-- `./configs/*.json` — harness config (only `.example` templates are committed)
-- `./engagements/<name>/` — per-engagement workspace (gitignored)
-- `./data/sessions.db` — LangGraph checkpoint store
-- `./data/preferences.db` — harness memory (global operator preferences)
-- `./data/faiss_index/` — FAISS retrieval index
-- `./data/toolbox/` — the managed tool venv (`SKUGGI_TOOL_SOURCE=managed|combine`)
-- `./data/.repl_history` — REPL input history
-- `./data/ledger.db`, `./data/reports/` — agent-only fallback when no engagement
-  is selected
+Harness config, in the **config home** (`~/.config/skuggi`):
+
+- `config.json` — app config (the `config` verb edits this)
+- `tools.json` — the recognized-tool registry
+- `layout.json`, `commands.json` — optional workspace layout and `run` aliases
+- `env` — optional secrets file (`chmod 600`)
+- `scope.example.json` — the template to copy for a new engagement
+
+Harness state, in the **data home** (`~/.local/share/skuggi`):
+
+- `sessions.db` — LangGraph checkpoint store
+- `preferences.db` — harness memory (global operator preferences)
+- `faiss_index/` — FAISS retrieval index
+- `toolbox/` — the managed tool venv (`SKUGGI_TOOL_SOURCE=managed|combine`)
+- `.repl_history` — REPL input history
+- `ledger.db`, `reports/` — agent-only fallback when no engagement is selected
+
+Per-case, **relative to your working directory**:
+
+- `./engagements/<name>/` — the engagement workspace: its scope, ledger, recon
+  output and reports (gitignored)
+
+The templates themselves ship inside the package
+([src/skuggi/templates/](src/skuggi/templates/)) so that an install with no
+checkout can still seed a config home.
 
 ## Entry points
 
 - `skuggi` — the native shell wrapper (warm agent daemon + your real `$SHELL`)
 - `skuggi-repl` — the pure agent REPL
+- `skuggi-init` — create the config/data homes and seed them from the templates
 - `skuggi-doctor` — probe the host for the registry's tools and report
 - `skuggi-ingest` — index files/directories into the FAISS store
-- `skuggi-pdf` — render a Markdown file to a styled PDF (needs the `pdf` group)
+- `skuggi-pdf` — render a Markdown file to a styled PDF (needs the `pdf` extra)
 - `skuggi-client` — the thin client the shell's `/skuggi` hook calls (not run
   directly)
 
 ## Development
 
 ```sh
-make install     # uv sync --all-groups, plus the git hooks
+make install     # uv sync --all-groups --all-extras, plus the git hooks
+make install-cli # put `skuggi` on $PATH (editable) and seed the homes
 make check       # ruff format --check, ruff, mypy --strict, pytest — what CI runs
 make eval        # the real-provider layer; costs money, needs credentials
 make e2e         # the real pipeline against the docker lab (bring it up first)
@@ -371,6 +444,8 @@ methodology and engagement constraints — and hard-gates on regression against
 
 ## Further reading
 
+- [docs/install.md](docs/install.md) — installing the `skuggi` command, the two
+  homes, how `update` behaves per install shape, and troubleshooting.
 - [docs/architecture.md](docs/architecture.md) — the agent graph, state channels
   and persistence, and a tour of the standalone modules.
 - [docs/codex-auth.md](docs/codex-auth.md) — the `openai` / `chatgpt` providers,

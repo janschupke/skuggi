@@ -85,7 +85,8 @@ loop is as resumable as the old tool cycle.
 ## Persistence
 
 Every node update is checkpointed by `langgraph.checkpoint.sqlite.SqliteSaver`
-into `./data/sessions.db`, keyed by the current thread id. Killing the process
+into `sessions.db` in the data home (`~/.local/share/skuggi` by default),
+keyed by the current thread id. Killing the process
 and resuming a thread with `/thread <id>` restores the full message history.
 This is separate from the engagement **ledger**
 ([src/skuggi/ledger.py](../src/skuggi/ledger.py)): the checkpointer is
@@ -117,10 +118,11 @@ opportunities, repeated or wrong commands. It is stored in the audit log, shown
 to the operator, and never client-facing.
 
 **Harness memory** is a third store ([preferences.py](../src/skuggi/preferences.py),
-`./data/preferences.db`), holding the operator's standing operational
+`preferences.db` in the data home), holding the operator's standing operational
 preferences — which tool to prefer, the language for helper scripts, reply tone.
-It is deliberately *global* (one file, not per-engagement — a preference is
-about the operator, not the target). `AgentCore` renders it into every role's
+It is deliberately *global* (one file, not per-engagement, and in the data home
+rather than the working directory — a preference is about the operator, not the
+target, and not the directory you happened to start in). `AgentCore` renders it into every role's
 prompt (`GraphDeps.preferences` → an "Operator preferences" block in
 planner/worker/critic), so a rebuild of the graph is what makes an edit take
 effect. It fills two ways: the manual `memory` verb, and a post-turn automatic
@@ -135,8 +137,10 @@ Files that can be read top-to-bottom in one sitting:
 
 - [config.py](../src/skuggi/config.py) — every setting, in one typed
   `pydantic-settings` object. No module-level singleton by design: a singleton
-  would read `configs/config.json` at import time and make `import
-  skuggi.providers` a filesystem side effect.
+  would read the config home's `config.json` at import time and make `import
+  skuggi.providers` a filesystem side effect. Storage paths default under the
+  two homes in [home.py](../src/skuggi/home.py); `engagements_dir` is the one
+  that stays relative to the working directory.
 - [registry.py](../src/skuggi/registry.py) / [probe.py](../src/skuggi/probe.py)
   / the rendering half of [doctor.py](../src/skuggi/doctor.py) — the recognized-
   tool data model, host probing + install, and the doctor tables respectively.

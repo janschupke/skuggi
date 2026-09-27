@@ -63,7 +63,7 @@ VERBS: tuple[Verb, ...] = (
     Verb("history", "show recent messages on this thread", "[n]"),
     Verb("trace", "show the worker's tool calls on this thread"),
     Verb("ingest", "index a file or directory into the retrieval store", "<path>"),
-    Verb("update", "update skuggi (git pull --ff-only + uv sync)"),
+    Verb("update", "update skuggi (git pull --ff-only, then refresh this install)"),
     Verb("clear", "clear the screen"),
     Verb("help", "show this command reference"),
     Verb("exit", "leave skuggi"),

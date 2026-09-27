@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from skuggi.commands import CommandAlias, CommandRegistry, raw_command
+from tests.support import template
 
 
 def test_resolve_appends_extra_args() -> None:
@@ -30,7 +29,7 @@ def test_raw_command_is_shell_quoted() -> None:
 
 
 def test_example_registry_loads_with_the_shipped_aliases() -> None:
-    example = Path(__file__).parents[2] / "configs" / "commands.example.json"
+    example = template("commands.example.json")
     reg = CommandRegistry.model_validate_json(example.read_text(encoding="utf-8"))
     assert "nmap-network" in reg.names()
     host = reg.alias_for("nmap-host")

@@ -1,20 +1,29 @@
 """Typed configuration for one skuggi session.
 
 Values resolve in priority order: explicit constructor args, then environment
-variables (``SKUGGI_*`` plus the unprefixed vendor aliases), then the persisted
-JSON config file (``configs/config.json``, path overridable with
-``SKUGGI_CONFIG_PATH``), then the field defaults. The ``config`` verb edits that
-JSON; an env var still wins over it, which keeps CI and one-off overrides simple.
+variables (``SKUGGI_*`` plus the unprefixed vendor aliases), then the optional
+secrets file ``<config home>/env``, then the persisted JSON config file
+(``<config home>/config.json``, path overridable with ``SKUGGI_CONFIG_PATH``),
+then the field defaults. The ``config`` verb edits that JSON; an env var still
+wins over it, which keeps CI and one-off overrides simple.
 
-**Secrets never live in the JSON.** The API keys are read only from the
-environment (or ``~/.codex/auth.json``); the JSON source is filtered to drop
-them even if a file mistakenly contains one.
+**Secrets never live in the JSON.** The API keys are read from the environment,
+the ``env`` file beside the config, or ``~/.codex/auth.json``; the JSON source is
+filtered to drop them even if a file mistakenly contains one. The ``env`` file is
+deliberately *not* filtered -- holding credentials is the whole reason it exists.
+
+Storage paths are **absolute by default**, resolved under the two homes in
+``skuggi.home`` (see that module for the config/data split). ``skuggi`` is an
+installed command run from anywhere, so a cwd-relative default would scatter a
+fresh empty ``configs/`` and ``data/`` into whatever directory the operator
+happened to be standing in. The one exception is ``engagements_dir``, which stays
+relative on purpose: an engagement's workspace belongs to the client directory
+you ran skuggi in. A relative path supplied explicitly -- by env var or by the
+JSON -- is still honoured, and still resolves against the working directory.
 
 Construct this at an entry point and pass it down; there is deliberately no
 module-level singleton, so ``import skuggi.providers`` has no filesystem side
-effect and a test override is one constructor arg. Relative paths resolve
-against the working directory, so ``skuggi`` is cwd-sensitive by design -- the
-data directory belongs to the project you run it from.
+effect and a test override is one constructor arg.
 """
 
 from __future__ import annotations
@@ -28,11 +37,13 @@ from typing import Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import (
     BaseSettings,
+    DotEnvSettingsSource,
     JsonConfigSettingsSource,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
 
+from skuggi import home
 from skuggi.modes import Mode
 from skuggi.paths import ensure_parent
 
@@ -46,9 +57,10 @@ ToolSource = Literal["host", "managed", "combine"]
 CODEX_RESPONSES_BASE = "https://chatgpt.com/backend-api/codex"
 CODEX_REFRESH_URL = "https://auth.openai.com/oauth/token"
 
-# The persisted, `config`-editable settings file. Overridable so tests (and a
-# multi-project user) can point elsewhere; env still overrides its values.
-DEFAULT_CONFIG_PATH = "./configs/config.json"
+# The persisted, `config`-editable settings file, under the config home.
+# Overridable so tests (and a multi-project user) can point elsewhere; env still
+# overrides its values.
+CONFIG_FILENAME = "config.json"
 CONFIG_PATH_ENV = "SKUGGI_CONFIG_PATH"
 
 # Field names that must never be sourced from (or written to) the JSON config:
@@ -57,8 +69,16 @@ _SECRET_FIELDS = frozenset({"openai_api_key", "anthropic_api_key"})
 
 
 def config_path() -> Path:
-    """The active config.json path (``SKUGGI_CONFIG_PATH`` or the default)."""
-    return Path(os.environ.get(CONFIG_PATH_ENV, DEFAULT_CONFIG_PATH))
+    """The active config.json path (``SKUGGI_CONFIG_PATH`` or under the config home).
+
+    Read from the environment on every call, never cached: the home it derives
+    from is itself resolved per call (see ``skuggi.home``), and the test suite
+    redirects both between tests.
+    """
+    override = os.environ.get(CONFIG_PATH_ENV)
+    if override:
+        return Path(override)
+    return home.config_home() / CONFIG_FILENAME
 
 
 def write_config(path: Path, updates: dict[str, object]) -> None:
@@ -112,12 +132,25 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,  # noqa: ARG003 -- pydantic hook
         file_secret_settings: PydanticBaseSettingsSource,  # noqa: ARG003 -- pydantic hook
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Resolve init args > env > configs/config.json > defaults.
+        """Resolve init args > env > ``<config home>/env`` > config.json > defaults.
 
-        Secrets are env-only (dropped from the JSON source).
+        The JSON source is secret-filtered; the ``env`` file is not (see the
+        module docstring).
+
+        The ``dotenv_settings`` argument pydantic hands us is unusable here: its
+        path comes from ``model_config``, which is evaluated once at class
+        definition and so would freeze whichever home was active at import time.
+        We build our own against a freshly resolved path instead.
+        ``only_existing`` filtering keeps unrelated keys in the operator's file
+        from arriving as extra data, and a missing file is a silent no-op.
         """
+        env_file_source = DotEnvSettingsSource(
+            settings_cls,
+            env_file=home.env_path(),
+            dotenv_filtering="only_existing",
+        )
         json_source = _NonSecretJsonSource(settings_cls, json_file=config_path())
-        return (init_settings, env_settings, json_source)
+        return (init_settings, env_settings, env_file_source, json_source)
 
     provider: Provider = "openai"
 
@@ -154,9 +187,14 @@ class Settings(BaseSettings):
         }
     )
 
-    sqlite_path: Path = Path("./data/sessions.db")
-    faiss_path: Path = Path("./data/faiss_index")
-    history_path: Path = Path("./data/.repl_history")
+    # Storage lives under the data home, absolute. `default_factory` and not a
+    # computed constant: the factory runs per instantiation, so a test that
+    # redirects SKUGGI_DATA_HOME between two Settings() gets two different paths.
+    sqlite_path: Path = Field(default_factory=lambda: home.data_home() / "sessions.db")
+    faiss_path: Path = Field(default_factory=lambda: home.data_home() / "faiss_index")
+    history_path: Path = Field(
+        default_factory=lambda: home.data_home() / ".repl_history"
+    )
 
     chunk_size: int = 800
     chunk_overlap: int = 120
@@ -172,19 +210,33 @@ class Settings(BaseSettings):
     # --- pentest harness ---
     # The operating mode selects the agent's prompt set (pentest/redteam/blueteam).
     mode: Mode = "pentest"
-    # Harness config (shared across engagements): the recognized-tool registry and
-    # the optional workspace-layout override. Committed only as `.example`.
-    registry_path: Path = Path("./configs/tools.json")
-    layout_path: Path = Path("./configs/layout.json")
+    # Harness config (shared across engagements, under the config home): the
+    # recognized-tool registry and the optional workspace-layout override.
+    # Committed only as `.example`; `skuggi-init` seeds the home from those.
+    registry_path: Path = Field(
+        default_factory=lambda: home.config_home() / "tools.json"
+    )
+    layout_path: Path = Field(
+        default_factory=lambda: home.config_home() / "layout.json"
+    )
     # Named command shorthands the `run` verb resolves (optional).
-    commands_path: Path = Path("./configs/commands.json")
+    commands_path: Path = Field(
+        default_factory=lambda: home.config_home() / "commands.json"
+    )
     # Engagement setup lives in a per-engagement workspace under this root; the
     # active engagement selects the directory (engagements/<engagement>/). Its
-    # scope.json, ledger and reports live inside that workspace. With no active
-    # engagement the harness runs agent-only and falls back to ./data.
+    # scope.json, ledger and reports live inside that workspace.
+    #
+    # The ONE path that stays relative to the working directory, and the reason
+    # the config/data split in `skuggi.home` exists: an engagement's scope, ledger
+    # and recon output belong to the client directory you ran skuggi in, not to a
+    # global dotdir. With no active engagement the harness runs agent-only and
+    # falls back to the data home.
     engagements_dir: Path = Path("./engagements")
     engagement: str | None = None
-    managed_tools_dir: Path = Path("./data/toolbox")
+    managed_tools_dir: Path = Field(
+        default_factory=lambda: home.data_home() / "toolbox"
+    )
     # Where to look for / install tools: host PATH, the managed venv, or both.
     tool_source: ToolSource = "combine"
     # Wall-clock cap on any single autonomously executed command.
@@ -210,8 +262,11 @@ class Settings(BaseSettings):
     # --- harness memory ---
     # The operator's durable operational preferences (the `memory` verb + the
     # post-turn automatic capture). GLOBAL across engagements -- a preference is
-    # about the operator, not a target -- so it is NOT under the workspace.
-    preferences_path: Path = Path("./data/preferences.db")
+    # about the operator, not a target -- so it is NOT under the workspace, and
+    # the data home is what makes that true across working directories too.
+    preferences_path: Path = Field(
+        default_factory=lambda: home.data_home() / "preferences.db"
+    )
     # Whether the harness automatically captures standing directives it detects
     # in your messages, post-turn. Manual `memory add` is unaffected by this.
     memory_auto: bool = True

@@ -2962,6 +2962,15 @@ dependencies = [
     { name = "rich" },
 ]
 
+[package.optional-dependencies]
+pdf = [
+    { name = "jinja2" },
+    { name = "markdown-it-py" },
+    { name = "mdit-py-plugins" },
+    { name = "pygments" },
+    { name = "weasyprint" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
@@ -2976,18 +2985,12 @@ eval = [
     { name = "autoevals" },
     { name = "braintrust" },
 ]
-pdf = [
-    { name = "jinja2" },
-    { name = "markdown-it-py" },
-    { name = "mdit-py-plugins" },
-    { name = "pygments" },
-    { name = "weasyprint" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "faiss-cpu", specifier = ">=1.12" },
     { name = "httpx", specifier = ">=0.28" },
+    { name = "jinja2", marker = "extra == 'pdf'", specifier = ">=3.1" },
     { name = "langchain", specifier = ">=1.4.2,<2" },
     { name = "langchain-anthropic", specifier = ">=1.7.4,<2" },
     { name = "langchain-community", specifier = ">=0.4.2,<0.5" },
@@ -2997,11 +3000,16 @@ requires-dist = [
     { name = "langchain-text-splitters", specifier = ">=1.1.2,<2" },
     { name = "langgraph", specifier = ">=1.2.12,<2" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1,<4" },
+    { name = "markdown-it-py", marker = "extra == 'pdf'", specifier = ">=3" },
+    { name = "mdit-py-plugins", marker = "extra == 'pdf'", specifier = ">=0.4" },
     { name = "prompt-toolkit", specifier = ">=3.0.53" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.15" },
+    { name = "pygments", marker = "extra == 'pdf'", specifier = ">=2.17" },
     { name = "rich", specifier = ">=15,<16" },
+    { name = "weasyprint", marker = "extra == 'pdf'", specifier = ">=63" },
 ]
+provides-extras = ["pdf"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3016,13 +3024,6 @@ dev = [
 eval = [
     { name = "autoevals", specifier = ">=0.3,<1" },
     { name = "braintrust", specifier = ">=0.42,<1" },
-]
-pdf = [
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "markdown-it-py", specifier = ">=3" },
-    { name = "mdit-py-plugins", specifier = ">=0.4" },
-    { name = "pygments", specifier = ">=2.17" },
-    { name = "weasyprint", specifier = ">=63" },
 ]
 
 [[package]]

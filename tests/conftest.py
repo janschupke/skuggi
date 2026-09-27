@@ -21,9 +21,10 @@ from pathlib import Path
 import httpx
 import pytest
 
-from skuggi import codex_chat
+from skuggi import codex_chat, home
 from skuggi.config import Settings
 from skuggi.core import AgentCore
+from skuggi.paths import ensure_parent
 from skuggi.protocol import CriticResponse, WorkerResponse
 from skuggi.vectorstore import Store
 from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
@@ -124,20 +125,28 @@ def isolate_credentials(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Strip provider env vars, redirect auth.json, and escape the repo's .env.
+    """Strip provider env vars, redirect both homes and auth.json, escape any .env.
 
-    Three separate leaks have to be closed:
+    Four separate leaks have to be closed:
 
     1. Environment variables, including every SKUGGI_* override.
-    2. `Settings` reads a `.env` file relative to the working directory, so a
-       test run from the repo root would pick up the developer's real
-       OPENAI_API_KEY. chdir to a temp directory closes that, and incidentally
-       redirects the default relative ./data paths somewhere disposable.
+    2. The config and data homes (`skuggi.home`). `Settings`' storage defaults are
+       ABSOLUTE -- they resolve under ~/.config/skuggi and ~/.local/share/skuggi,
+       not under the working directory -- so chdir does NOT redirect them and a
+       test run would read the developer's real config.json and write their real
+       sessions.db. Pointing SKUGGI_CONFIG_HOME/SKUGGI_DATA_HOME at tmp_path is
+       what closes this, and it closes the `<config home>/env` secrets file with
+       them (the successor to the cwd-relative `.env` this note used to describe).
     3. `codex_chat._AUTH_PATH_DEFAULT` is a module-level constant already
        `.expanduser()`-ed at import time, so setting HOME does NOT redirect it.
+    4. chdir is still required: `engagements_dir` stays cwd-relative by design,
+       so without it a test would create an `engagements/` tree in the repo.
 
     Get any of these wrong and the suite passes while reading real credentials --
-    a bad outcome for a project whose subject matter is credential files.
+    a bad outcome for a project whose subject matter is credential files. Leak 2
+    is the one the suite cannot report on itself: nothing fails, the tests simply
+    read and write the wrong files. `make check` is not proof here; an empty
+    `ls ~/.config/skuggi ~/.local/share/skuggi` after a run is.
     """
     if _is_live(request):
         return
@@ -146,6 +155,9 @@ def isolate_credentials(
     for name in list(os.environ):
         if name.startswith("SKUGGI_"):
             monkeypatch.delenv(name, raising=False)
+    # Set after the SKUGGI_* sweep above, which would otherwise strip them.
+    monkeypatch.setenv(home.CONFIG_HOME_ENV, str(tmp_path / "config-home"))
+    monkeypatch.setenv(home.DATA_HOME_ENV, str(tmp_path / "data-home"))
     absent = tmp_path / "no-such-auth.json"
     monkeypatch.setenv("SKUGGI_CODEX_AUTH_PATH", str(absent))
     monkeypatch.setattr(codex_chat, "_AUTH_PATH_DEFAULT", absent)
@@ -198,10 +210,11 @@ def no_subprocess(
 def pentest_configs() -> Callable[..., Path]:
     """Write a workspace scope.json + the harness tool registry.
 
-    Drops ``engagements/test-eng/scope.json`` and ``configs/tools.json`` under
-    the temp cwd `isolate_credentials` chdirs into, so a ``Settings(engagement=
-    "test-eng")`` built afterwards finds them at their default paths. Returns the
-    workspace directory.
+    Each goes where its own default points, which is the two halves of the
+    config/data split: the scope under ``engagements/test-eng/`` relative to the
+    temp cwd `isolate_credentials` chdirs into, and the registry into the config
+    home that same fixture redirects. A ``Settings(engagement="test-eng")`` built
+    afterwards finds both at their defaults. Returns the workspace directory.
     """
 
     def write(*, autonomous: bool = False) -> Path:
@@ -211,9 +224,8 @@ def pentest_configs() -> Callable[..., Path]:
             _SCOPE_JSON.format(autonomous="true" if autonomous else "false"),
             encoding="utf-8",
         )
-        configs = Path("configs")
-        configs.mkdir(exist_ok=True)
-        (configs / "tools.json").write_text(_REGISTRY_JSON, encoding="utf-8")
+        registry = ensure_parent(home.config_home() / "tools.json")
+        registry.write_text(_REGISTRY_JSON, encoding="utf-8")
         return workspace
 
     return write

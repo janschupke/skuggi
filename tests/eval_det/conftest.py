@@ -15,11 +15,12 @@ import pytest
 from skuggi.configs import load_registry
 from skuggi.engagement import EngagementConfig
 from skuggi.eval.goldens import load_scopes
+from skuggi.paths import packaged_template
 from skuggi.registry import ToolRegistry
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVALS_ROOT = REPO_ROOT / "evals"
-REGISTRY_PATH = REPO_ROOT / "configs" / "tools.example.json"
+REGISTRY_PATH = packaged_template("tools.example.json")
 
 
 @pytest.fixture(scope="session")

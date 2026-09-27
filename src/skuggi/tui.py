@@ -329,7 +329,7 @@ class Tui:
             statuses = self.core.doctor_statuses()
             runtimes = self.core.runtime_statuses()
             net_tools = self.core.net_tool_statuses()
-        render_doctor(self.console, statuses, runtimes, net_tools)
+        render_doctor(self.console, statuses, runtimes, net_tools, self.core.settings)
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""

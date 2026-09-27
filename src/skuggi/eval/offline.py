@@ -23,11 +23,12 @@ from pydantic import BaseModel
 from skuggi.config import Settings
 from skuggi.core import AgentCore
 from skuggi.engagement import EngagementConfig
+from skuggi.paths import packaged_template
 from skuggi.protocol import CriticResponse, PlannerResponse, WorkerResponse
 from skuggi.vectorstore import Store
 
 # The shipped tool registry: the same tool set the operator runs with.
-_REGISTRY = Path("configs/tools.example.json")
+_REGISTRY = packaged_template("tools.example.json")
 
 
 class _ConstantEmbeddings(Embeddings):

@@ -33,4 +33,4 @@ skuggi-eval --tier all --update-baseline  # rewrite baseline.json (review the di
 ```
 
 Seed sources: `docs/lab.md` (vulnerability catalog), `lab/web/db/seed.sql`,
-`configs/scope.example.json`, `configs/tools.example.json`.
+`src/skuggi/templates/scope.example.json`, `src/skuggi/templates/tools.example.json`.

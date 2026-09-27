@@ -89,9 +89,16 @@ make bench      # the full benchmark across providers; regenerates evals/scoreca
 fixtures enforce it: `no_network` makes a forgotten mock raise instead of
 reaching the internet, `no_subprocess` does the same for command execution, and
 `isolate_credentials` strips the provider env vars, redirects the `auth.json`
-lookup, and chdirs to a temp directory so `Settings` cannot read the repo's own
-`configs/config.json`. `test_suite_does_not_see_real_credentials` guards the fixture itself --
-if isolation breaks, every credential assertion elsewhere becomes meaningless.
+lookup, points `SKUGGI_CONFIG_HOME`/`SKUGGI_DATA_HOME` at a temp directory so
+`Settings` cannot read the developer's real `config.json` or `env` file, and
+chdirs to a temp directory because `engagements_dir` is still cwd-relative.
+`test_suite_does_not_see_real_credentials` guards the fixture itself -- if
+isolation breaks, every credential assertion elsewhere becomes meaningless.
+
+The home redirection is the half the suite **cannot** report on. Storage defaults
+are absolute, so a chdir alone no longer moves them: get it wrong and nothing
+fails, the tests simply read and write the operator's real files. `make check` is
+not proof; an empty `ls ~/.config/skuggi ~/.local/share/skuggi` after a run is.
 The two live layers (L4 eval, L5 e2e) are exempt via `_is_live`: eval needs a
 provider, e2e needs the network and subprocess blocks lifted to reach the lab
 and run real tools.

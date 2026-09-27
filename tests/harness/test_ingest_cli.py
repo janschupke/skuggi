@@ -62,6 +62,7 @@ def test_both_console_scripts_resolve() -> None:
     assert set(entries) == {
         "skuggi",
         "skuggi-repl",
+        "skuggi-init",
         "skuggi-ingest",
         "skuggi-doctor",
         "skuggi-client",

@@ -10,11 +10,14 @@ renders to a forced-colour string for the socket). Probing itself lives in
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 from rich.console import Console
 from rich.table import Table
 
-from skuggi import palette, probe
-from skuggi.config import Settings
+from skuggi import home, palette, probe, shell
+from skuggi.config import Settings, config_path
 from skuggi.configs import ConfigError, load_registry
 from skuggi.registry import RuntimeStatus, ToolStatus
 
@@ -146,18 +149,88 @@ def doctor_hints(
     return "\n".join(lines)
 
 
+def install_table(settings: Settings) -> Table:
+    """A table of where this install reads and writes, and what is missing.
+
+    ``skuggi`` is a command on ``$PATH`` run from anywhere, so "which config am I
+    actually using?" stops being obvious the moment it is not the cwd. This is the
+    answer to that question, and the first thing to look at when the harness
+    behaves as though it were unconfigured.
+    """
+    table = Table(title="skuggi install")
+    for column in ("item", "status", "path"):
+        table.add_column(column)
+
+    def row(item: str, path: Path, *, required: bool) -> None:
+        if path.exists():
+            state, style = "present", palette.SUCCESS
+        elif required:
+            state, style = "MISSING", palette.DANGER
+        else:
+            state, style = "absent", palette.WARNING
+        table.add_row(item, palette.paint(state, style), str(path))
+
+    table.add_row("config home", "", str(home.config_home()))
+    table.add_row("data home", "", str(home.data_home()))
+    # The registry is the one file whose absence breaks the harness outright
+    # (`load_registry` raises), so it is the only "MISSING" rather than "absent".
+    row("config.json", config_path(), required=False)
+    row("tools.json (registry)", settings.registry_path, required=True)
+    row("layout.json", settings.layout_path, required=False)
+    row("commands.json", settings.commands_path, required=False)
+
+    env_file = home.env_path()
+    if env_file.is_file():
+        mode = env_file.stat().st_mode & 0o777
+        # Group/world readability on a file whose purpose is API keys. Worth
+        # saying out loud: nothing else in the harness will ever complain.
+        status = (
+            palette.paint(f"present ({mode:04o})", palette.SUCCESS)
+            if not mode & 0o077
+            else palette.paint(f"mode {mode:04o} -- run chmod 600", palette.DANGER)
+        )
+        table.add_row("env (secrets)", status, str(env_file))
+    else:
+        table.add_row(
+            "env (secrets)", palette.paint("absent", palette.WARNING), str(env_file)
+        )
+
+    client = shutil.which(shell.CLIENT_NAME)
+    table.add_row(
+        f"{shell.CLIENT_NAME} on PATH",
+        palette.paint("found", palette.SUCCESS)
+        if client
+        else palette.paint("NOT ON PATH", palette.DANGER),
+        client or "run `uv tool update-shell`, or add uv's bin dir to PATH",
+    )
+    table.add_row(
+        "engagement",
+        "",
+        settings.engagement or "(none -- agent-only, no scope or ledger)",
+    )
+    table.add_row("engagements dir", "", str(settings.engagements_dir.resolve()))
+    return table
+
+
 def render_doctor(
     console: Console,
     statuses: list[ToolStatus],
     runtimes: list[RuntimeStatus] | None = None,
     net_tools: list[RuntimeStatus] | None = None,
+    settings: Settings | None = None,
 ) -> None:
-    """Print the tool table, the capability tables, then the install hints.
+    """Print the install table, the tool table, the capability tables, then the hints.
 
     The one place that composes a full doctor report; every surface calls it so
     the ordering and the hint formatting never drift. Hints are printed verbatim
     (no markup, no wrapping) so their exact text survives a narrow console.
+
+    The install table comes first and only when `settings` is supplied: a caller
+    that already has the settings gets "where am I reading from" before the tool
+    inventory, since a missing registry explains an empty tool table.
     """
+    if settings is not None:
+        console.print(install_table(settings))
     console.print(doctor_table(statuses))
     if runtimes:
         console.print(runtime_table(runtimes))
@@ -172,6 +245,7 @@ def doctor_ansi(
     statuses: list[ToolStatus],
     runtimes: list[RuntimeStatus] | None = None,
     net_tools: list[RuntimeStatus] | None = None,
+    settings: Settings | None = None,
 ) -> str:
     """Render a full doctor report to an ANSI string (for the shell daemon).
 
@@ -180,7 +254,7 @@ def doctor_ansi(
     """
     console = Console(force_terminal=True, width=100)
     with console.capture() as capture:
-        render_doctor(console, statuses, runtimes, net_tools)
+        render_doctor(console, statuses, runtimes, net_tools, settings)
     return capture.get()
 
 
@@ -195,17 +269,26 @@ def probe_statuses(settings: Settings) -> list[ToolStatus]:
 
 
 def main() -> int:
-    """Print the host tool report; return non-zero if the registry is missing."""
+    """Print the install and host tool report; non-zero if the registry is missing.
+
+    The install table is printed even when the probe fails: a missing registry is
+    the most likely reason to be running ``skuggi-doctor`` at all on a fresh
+    install, and the table is what says where the file was expected and that
+    ``skuggi-init`` would seed it.
+    """
     console = Console()
+    settings = Settings()
     try:
         with console.status(PROBING_MSG, spinner="dots"):
-            statuses = probe_statuses(Settings())
+            statuses = probe_statuses(settings)
             runtimes = probe.probe_runtimes()
             net_tools = probe.probe_net_tools()
     except ConfigError as exc:
+        console.print(install_table(settings))
         console.print(f"[red]doctor:[/red] {exc}")
+        console.print("run `skuggi-init` to seed the harness config from templates")
         return 1
-    render_doctor(console, statuses, runtimes, net_tools)
+    render_doctor(console, statuses, runtimes, net_tools, settings)
     return 0
 
 

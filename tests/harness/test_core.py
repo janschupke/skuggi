@@ -15,6 +15,7 @@ from typing import Any, cast
 import pytest
 from pydantic import SecretStr
 
+from skuggi import core as core_mod
 from skuggi import probe as probe_mod
 from skuggi.commands import CommandAlias, CommandRegistry
 from skuggi.config import config_path
@@ -305,7 +306,10 @@ def _result(argv: list[str], *, exit_code: int, err: str = "") -> CommandResult:
     )
 
 
-def test_self_update_runs_pull_then_sync(core: AgentCore) -> None:
+def test_self_update_runs_pull_then_sync(
+    core: AgentCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(core_mod, "_is_uv_tool_env", lambda: False)
     calls: list[list[str]] = []
 
     def runner(argv: list[str]) -> CommandResult:
@@ -314,11 +318,14 @@ def test_self_update_runs_pull_then_sync(core: AgentCore) -> None:
 
     lines = list(core.self_update(runner))
     assert ["git", "pull", "--ff-only"] in calls
-    assert ["uv", "sync"] in calls
+    assert ["uv", "sync", "--all-groups", "--all-extras"] in calls
     assert any("updated to skuggi" in line for line in lines)
 
 
-def test_self_update_aborts_on_a_failed_step(core: AgentCore) -> None:
+def test_self_update_aborts_on_a_failed_step(
+    core: AgentCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(core_mod, "_is_uv_tool_env", lambda: False)
     calls: list[list[str]] = []
 
     def runner(argv: list[str]) -> CommandResult:
@@ -327,4 +334,46 @@ def test_self_update_aborts_on_a_failed_step(core: AgentCore) -> None:
 
     lines = list(core.self_update(runner))
     assert any("aborted" in line for line in lines)
-    assert ["uv", "sync"] not in calls  # the failed pull short-circuits sync
+    # The failed pull short-circuits the sync step, whichever one it would be.
+    assert [argv[0] for argv in calls] == ["git"]
+
+
+def test_self_update_refreshes_the_tool_install_from_a_tool_env(
+    core: AgentCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`uv sync` would sync the checkout's .venv, not the env skuggi is running in.
+
+    Under `uv tool install --editable`, pulled *code* takes effect through the
+    .pth, but a new *dependency* would land in the wrong environment -- so the
+    tool install is what gets refreshed.
+    """
+    monkeypatch.setattr(core_mod, "_is_uv_tool_env", lambda: True)
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> CommandResult:
+        calls.append(argv)
+        return _result(argv, exit_code=0)
+
+    list(core.self_update(runner))
+    assert ["git", "pull", "--ff-only"] in calls
+    assert ["uv", "sync", "--all-groups", "--all-extras"] not in calls
+    tool_install = next(argv for argv in calls if argv[:3] == ["uv", "tool", "install"])
+    assert "--editable" in tool_install
+    assert "--force" in tool_install
+
+
+def test_self_update_refuses_when_there_is_no_checkout(
+    core: AgentCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-editable install has no repo; running git in site-packages is worse."""
+    monkeypatch.setattr(core_mod, "_checkout_root", lambda: None)
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> CommandResult:
+        calls.append(argv)
+        return _result(argv, exit_code=0)
+
+    lines = list(core.self_update(runner))
+    assert calls == []
+    assert any("not running from a git checkout" in line for line in lines)
+    assert any("uv tool install --editable" in line for line in lines)

@@ -139,7 +139,7 @@ lives in [../lab/web/app/](../lab/web/app/).
 A ready engagement scope is committed at [../lab/scope.json](../lab/scope.json):
 it authorizes `192.0.2.0/24` and `web.lab`, the tools the lab is meant to be
 attacked with, and every method those tools declare (see
-[configs/tools.example.json](../configs/tools.example.json)). Copy it into an
+[src/skuggi/templates/tools.example.json](../src/skuggi/templates/tools.example.json)). Copy it into an
 engagement workspace and go:
 
 ```sh
