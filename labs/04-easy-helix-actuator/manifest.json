@@ -1,0 +1,37 @@
+{
+  "id": "04-easy-helix-actuator",
+  "tier": "easy",
+  "title": "Helix Admin",
+  "summary": "A Spring Boot portal with a fully-exposed actuator that shows unmasked values: /actuator/env leaks the DB password and an OAuth client secret, opening the Postgres of employee salaries.",
+  "networks": ["10.13.4.0/24"],
+  "ports": [
+    { "service": "app", "container": 8080, "published": 8104, "proto": "http" },
+    { "service": "postgres", "container": 5432, "published": 8304, "proto": "postgres" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8104/actuator/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "oauth-client-secret",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8104/actuator/env",
+      "fingerprint": "helix-oauth-9f2c1b-secret",
+      "description": "the OAuth client secret, unmasked in /actuator/env"
+    },
+    {
+      "id": "db-password",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8104/actuator/env",
+      "fingerprint": "H3lix-DB-Prod-2024",
+      "description": "the datasource password, unmasked in /actuator/env"
+    },
+    {
+      "id": "employee-salaries",
+      "kind": "container_exec",
+      "service": "postgres",
+      "cmd": ["psql", "-U", "helix", "-d", "helix", "-tAc", "SELECT email, salary FROM employees"],
+      "fingerprint": "s.marchetti@helix.example",
+      "description": "employee salary records reached with the leaked DB credentials"
+    }
+  ]
+}

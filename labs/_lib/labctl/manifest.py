@@ -16,7 +16,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Tier = Literal["trivial", "easy", "medium", "hard"]
-LootKind = Literal["http_contains", "file_in_container", "tcp_banner"]
+LootKind = Literal["http_contains", "file_in_container", "container_exec", "tcp_banner"]
 RestoreStrategy = Literal["recreate", "reseed"]
 
 
@@ -73,10 +73,12 @@ class Loot(BaseModel):
     fingerprint: str
     description: str = ""
     # http_contains: the URL to GET. file_in_container: {service, path}.
+    # container_exec: {service, cmd} (a query, e.g. a mongosh/psql eval).
     # tcp_banner: {host, port}.
     where: str | None = None
     service: str | None = None
     path: str | None = None
+    cmd: tuple[str, ...] = ()
     host: str | None = None
     port: int | None = None
 

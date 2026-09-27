@@ -1,0 +1,37 @@
+{
+  "id": "02-easy-taskflow",
+  "tier": "easy",
+  "title": "TaskFlow",
+  "summary": "A Node/Express SaaS API on MongoDB: NoSQL-injection auth bypass, an IDOR that leaks a cloud key, and a JWT secret left in a web-root .env.bak.",
+  "networks": ["198.51.100.0/24"],
+  "ports": [
+    { "service": "api", "container": 3000, "published": 8102, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8102/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "jwt-secret",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8102/.env.bak",
+      "fingerprint": "taskflow-prod-signing-2024",
+      "description": "the JWT signing secret, leaked in a web-root .env.bak"
+    },
+    {
+      "id": "cloud-backup-key",
+      "kind": "container_exec",
+      "service": "mongo",
+      "cmd": ["mongosh", "taskflow", "--quiet", "--eval", "JSON.stringify(db.tasks.find().toArray())"],
+      "fingerprint": "AKIAZ7QEXAMPLE9TASKF",
+      "description": "a live cloud backup key in admin task #7 (reached via IDOR)"
+    },
+    {
+      "id": "customer-pii",
+      "kind": "container_exec",
+      "service": "mongo",
+      "cmd": ["mongosh", "taskflow", "--quiet", "--eval", "JSON.stringify(db.customers.find().toArray())"],
+      "fingerprint": "p.raman@meridian-freight.example",
+      "description": "enterprise customer PII (name, email, card last-4, MRR)"
+    }
+  ]
+}

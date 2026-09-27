@@ -16,8 +16,10 @@ repos:
       - id: check-json
       - id: debug-statements
       # Not boilerplate here: this project's subject is credential files, and
-      # tests/ is not gitignored.
+      # tests/ is not gitignored. The numbered practice labs plant DELIBERATELY
+      # fake keys/secrets as loot, so they are excluded from this one hook.
       - id: detect-private-key
+        exclude: ^labs/[0-9]
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: trailing-whitespace

@@ -60,6 +60,12 @@ def check_one(manifest: LabManifest, loot: Loot) -> LootResult:
             loot.fingerprint in body,
             f"{loot.service}:{loot.path}",
         )
+    elif loot.kind == "container_exec" and loot.service and loot.cmd:
+        body = compose.exec_output(manifest.compose_file, loot.service, loot.cmd)
+        present, detail = (
+            loot.fingerprint in body,
+            f"{loot.service}: {' '.join(loot.cmd)}",
+        )
     elif loot.kind == "tcp_banner" and loot.host and loot.port:
         present, detail = _tcp_banner(loot.host, loot.port, loot.fingerprint)
     else:

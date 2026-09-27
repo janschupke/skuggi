@@ -59,6 +59,9 @@ def test_loot_entries_are_addressable(manifest: LabManifest) -> None:
         elif item.kind == "file_in_container":
             assert item.service
             assert item.path
+        elif item.kind == "container_exec":
+            assert item.service
+            assert item.cmd
         elif item.kind == "tcp_banner":
             assert item.host
             assert item.port

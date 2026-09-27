@@ -1,0 +1,47 @@
+{
+  "id": "03-easy-nebula-wiki",
+  "tier": "easy",
+  "title": "Nebula Wiki",
+  "summary": "A Flask internal wiki over Redis + Postgres: SSTI-to-RCE in a preview, an unauthenticated Redis on the network, and a Flask SECRET_KEY leaked by a debug route (session forgery).",
+  "networks": ["203.0.113.0/24"],
+  "ports": [
+    { "service": "web", "container": 5000, "published": 8103, "proto": "http" },
+    { "service": "redis", "container": 6379, "published": 8203, "proto": "redis" },
+    { "service": "postgres", "container": 5432, "published": 8303, "proto": "postgres" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8103/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "flask-secret-key",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8103/debug",
+      "fingerprint": "nebula-flask-key-7f3a",
+      "description": "the Flask SECRET_KEY, leaked by the /debug route (enables session forgery)"
+    },
+    {
+      "id": "deploy-ssh-key",
+      "kind": "container_exec",
+      "service": "postgres",
+      "cmd": ["psql", "-U", "wiki", "-d", "wiki", "-tAc", "SELECT body FROM pages WHERE slug='infra-runbook'"],
+      "fingerprint": "BEGIN OPENSSH PRIVATE KEY",
+      "description": "an SSH deploy key pasted into the infra-runbook wiki page"
+    },
+    {
+      "id": "employee-pii",
+      "kind": "container_exec",
+      "service": "postgres",
+      "cmd": ["psql", "-U", "wiki", "-d", "wiki", "-tAc", "SELECT email, salary, ssn FROM employees"],
+      "fingerprint": "l.fowler@nebula.example",
+      "description": "employee records (email, salary, SSN)"
+    },
+    {
+      "id": "smtp-secret",
+      "kind": "container_exec",
+      "service": "redis",
+      "cmd": ["redis-cli", "GET", "secret:smtp"],
+      "fingerprint": "N3bula-Mail-2024",
+      "description": "SMTP relay credentials cached in the unauthenticated Redis"
+    }
+  ]
+}

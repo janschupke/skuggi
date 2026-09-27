@@ -1,0 +1,54 @@
+# TaskFlow (easy) — Node/Express SaaS API on MongoDB.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-lab-02
+
+networks:
+  taskflow-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 198.51.100.0/24
+          gateway: 198.51.100.1
+
+volumes:
+  mongodata:
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: skuggi-02-mongo
+    hostname: db.taskflow.lab
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: taskflow
+    volumes:
+      - mongodata:/data/db
+      - ./mongo/seed:/docker-entrypoint-initdb.d:ro
+    networks:
+      taskflow-net:
+        ipv4_address: 198.51.100.10
+
+  api:
+    build: ./api
+    image: skuggi-lab-02-api
+    container_name: skuggi-02-api
+    hostname: app.taskflow.lab
+    restart: unless-stopped
+    environment:
+      MONGO_URL: mongodb://mongo:27017/taskflow
+      JWT_SECRET: taskflow-prod-signing-2024
+    depends_on:
+      - mongo
+    ports:
+      - "127.0.0.1:8102:3000"
+    networks:
+      taskflow-net:
+        ipv4_address: 198.51.100.20
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s

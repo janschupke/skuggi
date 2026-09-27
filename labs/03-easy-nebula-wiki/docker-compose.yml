@@ -1,0 +1,74 @@
+# Nebula Wiki (easy) — Flask internal wiki with Redis cache + Postgres.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-lab-03
+
+networks:
+  nebula-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 203.0.113.0/24
+          gateway: 203.0.113.1
+
+volumes:
+  pgdata:
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: skuggi-03-redis
+    hostname: cache.nebula.lab
+    restart: unless-stopped
+    # VULN: no password, bound to all interfaces on the lab network.
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports:
+      - "127.0.0.1:8203:6379"
+    networks:
+      nebula-net:
+        ipv4_address: 203.0.113.10
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: skuggi-03-postgres
+    hostname: db.nebula.lab
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wiki
+      POSTGRES_USER: wiki
+      POSTGRES_PASSWORD: wiki-db-pass
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:8303:5432"
+    networks:
+      nebula-net:
+        ipv4_address: 203.0.113.30
+
+  web:
+    build: ./web
+    image: skuggi-lab-03-web
+    container_name: skuggi-03-web
+    hostname: wiki.nebula.lab
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: nebula-flask-key-7f3a
+      PG_HOST: postgres
+      PG_PASS: wiki-db-pass
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "127.0.0.1:8103:5000"
+    networks:
+      nebula-net:
+        ipv4_address: 203.0.113.20
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
