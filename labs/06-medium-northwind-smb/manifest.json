@@ -1,0 +1,39 @@
+{
+  "id": "06-medium-northwind-smb",
+  "tier": "medium",
+  "title": "Northwind SMB",
+  "summary": "A Samba file server with a guest-readable share (KeePass vault + hints) and a Linux pivot host. The vault master is not in rockyou — it is derivable from a naming convention in the HR notes; cracking it yields reused SSH creds to the pivot's customer contracts.",
+  "networks": ["10.13.6.0/24"],
+  "ports": [
+    { "service": "fileserver", "container": 445, "published": 8106, "proto": "smb" },
+    { "service": "pivot", "container": 22, "published": 8206, "proto": "ssh" }
+  ],
+  "health": { "kind": "tcp", "host": "127.0.0.1", "port": 8106 },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "vault-naming-hint",
+      "kind": "container_exec",
+      "service": "fileserver",
+      "cmd": ["cat", "/srv/samba/public/HR/onboarding-notes.txt"],
+      "fingerprint": "Season + Year",
+      "description": "the HR note that reveals the vault master-password convention"
+    },
+    {
+      "id": "keepass-vault",
+      "kind": "container_exec",
+      "service": "fileserver",
+      "cmd": ["ls", "-1", "/srv/samba/public/IT"],
+      "fingerprint": "passwords.kdbx",
+      "description": "the KeePass vault left on the guest-readable public share"
+    },
+    {
+      "id": "customer-contracts",
+      "kind": "container_exec",
+      "service": "pivot",
+      "cmd": ["cat", "/home/svc-backup/contracts/2026-Q3-customer-contracts.csv"],
+      "fingerprint": "Meridian Freight Ltd",
+      "description": "Q3 customer contracts on the pivot host (reached via reused creds)"
+    }
+  ]
+}

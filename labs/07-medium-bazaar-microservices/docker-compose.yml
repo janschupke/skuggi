@@ -1,0 +1,63 @@
+# Bazaar (medium) — segmented microservices: an edge API that SSRFs into an
+# internal-only mesh (mock metadata + order API).
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-lab-07
+
+networks:
+  edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.7.0/24
+          gateway: 172.30.7.1
+  internal:
+    # The internal mesh. The API bridges both; nothing here is published.
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.7.0.0/24
+          gateway: 10.7.0.1
+
+services:
+  api:
+    build: ./api
+    image: skuggi-lab-07-api
+    container_name: skuggi-07-api
+    hostname: shop.bazaar.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8107:3000"
+    networks:
+      edge:
+        ipv4_address: 172.30.7.20
+      internal:
+        ipv4_address: 10.7.0.30
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+  metadata:
+    build: ./internal
+    image: skuggi-lab-07-internal
+    container_name: skuggi-07-metadata
+    restart: unless-stopped
+    networks:
+      internal:
+        ipv4_address: 10.7.0.10
+        aliases: [metadata.internal]
+
+  orders:
+    build: ./internal
+    image: skuggi-lab-07-internal
+    container_name: skuggi-07-orders
+    restart: unless-stopped
+    networks:
+      internal:
+        ipv4_address: 10.7.0.40
+        aliases: [orders.internal]

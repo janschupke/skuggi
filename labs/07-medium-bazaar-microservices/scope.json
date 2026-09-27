@@ -1,0 +1,14 @@
+{
+  "name": "07-medium-bazaar-microservices",
+  "timezone": "Europe/Helsinki",
+  "authorized_start": "2026-01-01T00:00:00+02:00",
+  "authorized_end": "2027-12-31T23:59:59+02:00",
+  "daily_windows": [{ "start": "00:00:00", "end": "23:59:59" }],
+  "target_networks": ["127.0.0.0/8", "172.30.7.0/24", "10.7.0.0/24"],
+  "allowed_hosts": ["shop.bazaar.lab", "metadata.internal", "orders.internal"],
+  "allowed_tools": [
+    "nmap", "curl", "gobuster", "ffuf", "nikto", "whatweb", "jq", "nc"
+  ],
+  "allowed_methods": ["recon", "scan", "enumerate", "exploit"],
+  "autonomous": false
+}

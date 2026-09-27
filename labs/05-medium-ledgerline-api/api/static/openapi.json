@@ -1,0 +1,16 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Ledgerline API", "version": "1.0.0" },
+  "paths": {
+    "/v1/session":  { "post": { "summary": "Log in, returns a JWT" } },
+    "/v1/customers":{ "post": { "summary": "Register a customer" } },
+    "/v1/me":       { "get":  { "summary": "Current token claims" } },
+    "/v1/transfer": { "post": { "summary": "Move funds between accounts" } },
+    "/v1/ledger/contracts": {
+      "get": { "summary": "List signed contracts", "x-role": "admin" }
+    },
+    "/v1/ops/config": {
+      "get": { "summary": "Operational config (incl. signing key)", "x-role": "admin" }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "06-medium-northwind-smb",
+  "timezone": "Europe/Helsinki",
+  "authorized_start": "2026-01-01T00:00:00+02:00",
+  "authorized_end": "2027-12-31T23:59:59+02:00",
+  "daily_windows": [{ "start": "00:00:00", "end": "23:59:59" }],
+  "target_networks": ["127.0.0.0/8", "10.13.6.0/24"],
+  "allowed_hosts": ["files.northwind.lab", "pivot.northwind.lab"],
+  "allowed_tools": [
+    "nmap", "smbclient", "smbmap", "enum4linux", "nxc", "crackmapexec",
+    "keepass2john", "john", "hashcat", "hydra", "ssh", "nc"
+  ],
+  "allowed_methods": ["recon", "scan", "enumerate", "bruteforce", "crack", "exploit"],
+  "autonomous": false
+}

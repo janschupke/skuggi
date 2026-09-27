@@ -1,0 +1,37 @@
+{
+  "id": "05-medium-ledgerline-api",
+  "tier": "medium",
+  "title": "Ledgerline API",
+  "summary": "A Go retail-payments gateway with logic flaws only (no injection): mass-assignment role elevation, admin routes named only in a leaked OpenAPI doc at a non-obvious path, and a TOCTOU double-spend on /v1/transfer.",
+  "networks": ["10.13.5.0/24"],
+  "ports": [
+    { "service": "api", "container": 8080, "published": 8105, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8105/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "contract-signing-key",
+      "kind": "file_in_container",
+      "service": "api",
+      "path": "/app/data/seed.json",
+      "fingerprint": "ledgerline-hmac-7c1f9a2e",
+      "description": "HMAC key that signs contracts, served by admin /v1/ops/config"
+    },
+    {
+      "id": "signed-contract",
+      "kind": "file_in_container",
+      "service": "api",
+      "path": "/app/data/seed.json",
+      "fingerprint": "Meridian Freight Ltd",
+      "description": "a signed contract (counterparty, amount), served by admin /v1/ledger/contracts"
+    },
+    {
+      "id": "openapi-leak",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8105/v1/_internal/openapi.json",
+      "fingerprint": "/v1/ops/config",
+      "description": "the OpenAPI doc that names the otherwise-undiscoverable admin routes"
+    }
+  ]
+}

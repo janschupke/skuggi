@@ -1,0 +1,37 @@
+{
+  "id": "07-medium-bazaar-microservices",
+  "tier": "medium",
+  "title": "Bazaar",
+  "summary": "A segmented marketplace: an edge API with an SSRF link-preview bridges into an internal-only mesh. SSRF -> mock metadata (service token) -> internal order API -> customer PII. The SSRF sink and internal hostnames are only in the SPA bundle.",
+  "networks": ["172.30.7.0/24", "10.7.0.0/24"],
+  "ports": [
+    { "service": "api", "container": 3000, "published": 8107, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8107/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "internal-hostnames",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8107/app.js",
+      "fingerprint": "orders.internal",
+      "description": "the SPA bundle names the SSRF sink and the internal service hosts"
+    },
+    {
+      "id": "service-token",
+      "kind": "container_exec",
+      "service": "metadata",
+      "cmd": ["cat", "/app/creds.json"],
+      "fingerprint": "svc-orders-7ymar9-internal",
+      "description": "internal service token handed out by the metadata mock (via SSRF)"
+    },
+    {
+      "id": "customer-orders",
+      "kind": "container_exec",
+      "service": "orders",
+      "cmd": ["cat", "/app/orders.json"],
+      "fingerprint": "p.raman@meridian-freight.example",
+      "description": "customer orders + PII behind the internal order API"
+    }
+  ]
+}

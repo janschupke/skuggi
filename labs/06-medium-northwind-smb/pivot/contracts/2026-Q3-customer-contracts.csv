@@ -1,0 +1,4 @@
+contract_id,customer,counterparty,annual_value_usd,signed_by,status
+NW-3001,Meridian Freight Ltd,Northwind Trading,250000,a.holloway,active
+NW-3002,Halcyon Capital Partners,Northwind Trading,80000,a.holloway,active
+NW-3003,Sable & Roe LLP,Northwind Trading,145000,r.desai,pending

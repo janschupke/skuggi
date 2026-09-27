@@ -1,0 +1,10 @@
+{
+  "orders": [
+    { "id": "BZ-52001", "customer": "Priya Raman", "email": "p.raman@meridian-freight.example",
+      "total_usd": 1290, "card_last4": "4485", "ship_to": "12 Dockside Rd, Bristol" },
+    { "id": "BZ-52002", "customer": "Tomas Berg", "email": "t.berg@nordlys.example",
+      "total_usd": 340, "card_last4": "1029", "ship_to": "Storgata 4, Oslo" },
+    { "id": "BZ-52003", "customer": "Aiko Tanaka", "email": "aiko.tanaka@shirogane.example",
+      "total_usd": 875, "card_last4": "7731", "ship_to": "3-2-1 Chuo, Osaka" }
+  ]
+}

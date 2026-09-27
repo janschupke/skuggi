@@ -1,0 +1,50 @@
+# Northwind SMB (medium) — Samba file server + a Linux pivot host.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-lab-06
+
+networks:
+  northwind-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.13.6.0/24
+          gateway: 10.13.6.1
+
+services:
+  fileserver:
+    build: ./fileserver
+    image: skuggi-lab-06-fileserver
+    container_name: skuggi-06-fileserver
+    hostname: files.northwind.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8106:445"
+    networks:
+      northwind-net:
+        ipv4_address: 10.13.6.10
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/445"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+  pivot:
+    build: ./pivot
+    image: skuggi-lab-06-pivot
+    container_name: skuggi-06-pivot
+    hostname: pivot.northwind.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8206:22"
+    networks:
+      northwind-net:
+        ipv4_address: 10.13.6.20
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/22"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s

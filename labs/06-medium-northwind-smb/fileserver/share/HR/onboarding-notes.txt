@@ -1,0 +1,13 @@
+Northwind Trading — IT onboarding notes
+=======================================
+
+New starters:
+  - AD account is created by IT (firstname.lastname).
+  - A TEMPORARY password is issued for first login and for shared vaults. By
+    policy it always follows the current-quarter convention: Season + Year + "!"
+    (e.g. the spring intake used "Spring2024!"). Rotate on first login.
+  - The IT team keeps shared service credentials in the KeePass vault under
+    IT/ on the public share. The vault is locked with the current quarter's
+    temporary password (yes, we know — it is on the backlog to fix).
+
+Reminder: do NOT leave the vault on the *public* share. (Still there. Sorry.)

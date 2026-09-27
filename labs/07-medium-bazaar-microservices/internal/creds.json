@@ -1,0 +1,6 @@
+{
+  "service": "svc-orders",
+  "token": "svc-orders-7ymar9-internal",
+  "issued": "2026-08-01",
+  "note": "internal service account for the order-management API"
+}
