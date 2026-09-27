@@ -1,0 +1,50 @@
+# Relay (hard) — a bespoke line-based TCP service + an HTTP management console.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-lab-10
+
+networks:
+  relay-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.13.10.0/24
+          gateway: 10.13.10.1
+
+services:
+  relay:
+    build: ./relay
+    image: skuggi-lab-10-relay
+    container_name: skuggi-10-relay
+    hostname: relay.control.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8210:7000"
+    networks:
+      relay-net:
+        ipv4_address: 10.13.10.10
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost',7000),2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+  mgmt:
+    build: ./mgmt
+    image: skuggi-lab-10-mgmt
+    container_name: skuggi-10-mgmt
+    hostname: mgmt.control.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8110:8000"
+    networks:
+      relay-net:
+        ipv4_address: 10.13.10.20
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s

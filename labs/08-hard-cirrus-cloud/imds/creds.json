@@ -1,0 +1,9 @@
+{
+  "Code": "Success",
+  "Type": "AWS-HMAC",
+  "AccessKeyId": "AKIACIRRUSEXAMPLE01",
+  "SecretAccessKey": "cirrusSecretExampleKeybPxRfiCYzEXAMPLErds",
+  "Token": "FQoGZXIvYXdzEXAMPLEcirrusSessionToken000000",
+  "Expiration": "2030-01-01T00:00:00Z",
+  "RoleArn": "arn:aws:iam::000000000000:role/cirrus-web-instance"
+}

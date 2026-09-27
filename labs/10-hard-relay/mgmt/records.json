@@ -1,0 +1,7 @@
+{
+  "vault": [
+    { "client": "Ridgeway Mutual", "acct": "RM-7781", "custody_usd": 12750000, "manager": "a.fenwick" },
+    { "client": "Osei & Partners", "acct": "OP-3310", "custody_usd": 990000, "manager": "l.mbeki" }
+  ],
+  "note": "RELAY custody vault — restricted"
+}

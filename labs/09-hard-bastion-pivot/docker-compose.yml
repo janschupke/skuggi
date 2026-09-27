@@ -1,0 +1,59 @@
+# Bastion (hard) — a segmented network: a DMZ portal (insecure deserialization
+# RCE) is the only route onto the internal segment holding the crown jewels.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-lab-09
+
+networks:
+  dmz:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.9.0/24
+          gateway: 172.30.9.1
+  internal:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.9.0.0/24
+          gateway: 10.9.0.1
+
+services:
+  dmz:
+    build: ./dmz
+    image: skuggi-lab-09-dmz
+    container_name: skuggi-09-dmz
+    hostname: portal.bastion.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8109:5000"
+    networks:
+      dmz:
+        ipv4_address: 172.30.9.20
+      internal:
+        ipv4_address: 10.9.0.30
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+  admin:
+    build: ./admin
+    image: skuggi-lab-09-admin
+    container_name: skuggi-09-admin
+    hostname: admin.bastion.lab
+    restart: unless-stopped
+    networks:
+      internal:
+        ipv4_address: 10.9.0.10
+        aliases: [admin.internal]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s

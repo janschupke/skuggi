@@ -1,0 +1,75 @@
+# Cirrus (hard) — a cloud-in-a-box: LocalStack (S3/IAM/STS/Secrets) + an app
+# "instance" whose SSRF reaches a mock IMDS. Fully offline; no real AWS.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-lab-08
+
+networks:
+  cirrus-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.8.0/24
+          gateway: 172.30.8.1
+  imds-net:
+    # A link-local slice so the classic http://169.254.169.254 SSRF is authentic.
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 169.254.169.0/24
+          gateway: 169.254.169.1
+
+services:
+  localstack:
+    image: localstack/localstack:3
+    container_name: skuggi-08-localstack
+    hostname: cloud.cirrus.lab
+    restart: unless-stopped
+    environment:
+      SERVICES: s3,iam,sts,secretsmanager
+      DEBUG: "0"
+    volumes:
+      - ./localstack/init:/etc/localstack/init/ready.d:ro
+    ports:
+      - "127.0.0.1:8308:4566"
+    networks:
+      cirrus-net:
+        ipv4_address: 172.30.8.10
+        aliases: [cloud.cirrus.internal]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  imds:
+    build: ./imds
+    image: skuggi-lab-08-imds
+    container_name: skuggi-08-imds
+    restart: unless-stopped
+    networks:
+      imds-net:
+        ipv4_address: 169.254.169.254
+
+  app:
+    build: ./app
+    image: skuggi-lab-08-app
+    container_name: skuggi-08-app
+    hostname: portal.cirrus.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8108:3000"
+    networks:
+      cirrus-net:
+        ipv4_address: 172.30.8.30
+      imds-net:
+        ipv4_address: 169.254.169.10
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s

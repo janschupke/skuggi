@@ -1,0 +1,8 @@
+{
+  "ledger": [
+    { "account": "acct-99001", "customer": "Blackwood Holdings SA", "iban": "GB29NWBK60161331926819", "balance_usd": 4820000 },
+    { "account": "acct-99014", "customer": "Meridian Freight Ltd", "iban": "DE89370400440532013000", "balance_usd": 615000 },
+    { "account": "acct-99027", "customer": "Sable & Roe LLP", "iban": "FR7630006000011234567890189", "balance_usd": 288000 }
+  ],
+  "note": "Bastion Trust — production ledger export"
+}

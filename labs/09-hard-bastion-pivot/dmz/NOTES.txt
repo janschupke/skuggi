@@ -1,0 +1,6 @@
+Bastion DMZ host — ops notes
+============================
+- This box is the jump point; only it can reach the internal segment.
+- Internal admin console: http://admin.internal:8000/  (no auth yet — "it's
+  behind the firewall". The DB export is at /db.)
+- Reminder: rotate the portal session format, pickle is not safe.

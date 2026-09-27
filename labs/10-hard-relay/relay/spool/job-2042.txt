@@ -1,0 +1,1 @@
+RELAY spool item 2042: FX reconciliation, 7 records. status=pending

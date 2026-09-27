@@ -1,0 +1,39 @@
+{
+  "id": "08-hard-cirrus-cloud",
+  "tier": "hard",
+  "title": "Cirrus Cloud",
+  "summary": "A cloud-in-a-box (LocalStack: S3/IAM/STS/Secrets) with an app instance whose SSRF reaches a mock IMDS at 169.254.169.254. SSRF -> instance role credentials -> S3 contracts + Secrets Manager DB secret. Fully offline; no real AWS.",
+  "networks": ["172.30.8.0/24", "169.254.169.0/24"],
+  "ports": [
+    { "service": "app", "container": 3000, "published": 8108, "proto": "http" },
+    { "service": "localstack", "container": 4566, "published": 8308, "proto": "aws" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8108/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "instance-credentials",
+      "kind": "container_exec",
+      "service": "imds",
+      "cmd": ["cat", "/app/creds.json"],
+      "fingerprint": "AKIACIRRUSEXAMPLE01",
+      "description": "the instance role's temporary credentials, served by the mock IMDS via SSRF"
+    },
+    {
+      "id": "s3-contracts",
+      "kind": "container_exec",
+      "service": "localstack",
+      "cmd": ["awslocal", "s3", "cp", "s3://cirrus-contracts/contracts/contracts.json", "-"],
+      "fingerprint": "Meridian Freight Ltd",
+      "description": "signed contracts in the S3 bucket the leaked creds can read"
+    },
+    {
+      "id": "secretsmanager-db",
+      "kind": "container_exec",
+      "service": "localstack",
+      "cmd": ["awslocal", "secretsmanager", "get-secret-value", "--secret-id", "cirrus/db/prod", "--query", "SecretString", "--output", "text"],
+      "fingerprint": "C1rrus-RDS-Prod-2026",
+      "description": "production DB credentials in Secrets Manager"
+    }
+  ]
+}

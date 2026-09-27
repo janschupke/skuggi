@@ -1,0 +1,12 @@
+{
+  "name": "08-hard-cirrus-cloud",
+  "timezone": "Europe/Helsinki",
+  "authorized_start": "2026-01-01T00:00:00+02:00",
+  "authorized_end": "2027-12-31T23:59:59+02:00",
+  "daily_windows": [{ "start": "00:00:00", "end": "23:59:59" }],
+  "target_networks": ["127.0.0.0/8", "172.30.8.0/24", "169.254.169.0/24"],
+  "allowed_hosts": ["portal.cirrus.lab", "cloud.cirrus.internal"],
+  "allowed_tools": ["nmap", "curl", "aws", "awscli", "jq", "nc"],
+  "allowed_methods": ["recon", "scan", "enumerate", "exploit"],
+  "autonomous": false
+}

@@ -1,0 +1,30 @@
+{
+  "id": "09-hard-bastion-pivot",
+  "tier": "hard",
+  "title": "Bastion Pivot",
+  "summary": "A segmented network: a DMZ portal with insecure deserialization (pickle) RCE is the ONLY route onto the internal segment. Pivot from the foothold to an unauthenticated internal admin console holding the crown-jewels ledger.",
+  "networks": ["172.30.9.0/24", "10.9.0.0/24"],
+  "ports": [
+    { "service": "dmz", "container": 5000, "published": 8109, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8109/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "dmz-foothold-note",
+      "kind": "container_exec",
+      "service": "dmz",
+      "cmd": ["cat", "/opt/app/NOTES.txt"],
+      "fingerprint": "admin.internal",
+      "description": "ops note on the DMZ host pointing at the internal admin console"
+    },
+    {
+      "id": "crown-jewels",
+      "kind": "container_exec",
+      "service": "admin",
+      "cmd": ["cat", "/app/crown.json"],
+      "fingerprint": "Blackwood Holdings SA",
+      "description": "the internal production ledger (accounts, IBANs, balances)"
+    }
+  ]
+}

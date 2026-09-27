@@ -1,0 +1,46 @@
+{
+  "id": "10-hard-relay",
+  "tier": "hard",
+  "title": "Relay",
+  "summary": "A bespoke line-based TCP spool service (no scanner signature) plus an HTTP management console. Fingerprint the protocol, recover service creds from a leaked client, exploit a FETCH path traversal to read the console's admin password, then log in for the custody vault.",
+  "networks": ["10.13.10.0/24"],
+  "ports": [
+    { "service": "relay", "container": 7000, "published": 8210, "proto": "relay" },
+    { "service": "mgmt", "container": 8000, "published": 8110, "proto": "http" }
+  ],
+  "health": { "kind": "tcp", "host": "127.0.0.1", "port": 8210 },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "relay-banner",
+      "kind": "tcp_banner",
+      "host": "127.0.0.1",
+      "port": 8210,
+      "fingerprint": "RELAY/1.0",
+      "description": "the custom protocol banner (fingerprint target — no scanner match)"
+    },
+    {
+      "id": "leaked-client-creds",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8110/relay-client.py",
+      "fingerprint": "svc-relay",
+      "description": "RELAY service credentials, leaked by the unauthenticated client download"
+    },
+    {
+      "id": "mgmt-admin-secret",
+      "kind": "file_in_container",
+      "service": "relay",
+      "path": "/srv/relay/config/relay.conf",
+      "fingerprint": "M4nage-R3lay-2026",
+      "description": "management console admin password, read via the FETCH path traversal"
+    },
+    {
+      "id": "custody-vault",
+      "kind": "file_in_container",
+      "service": "mgmt",
+      "path": "/app/records.json",
+      "fingerprint": "Ridgeway Mutual",
+      "description": "the custody vault records behind the console's /admin"
+    }
+  ]
+}
