@@ -42,8 +42,11 @@ model is nondeterministic.
 
 **L5** is the only layer that runs a *real command against a real target*. Every
 other layer that exercises the executor monkeypatches `skuggi.execution.run`; L5
-lets it run for real (`shell=False`, argv exec'd) against the dockerized lab
-([docs/lab.md](lab.md)) and asserts on the captured output. The worker is
+lets it run for real (`shell=False`, argv exec'd) against the frozen e2e fixture
+target (`tests/e2e/fixtures/lab/`, [docs/lab.md](lab.md)) and asserts on the
+captured output. This fixture is deliberately separate from the user-facing
+practice range in `labs/` ([docs/labs.md](labs.md)): the range evolves, the
+fixture stays pinned to these oracles. The worker is
 *scripted* — it proposes a real `curl`/`nmap` command, so the test is
 deterministic and free — but everything below the LLM is the production path a
 real engagement uses: the engagement guard, the tool registry, the ledger, the
@@ -162,7 +165,8 @@ $ make e2e
 SKIPPED  skuggi lab is not reachable at http://127.0.0.1:8080 -- bring it up: ...
 ```
 
-Bring it up first (`cd lab && docker compose up -d --wait`), or set
+Bring it up first (`docker compose -f tests/e2e/fixtures/lab/docker-compose.yml up -d
+--wait`), or set
 `SKUGGI_E2E_COMPOSE_UP=1` to have the fixture start it and tear it down (`down
 -v`) at the end. The port is discovered from `docker compose port web 80`, so a
 collision remap is handled automatically. The loopback cases run everywhere; the

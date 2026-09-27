@@ -70,11 +70,12 @@ jobs:
           cache-dependency-glob: uv.lock
       - run: uv python install 3.12
       - run: uv sync --frozen --all-groups --all-extras
-      # Bring the vulnerable lab up. On the Linux runner the lab-net bridge is
-      # directly routable, so both the loopback and the 192.0.2.10 cases run.
-      - run: cp lab/.env.example lab/.env
-      - run: docker compose -f lab/docker-compose.yml up -d --build --wait
+      # Bring the frozen e2e fixture target up (separate from the user-facing
+      # labs/ range). On the Linux runner the lab-net bridge is directly
+      # routable, so both the loopback and the 192.0.2.10 cases run.
+      - run: cp tests/e2e/fixtures/lab/.env.example tests/e2e/fixtures/lab/.env
+      - run: docker compose -f tests/e2e/fixtures/lab/docker-compose.yml up -d --build --wait
       # --no-cov: a partial selection would trip the global --cov-fail-under=90.
       - run: uv run pytest -m e2e --no-cov
       - if: always()
-        run: docker compose -f lab/docker-compose.yml down -v
+        run: docker compose -f tests/e2e/fixtures/lab/docker-compose.yml down -v

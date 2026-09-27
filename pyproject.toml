@@ -104,6 +104,9 @@ eval = [
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
+# The lab-range controller lives outside the shipped package (labs/_lib), so its
+# unit tests import it from there. It is deliberately excluded from --cov=skuggi.
+pythonpath = ["labs/_lib"]
 addopts = [
     "-ra",
     "--strict-markers",
@@ -159,7 +162,11 @@ exclude_also = [
 [tool.ruff]
 line-length = 88
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "labs/_lib"]
+# The numbered lab dirs hold deliberately-insecure app code (PHP/JS/Go/Python);
+# linting them is meaningless and would fail on purpose. The controller
+# (labs/_lib, labs/labctl) is still linted.
+extend-exclude = ["labs/*-*", "labs/_common"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -236,6 +243,10 @@ runtime-evaluated-base-classes = [
 "src/skuggi/pdf.py" = ["PLC0415", "T201"]
 # reports.write_report imports skuggi.pdf lazily so the PDF deps stay optional.
 "src/skuggi/reports.py" = ["PLC0415"]
+# The lab-range controller renders its tables/prompts straight to the operator's
+# tty, and shells out to `docker compose` with a fixed argv (shell=False).
+"labs/_lib/labctl/cli.py" = ["T201"]
+"labs/_lib/labctl/compose.py" = ["S603", "S607"]
 "tests/**" = [
     "S101",             # asserts are the point
     "S105", "S106",     # fake tokens in fixtures
@@ -255,7 +266,11 @@ runtime-evaluated-base-classes = [
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src", "tests"]
+# labs/_lib holds the standalone lab-range controller (labctl); the numbered lab
+# build contexts under labs/*-*/ are intentionally-vulnerable app code and are
+# NOT typechecked. mypy_path lets `import labctl` (from src-free labs/_lib) resolve.
+files = ["src", "tests", "labs/_lib"]
+mypy_path = "labs/_lib"
 strict = true
 # tests/ is a real package (it has several conftest.py files and tests import
 # tests.fakes by name), which is what keeps those module names distinct.

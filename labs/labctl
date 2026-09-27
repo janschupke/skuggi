@@ -1,0 +1,18 @@
+#!/usr/bin/env -S uv run python
+"""Thin launcher for the labctl controller (labs/_lib/labctl).
+
+Extensionless on purpose so ruff/mypy (which glob *.py) skip it; all real,
+type-checked logic lives in labs/_lib/labctl/. Run from the repo root:
+    uv run python labs/labctl <command> [lab]
+or, once executable, ./labs/labctl <command> [lab].
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "_lib"))
+
+from labctl.cli import main  # noqa: E402  (path bootstrap must precede import)
+
+if __name__ == "__main__":
+    raise SystemExit(main())

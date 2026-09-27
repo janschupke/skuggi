@@ -33,7 +33,7 @@ from skuggi.protocol import CriticResponse, FindingDraft, WorkerResponse
 from tests.fakes import RoleScriptedChatModel
 from tests.support import REPO_ROOT, engaged_core, wire_offline_llm
 
-LAB_DIR = REPO_ROOT / "lab"
+LAB_DIR = REPO_ROOT / "tests" / "e2e" / "fixtures" / "lab"
 LAB_COMPOSE = LAB_DIR / "docker-compose.yml"
 LAB_IP = "192.0.2.10"
 _DEFAULT_HTTP_PORT = 8080
@@ -116,7 +116,7 @@ def lab() -> Iterator[Lab]:
             _compose("down", "-v")
         pytest.skip(
             f"skuggi lab is not reachable at {target.base_url} -- bring it up: "
-            "`cd lab && docker compose up -d --wait`"
+            "`docker compose -f tests/e2e/fixtures/lab/docker-compose.yml up -d --wait`"
         )
     try:
         yield target

@@ -1,0 +1,5 @@
+# Local, per-machine copy of the lab config.
+.env
+
+# WireGuard runtime state — generated peer configs contain PRIVATE KEYS.
+wireguard/config/

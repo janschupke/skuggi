@@ -1,0 +1,12 @@
+# Lab overrides.
+# - Dedicated datadir so the image's build-time-initialized /var/lib/mysql does
+#   NOT get copied into our volume (which would skip first-boot seeding).
+# - Bind on all interfaces so 192.0.2.10:3306 is a scannable service.
+[mysqld]
+datadir      = /var/lib/mysql-lab
+socket       = /run/mysqld/mysqld.sock
+bind-address = 0.0.0.0
+skip-name-resolve
+
+[client]
+socket = /run/mysqld/mysqld.sock

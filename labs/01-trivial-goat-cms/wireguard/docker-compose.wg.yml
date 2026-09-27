@@ -12,12 +12,12 @@
 # Import it into the WireGuard app on the host, activate it, then skuggi (on the
 # host) can nmap/curl/sqlmap 192.0.2.10 directly. On Linux you do NOT need this —
 # the bridge network is directly routable.
-name: skuggi-lab
+name: skuggi-lab-01
 
 services:
   wg-gw:
     image: lscr.io/linuxserver/wireguard:latest
-    container_name: skuggi-lab-wg
+    container_name: skuggi-01-wg
     cap_add:
       - NET_ADMIN
       - SYS_MODULE

@@ -1,0 +1,36 @@
+{
+  "id": "01-trivial-goat-cms",
+  "tier": "trivial",
+  "title": "Goat CMS",
+  "summary": "A textbook PHP/MariaDB blog: SQLi, LFI, IDOR, command injection, upload RCE and a leftover DB dump. Default wordlists work; the teaching baseline.",
+  "networks": ["192.0.2.0/24"],
+  "ports": [
+    { "service": "web", "container": 80, "published": 8101, "proto": "http" },
+    { "service": "web", "container": 3306, "published": 8201, "proto": "mysql" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8101/" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "admin-hash",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8101/backup/db_dump.sql",
+      "fingerprint": "482c811da5d5b4bc6d497ffa98491e38",
+      "description": "admin's unsalted md5 (password123), leaked in the browsable /backup/ dump"
+    },
+    {
+      "id": "db-credentials",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8101/backup/db_dump.sql",
+      "fingerprint": "blogpass123",
+      "description": "the app DB account, leaked in the dump's ops note"
+    },
+    {
+      "id": "draft-sentinel",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8101/post.php?id=4",
+      "fingerprint": "remove /backup/db_dump.sql before launch",
+      "description": "the hidden draft post (id=4), reachable by IDOR"
+    }
+  ]
+}

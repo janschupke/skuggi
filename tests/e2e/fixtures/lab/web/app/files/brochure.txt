@@ -1,0 +1,2 @@
+Goat Blog — the friendliest little CMS on the lab network.
+(This file exists so download.php has a legitimate use to enumerate around.)

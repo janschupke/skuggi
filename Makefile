@@ -1,6 +1,12 @@
 UV ?= uv
 
-.PHONY: install install-cli lint format typecheck test eval e2e eval-det bench check clean pdf
+.PHONY: install install-cli lint format typecheck test eval e2e eval-det bench check clean pdf \
+	lab-list lab-up lab-down lab-restore lab-wipe lab-verify
+
+# The user-facing practice range controller (labs/). Standalone dev tooling --
+# deliberately NOT a skuggi console script, so it never ships in the wheel.
+LABCTL = $(UV) run python labs/labctl
+LAB ?=
 
 ## sync the locked environment and install the git hooks
 install:
@@ -40,11 +46,32 @@ test:
 eval:
 	$(UV) run pytest -m eval --no-cov
 
-## drives the real pipeline against the docker lab (bring it up first:
-## `cd lab && docker compose up -d --wait`). Skips cleanly when the lab is down.
-## --no-cov for the same reason as `eval`. Never part of `check`.
+## drives the real pipeline against the FROZEN e2e fixture target (bring it up
+## first: `docker compose -f tests/e2e/fixtures/lab/docker-compose.yml up -d --wait`).
+## Skips cleanly when the fixture is down. This target is separate from the
+## user-facing labs/ range (see the lab-* targets). --no-cov as `eval`; never in `check`.
 e2e:
 	$(UV) run pytest -m e2e --no-cov
+
+## Practice-range control (labs/). `LAB=` takes a lab id, e.g. 01-trivial-goat-cms.
+##   make lab-list                       # every lab, its tier, ports and up/down state
+##   make lab-up LAB=01-trivial-goat-cms  # build + start a lab (loopback-only)
+##   make lab-down LAB=...                # stop, keeping planted data
+##   make lab-restore LAB=...             # revert the TARGET to pristine, keep your work
+##   make lab-wipe LAB=...                # nuke the target AND ./engagements/<lab>
+##   make lab-verify LAB=...              # assert the manifest's planted loot is present
+lab-list:
+	$(LABCTL) list
+lab-up:
+	$(LABCTL) up $(LAB)
+lab-down:
+	$(LABCTL) down $(LAB)
+lab-restore:
+	$(LABCTL) restore $(LAB)
+lab-wipe:
+	$(LABCTL) wipe $(LAB)
+lab-verify:
+	$(LABCTL) verify $(LAB)
 
 ## The deterministic eval tier as a standalone offline gate (no provider, no
 ## network): score compliance/methodology/schema/result_compat vs evals/baseline.json

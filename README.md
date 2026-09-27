@@ -429,14 +429,15 @@ make install     # uv sync --all-groups --all-extras, plus the git hooks
 make install-cli # put `skuggi` on $PATH (editable) and seed the homes
 make check       # ruff format --check, ruff, mypy --strict, pytest — what CI runs
 make eval        # the real-provider layer; costs money, needs credentials
-make e2e         # the real pipeline against the docker lab (bring it up first)
+make e2e         # the real pipeline against the frozen e2e fixture target (bring it up first)
+make lab-list    # the user-facing practice range (labs/): 10 tiered engagements
 make eval-det    # the deterministic eval gate, offline (also inside `make check`)
 make bench       # the full eval benchmark across providers; costs money
 ```
 
 `make check` is the gate. The test suite is five layers, three of them offline;
-`make eval` (real providers) and `make e2e` (the [dockerized lab](docs/lab.md))
-are opt-in — see [docs/testing.md](docs/testing.md). A committed, local-only
+`make eval` (real providers) and `make e2e` (the frozen [e2e fixture
+target](docs/lab.md)) are opt-in — see [docs/testing.md](docs/testing.md). A committed, local-only
 **eval system** (`skuggi-eval`) scores the agent across five dimensions — budget,
 latency, factuality, host-system compatibility, and compliance with the
 methodology and engagement constraints — and hard-gates on regression against
@@ -453,6 +454,7 @@ methodology and engagement constraints — and hard-gates on regression against
 - [docs/testing.md](docs/testing.md) — the test layers and the eval system.
 - [evals/README.md](evals/README.md) — the local eval system: golden sets, the
   deterministic gate, the Braintrust quality benchmark, and the baseline.
-- [docs/lab.md](docs/lab.md) — the dockerized practice lab: a deliberately
-  vulnerable target network (`192.0.2.0/24`) to point skuggi at, with its
-  topology, credentials, vulnerability catalog, and WireGuard reachability.
+- [docs/labs.md](docs/labs.md) — the practice range: 10 tiered engagement
+  exercises (`labs/`) with planted loot, and the `labctl` wipe/restore workflow.
+- [docs/lab.md](docs/lab.md) — the frozen e2e fixture target
+  (`tests/e2e/fixtures/lab/`) that the L5 suite drives, and its pinned oracles.
