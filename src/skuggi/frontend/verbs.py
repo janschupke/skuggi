@@ -60,6 +60,14 @@ VERBS: tuple[Verb, ...] = (
         "[list | <query> | <name> | add | edit <name> | rm <name>]",
         category="engagement",
     ),
+    Verb(
+        "add",
+        "record a note, loot item or finding",
+        "note <text> | loot <text> | finding <severity> <title>",
+        category="engagement",
+    ),
+    Verb("notes", "list engagement notes"),
+    Verb("loot", "list captured loot"),
     Verb("findings", "list findings recorded this session"),
     Verb(
         "report", "write an engagement report (add 'pdf' for a styled PDF too)", "[pdf]"

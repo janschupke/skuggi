@@ -25,6 +25,8 @@ def test_derives_paths_from_the_engagement_name(tmp_path: Path) -> None:
     assert ws.ledger_path == ws.root / "ledger.db"
     assert ws.reports_dir == ws.root / "reports"
     assert ws.recon_dir == ws.root / "recon"
+    assert ws.notes_file == ws.notes_dir / "notes.md"
+    assert ws.loot_file == ws.loot_dir / "loot.md"
 
 
 def test_ensure_creates_the_tree(tmp_path: Path) -> None:

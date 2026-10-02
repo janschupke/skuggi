@@ -108,6 +108,9 @@ class Tui:
             "login": self._cmd_login,
             "cmd": self._cmd_cmd,
             "doctor": self._cmd_doctor,
+            "add": self._cmd_add,
+            "notes": self._cmd_notes,
+            "loot": self._cmd_loot,
             "findings": self._cmd_findings,
             "report": self._cmd_report,
             "replay": self._cmd_replay,
@@ -489,6 +492,52 @@ class Tui:
             self.console.print(f"[dim]removed alias '{name}'[/dim]")
         else:
             self.console.print(f"[yellow]unknown alias[/yellow] {name!r}")
+
+    def _cmd_add(self, arg: str) -> None:
+        """Record a note, loot item or finding (one grammar, per-case rendering)."""
+        match dispatch.run_add(self.core, arg):
+            case dispatch.AddUsage(form):
+                self.console.print(
+                    f"[yellow]usage:[/yellow] {verbs.cmd(f'add {form}', 'repl')}"
+                )
+            case dispatch.NoEngagement(kind):
+                self.console.print(
+                    f"[yellow]no engagement loaded[/yellow] -- run "
+                    f"{verbs.cmd('engagement setup', 'repl')} to record {kind}s"
+                )
+            case dispatch.BadSeverity(value, allowed):
+                self.console.print(
+                    f"[red]unknown severity[/red] {value!r}; "
+                    f"choose one of: {', '.join(allowed)}"
+                )
+            case dispatch.AddedNote(path):
+                self.console.print(f"[green]noted[/green] [dim]{path}[/dim]")
+            case dispatch.AddedLoot(path):
+                self.console.print(f"[green]loot recorded[/green] [dim]{path}[/dim]")
+            case dispatch.FindingRecorded(row):
+                self.console.print(
+                    "[green]recorded[/green] "
+                    + finding_line(
+                        row,
+                        lambda text, sev: palette.paint(
+                            text, palette.severity_style(sev)
+                        ),
+                    )
+                )
+
+    def _cmd_notes(self, _arg: str) -> None:
+        text = self.core.notes()
+        if not text.strip():
+            self.console.print("[dim](no notes yet)[/dim]")
+            return
+        self.console.print(Markdown(text))
+
+    def _cmd_loot(self, _arg: str) -> None:
+        text = self.core.loot()
+        if not text.strip():
+            self.console.print("[dim](no loot yet)[/dim]")
+            return
+        self.console.print(Markdown(text))
 
     def _cmd_findings(self, _arg: str) -> None:
         rows = self.core.findings()

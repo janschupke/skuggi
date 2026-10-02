@@ -63,6 +63,47 @@ def test_slash_findings_lists_findings(daemon: Daemon) -> None:
     assert "no findings" in _chunks(daemon, {"op": "input", "text": "/findings"})
 
 
+def test_slash_add_note_and_list(daemon: Daemon) -> None:
+    assert "no notes yet" in _chunks(daemon, {"op": "input", "text": "/notes"})
+    assert "noted" in _chunks(daemon, {"op": "input", "text": "/add note recon done"})
+    assert "recon done" in _chunks(daemon, {"op": "input", "text": "/notes"})
+
+
+def test_slash_add_loot_and_list(daemon: Daemon) -> None:
+    assert "no loot yet" in _chunks(daemon, {"op": "input", "text": "/loot"})
+    added = _chunks(daemon, {"op": "input", "text": "/add loot cred admin:hunter2"})
+    assert "loot recorded" in added
+    assert "hunter2" in _chunks(daemon, {"op": "input", "text": "/loot"})
+
+
+def test_slash_add_finding_records_and_surfaces(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "/add finding high SQLi in login"})
+    assert "recorded" in out
+    assert "SQLi in login" in out
+    assert "SQLi in login" in _chunks(daemon, {"op": "input", "text": "/findings"})
+
+
+def test_slash_add_usage_and_bad_severity(daemon: Daemon) -> None:
+    assert "usage: add note" in _chunks(daemon, {"op": "input", "text": "/add"})
+    assert "usage: add note" in _chunks(daemon, {"op": "input", "text": "/add note"})
+    assert "usage: add finding" in _chunks(
+        daemon, {"op": "input", "text": "/add finding high"}
+    )
+    bad = _chunks(daemon, {"op": "input", "text": "/add finding spicy bad one"})
+    assert "unknown severity" in bad
+
+
+def test_slash_add_note_without_engagement(tmp_path: Path) -> None:
+    core = AgentCore(offline_settings(tmp_path, engagement=None))
+    wire_offline_core(core)
+    unscoped = Daemon(core)
+    try:
+        out = _chunks(unscoped, {"op": "input", "text": "/add note nowhere to go"})
+        assert "no engagement loaded" in out
+    finally:
+        core.close()
+
+
 def test_slash_report_writes(daemon: Daemon) -> None:
     assert "report written" in _chunks(daemon, {"op": "input", "text": "/report"})
 

@@ -6,6 +6,7 @@ The console is injected so rendered output is assertable without a terminal.
 from __future__ import annotations
 
 import io
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -253,3 +254,56 @@ def test_memory_duplicate_forget_usage_and_clear(tui: tuple[Tui, io.StringIO]) -
     app.dispatch("/memory clear")
     assert "cleared 1 preference" in _out(buffer)
     assert app.core.list_preferences() == []
+
+
+# --- notes / loot / findings (operator-recorded artifacts) ------------------
+
+
+def test_add_note_without_engagement_explains(tui: tuple[Tui, io.StringIO]) -> None:
+    app, buffer = tui  # the repl fixture has no engagement loaded
+    app.dispatch("/add note nowhere to write this")
+    assert "no engagement loaded" in _out(buffer)
+
+
+def test_notes_and_loot_empty_without_engagement(tui: tuple[Tui, io.StringIO]) -> None:
+    app, buffer = tui
+    app.dispatch("/notes")
+    assert "no notes yet" in _out(buffer)
+    app.dispatch("/loot")
+    assert "no loot yet" in _out(buffer)
+
+
+def test_add_usage_and_bad_severity(tui: tuple[Tui, io.StringIO]) -> None:
+    app, buffer = tui
+    app.dispatch("/add")  # no sub-command
+    assert "usage:" in _out(buffer)
+    app.dispatch("/add finding spicy a title")  # severity not valid
+    assert "unknown severity" in _out(buffer)
+
+
+def test_add_and_list_with_engagement(
+    tmp_path: Path, pentest_configs: Callable[..., Path]
+) -> None:
+    pentest_configs()
+    buffer = io.StringIO()
+    app = Tui(
+        offline_settings(tmp_path, engagement="test-eng"),
+        console=Console(file=buffer, width=100),
+    )
+    wire_offline_core(app.core)
+    try:
+        app.dispatch("/add note found a subdomain")
+        app.dispatch("/add loot token abc123")
+        app.dispatch("/add finding medium open redirect on /go")
+        app.dispatch("/notes")
+        app.dispatch("/loot")
+        app.dispatch("/findings")
+        out = _out(buffer)
+        assert "noted" in out
+        assert "loot recorded" in out
+        assert "recorded" in out
+        assert "found a subdomain" in out
+        assert "token abc123" in out
+        assert "open redirect on /go" in out
+    finally:
+        app.close()

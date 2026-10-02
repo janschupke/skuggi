@@ -291,6 +291,9 @@ class Daemon:
     def _control(self, verb: str, arg: str) -> Iterator[str]:
         handler = {
             "cmd": self._cheat,
+            "add": self._add,
+            "notes": self._notes,
+            "loot": self._loot,
             "findings": self._findings,
             "report": self._report,
             "replay": self._replay,
@@ -580,6 +583,39 @@ class Daemon:
 
     def _clear(self, _arg: str) -> Iterator[str]:
         yield "clear is only available in skuggi-repl\n"
+
+    def _add(self, arg: str) -> Iterator[str]:
+        match dispatch.run_add(self.core, arg):
+            case dispatch.AddUsage(form):
+                yield f"usage: add {form}\n"
+            case dispatch.NoEngagement(kind):
+                yield (
+                    f"no engagement loaded -- run {self._cmd('engagement setup')} "
+                    f"to record {kind}s\n"
+                )
+            case dispatch.BadSeverity(value, allowed):
+                choices = ", ".join(allowed)
+                yield f"unknown severity {value!r}; choose one of: {choices}\n"
+            case dispatch.AddedNote(path):
+                yield f"noted -> {path}\n"
+            case dispatch.AddedLoot(path):
+                yield f"loot recorded -> {path}\n"
+            case dispatch.FindingRecorded(row):
+                yield "recorded " + finding_line(row) + "\n"
+
+    def _notes(self, _arg: str) -> Iterator[str]:
+        text = self.core.notes()
+        if not text.strip():
+            yield "(no notes yet)\n"
+            return
+        yield text if text.endswith("\n") else text + "\n"
+
+    def _loot(self, _arg: str) -> Iterator[str]:
+        text = self.core.loot()
+        if not text.strip():
+            yield "(no loot yet)\n"
+            return
+        yield text if text.endswith("\n") else text + "\n"
 
     def _findings(self, _arg: str) -> Iterator[str]:
         rows = self.core.findings()

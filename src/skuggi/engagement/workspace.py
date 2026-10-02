@@ -32,6 +32,8 @@ class WorkspaceLayout(BaseModel):
 
     scope_file: str = "scope.json"
     ledger_file: str = "ledger.db"
+    notes_log: str = "notes.md"
+    loot_log: str = "loot.md"
     findings: str = "findings"
     notes: str = "notes"
     recon: str = "recon"
@@ -99,6 +101,11 @@ class Workspace:
         return self.root / self.layout.notes
 
     @property
+    def notes_file(self) -> Path:
+        """The appended operator-notes journal (``notes/notes.md``)."""
+        return self.notes_dir / self.layout.notes_log
+
+    @property
     def findings_dir(self) -> Path:
         """Per-finding artefacts (the ledger holds the structured records)."""
         return self.root / self.layout.findings
@@ -117,6 +124,11 @@ class Workspace:
     def loot_dir(self) -> Path:
         """Harvested credentials, cracked hashes and other captured artefacts."""
         return self.root / self.layout.loot
+
+    @property
+    def loot_file(self) -> Path:
+        """The appended captured-loot journal (``loot/loot.md``)."""
+        return self.loot_dir / self.layout.loot_log
 
     def ensure(self) -> None:
         """Create the workspace tree if it does not already exist (idempotent)."""

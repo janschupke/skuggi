@@ -13,12 +13,15 @@ this only wraps the existing calls.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from skuggi.common import palette
 from skuggi.config.configs import ConfigError
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
+    from skuggi.persistence.ledger import FindingRow
     from skuggi.persistence.preferences import PreferenceRow
 
 
@@ -199,3 +202,85 @@ def run_memory(core: AgentCore, arg: str) -> MemoryOutcome:
     if sub == "clear":
         return MemoryCleared(core.clear_preferences())
     return MemoryList(core.list_preferences())
+
+
+# ----- add (note / loot / finding) ------------------------------------------
+@dataclass(frozen=True, slots=True)
+class AddUsage:
+    """Missing or unknown sub-command; `form` is the usage tail after ``add``."""
+
+    form: str
+
+
+@dataclass(frozen=True, slots=True)
+class NoEngagement:
+    """Notes and loot are workspace files; none is loaded. `kind` is note/loot."""
+
+    kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class AddedNote:
+    """A note was appended to the engagement journal at `path`."""
+
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class AddedLoot:
+    """A loot entry was appended to the engagement journal at `path`."""
+
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class BadSeverity:
+    """The finding severity was not one of `allowed`."""
+
+    value: str
+    allowed: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FindingRecorded:
+    """A finding was written to the ledger; `row` is the stored record."""
+
+    row: FindingRow
+
+
+AddOutcome = (
+    AddUsage | NoEngagement | AddedNote | AddedLoot | BadSeverity | FindingRecorded
+)
+
+
+def _run_add_finding(core: AgentCore, rest: str) -> AddOutcome:
+    """Parse ``<severity> <title>`` and record the finding, or explain the problem."""
+    severity, _, title = rest.partition(" ")
+    severity, title = severity.strip().lower(), title.strip()
+    if not severity or not title:
+        return AddUsage("finding <severity> <title>")
+    if severity not in palette.severities():
+        return BadSeverity(severity, palette.severities())
+    row = core.record_finding(severity, title)
+    if row is None:  # pragma: no cover -- severity already validated above
+        return BadSeverity(severity, palette.severities())
+    return FindingRecorded(row)
+
+
+def run_add(core: AgentCore, arg: str) -> AddOutcome:
+    """Record a note, loot item or finding, mapping each case to a typed outcome."""
+    sub, _, rest = arg.partition(" ")
+    sub, rest = sub.strip().lower(), rest.strip()
+    if sub == "note":
+        if not rest:
+            return AddUsage("note <text>")
+        path = core.add_note(rest)
+        return AddedNote(path) if path is not None else NoEngagement("note")
+    if sub == "loot":
+        if not rest:
+            return AddUsage("loot <text>")
+        path = core.add_loot(rest)
+        return AddedLoot(path) if path is not None else NoEngagement("loot")
+    if sub == "finding":
+        return _run_add_finding(core, rest)
+    return AddUsage("note <text> | loot <text> | finding <severity> <title>")

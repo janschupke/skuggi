@@ -31,7 +31,12 @@ from pydantic import SecretStr, ValidationError
 from skuggi.agent import prompts
 from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.agent.modes import MODES, Mode, prompt_set
-from skuggi.agent.protocol import ConfigProposal, MemoryExtraction, structured_invoke
+from skuggi.agent.protocol import (
+    ConfigProposal,
+    MemoryExtraction,
+    Severity,
+    structured_invoke,
+)
 from skuggi.agent.state import AgentState
 from skuggi.common import logs
 from skuggi.common.text import join_blocks, labeled
@@ -50,6 +55,7 @@ from skuggi.config.configs import (
     load_scope,
     write_commands,
 )
+from skuggi.engagement import journal
 from skuggi.engagement.engagement import (
     EngagementConfig,
     GuardVerdict,
@@ -566,6 +572,51 @@ class AgentCore:
     def findings(self) -> list[FindingRow]:
         """Findings recorded this session."""
         return self.ledger.findings_for(self.session_id)
+
+    def record_finding(self, severity: str, title: str) -> FindingRow | None:
+        """Record an operator finding in the ledger, or ``None`` on a bad severity.
+
+        The same writer the worker uses, so hand-entered and agent-found findings
+        share one store -- the ``findings`` listing and the report's severity
+        section. ``description`` defaults to the title (the one-line operator
+        grammar); evidence is left for the agent or a later edit.
+        """
+        sev = severity.strip().lower()
+        if sev not in get_args(Severity):
+            return None
+        fid = self.ledger.record_finding(
+            session_id=self.session_id,
+            title=title.strip(),
+            severity=sev,
+            description=title.strip(),
+        )
+        return self.ledger.finding(fid)
+
+    def add_note(self, text: str) -> Path | None:
+        """Append a timestamped note to the journal (``None`` with no engagement)."""
+        if self.workspace is None:
+            return None
+        journal.append_entry(self.workspace.notes_file, text)
+        return self.workspace.notes_file
+
+    def notes(self) -> str:
+        """The engagement's notes journal (``""`` when none / no engagement)."""
+        if self.workspace is None:
+            return ""
+        return journal.read_entries(self.workspace.notes_file)
+
+    def add_loot(self, text: str) -> Path | None:
+        """Append a timestamped loot entry to the journal (``None`` if unscoped)."""
+        if self.workspace is None:
+            return None
+        journal.append_entry(self.workspace.loot_file, text)
+        return self.workspace.loot_file
+
+    def loot(self) -> str:
+        """The engagement's loot journal (``""`` when none / no engagement)."""
+        if self.workspace is None:
+            return ""
+        return journal.read_entries(self.workspace.loot_file)
 
     def write_report(self, *, pdf: bool = False) -> Path | tuple[Path, Path]:
         """Write the session's Markdown report and return its path.
