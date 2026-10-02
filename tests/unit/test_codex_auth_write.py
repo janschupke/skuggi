@@ -6,6 +6,9 @@ import json
 import stat
 from pathlib import Path
 
+import pytest
+
+from skuggi.providers import codex_chat
 from skuggi.providers.codex_chat import CodexTokenStore
 
 
@@ -65,3 +68,20 @@ def test_save_creates_a_missing_directory(tmp_path: Path) -> None:
 
     assert path.is_file()
     assert _mode(path) == 0o600
+
+
+def test_default_auth_path_resolved_at_call_time_from_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """S3: the fallback auth.json path honours the env var at *call* time.
+
+    A module-level `Path(...).expanduser()` constant resolves at import, ignores
+    the redirect, and leaks the developer's real ~/.codex -- the exact
+    anti-pattern storage.md forbids and the suite's isolation depends on.
+    """
+    target = tmp_path / "elsewhere" / "auth.json"
+    monkeypatch.setenv("SKUGGI_CODEX_AUTH_PATH", str(target))
+    assert codex_chat._default_auth_path() == target
+    assert CodexTokenStore().auth_path == target
+    # The import-time-resolved constant must be gone.
+    assert not hasattr(codex_chat, "_AUTH_PATH_DEFAULT")

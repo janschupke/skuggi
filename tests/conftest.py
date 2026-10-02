@@ -28,7 +28,6 @@ from skuggi.common import home
 from skuggi.common.paths import ensure_parent
 from skuggi.config.config import Settings
 from skuggi.persistence.vectorstore import Store
-from skuggi.providers import codex_chat
 from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
 
 _VENDOR_ENV = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_BASE_URL")
@@ -139,8 +138,9 @@ def isolate_credentials(
        sessions.db. Pointing SKUGGI_CONFIG_HOME/SKUGGI_DATA_HOME at tmp_path is
        what closes this, and it closes the `<config home>/env` secrets file with
        them (the successor to the cwd-relative `.env` this note used to describe).
-    3. `codex_chat._AUTH_PATH_DEFAULT` is a module-level constant already
-       `.expanduser()`-ed at import time, so setting HOME does NOT redirect it.
+    3. `codex_chat`'s fallback auth.json path, resolved at call time from
+       `SKUGGI_CODEX_AUTH_PATH` (so setting that env var below redirects it;
+       no module monkeypatch needed).
     4. chdir is still required: `engagements_dir` stays cwd-relative by design,
        so without it a test would create an `engagements/` tree in the repo.
 
@@ -162,7 +162,6 @@ def isolate_credentials(
     monkeypatch.setenv(home.DATA_HOME_ENV, str(tmp_path / "data-home"))
     absent = tmp_path / "no-such-auth.json"
     monkeypatch.setenv("SKUGGI_CODEX_AUTH_PATH", str(absent))
-    monkeypatch.setattr(codex_chat, "_AUTH_PATH_DEFAULT", absent)
     workdir = tmp_path / "cwd"
     workdir.mkdir(exist_ok=True)
     monkeypatch.chdir(workdir)

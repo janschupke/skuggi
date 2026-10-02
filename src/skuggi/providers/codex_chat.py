@@ -43,8 +43,21 @@ CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_OPENAI_BETA = "responses=experimental"
 CODEX_ORIGINATOR = "codex_cli_rs"
 
-_AUTH_PATH_DEFAULT = Path("~/.codex/auth.json").expanduser()
+_AUTH_PATH_ENV = "SKUGGI_CODEX_AUTH_PATH"
 _REFRESH_SKEW_SECONDS = 60
+
+
+def _default_auth_path() -> Path:
+    """The fallback auth.json path, resolved at call time (never at import).
+
+    Honours ``SKUGGI_CODEX_AUTH_PATH`` (the same override ``Settings`` binds),
+    else ``~/.codex/auth.json``. Resolving here rather than in a module-level
+    constant is what lets the test suite redirect it with an env var instead of
+    monkeypatching the module, and keeps ``import skuggi`` free of filesystem
+    side effects (see .ai/rules/storage.md).
+    """
+    override = (os.environ.get(_AUTH_PATH_ENV) or "").strip()
+    return Path(override or "~/.codex/auth.json").expanduser()
 
 
 def jwt_expiry(token: str) -> int | None:
@@ -76,7 +89,7 @@ class CodexTokenStore:
         refresh_url: str = CODEX_REFRESH_URL,
         client_id: str = CODEX_CLIENT_ID,
     ) -> None:
-        self.auth_path = (auth_path or _AUTH_PATH_DEFAULT).expanduser()
+        self.auth_path = (auth_path or _default_auth_path()).expanduser()
         self.refresh_url = refresh_url
         self.client_id = client_id
 
