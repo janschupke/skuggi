@@ -25,7 +25,7 @@ import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
-from skuggi import configflow, prompts, reports, verbs, wizard
+from skuggi import configflow, prompts, reports, setup, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, doctor_ansi
@@ -65,6 +65,9 @@ class Daemon:
                 return
             if self._is_wizard(line):
                 self._attach_wizard(read_line, emit)
+                continue
+            if self._is_setup(line):
+                self._attach_setup(read_line, emit)
                 continue
             if self._is_config_request(line):
                 self._attach_config(verbs.split_verb(line)[1], read_line, emit)
@@ -108,6 +111,27 @@ class Daemon:
                 lambda text: emit({"chunk": text + "\n"}),
                 existing=self.core.engagement,
             )
+        emit({"end": True, "exit": False})
+
+    @staticmethod
+    def _is_setup(line: str) -> bool:
+        """Whether `line` opens the interactive provider/credential setup."""
+        return verbs.split_verb(line)[0] == "setup"
+
+    def _attach_setup(
+        self,
+        read_line: Callable[[], str | None],
+        emit: Callable[[dict[str, object]], None],
+    ) -> None:
+        """Run the guided setup over the attach connection (like the wizard)."""
+
+        def ask(prompt: str) -> str | None:
+            emit({"ask": prompt})
+            return read_line()
+
+        self.core.note_interaction("setup", "")
+        with self._lock:
+            setup.run_setup(self.core, ask, lambda text: emit({"chunk": text + "\n"}))
         emit({"end": True, "exit": False})
 
     def _is_config_request(self, line: str) -> bool:
@@ -196,10 +220,12 @@ class Daemon:
             "memory": self._memory,
             "engagement": self._engagement,
             "config": self._config,
+            "setup": self._setup,
             "doctor": self._doctor,
             "mode": self._mode,
             "autonomous": self._autonomous,
             "provider": self._provider,
+            "login": self._login,
             "model": self._model,
             "thread": self._thread,
             "history": self._history,
@@ -315,6 +341,28 @@ class Daemon:
             )
             return
         yield text + "\n"
+
+    def _setup(self, _arg: str) -> Iterator[str]:
+        # Setup asks questions, so it needs the interactive attach loop; a
+        # one-shot command cannot prompt (mirrors engagement/config).
+        yield (
+            "setup is interactive: run '/skuggi' (no args) to open the chat "
+            "loop, then 'setup'\n"
+        )
+
+    def _login(self, _arg: str) -> Iterator[str]:
+        # Login only reports progress (no questions), so it runs here directly;
+        # messages are buffered then emitted once the browser flow completes.
+        messages: list[str] = []
+        try:
+            with self._lock:
+                account = self.core.login_chatgpt(messages.append)
+        except (RuntimeError, ImportError) as exc:
+            yield from (f"{m}\n" for m in messages)
+            yield f"login failed: {exc}\n"
+            return
+        yield from (f"{m}\n" for m in messages)
+        yield f"logged in to chatgpt{f' (account {account})' if account else ''}\n"
 
     def _doctor(self, arg: str) -> Iterator[str]:
         if arg.split()[:1] == ["install"]:

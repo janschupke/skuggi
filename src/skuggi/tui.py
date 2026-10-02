@@ -20,7 +20,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi import configflow, palette, prompts, reports, verbs, wizard
+from skuggi import configflow, palette, prompts, reports, setup, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.config import Settings
 from skuggi.core import AgentCore, parse_toggle
@@ -91,6 +91,8 @@ class Tui:
             "trace": self._cmd_trace,
             "engagement": self._cmd_engagement,
             "config": self._cmd_config,
+            "setup": self._cmd_setup,
+            "login": self._cmd_login,
             "run": self._cmd_run,
             "doctor": self._cmd_doctor,
             "findings": self._cmd_findings,
@@ -319,6 +321,26 @@ class Tui:
             propose=self.core.propose_config,
             apply=self.core.apply_config,
         )
+
+    def _cmd_setup(self, _arg: str) -> None:
+        """Guided provider + credential setup (the app owns the credentials)."""
+        setup.run_setup(
+            self.core,
+            self._ask,
+            lambda text: self.console.print(f"[dim]{text}[/dim]"),
+        )
+
+    def _cmd_login(self, _arg: str) -> None:
+        """Log in to a ChatGPT account via OAuth and switch to the provider."""
+        try:
+            account = self.core.login_chatgpt(
+                lambda text: self.console.print(f"[dim]{text}[/dim]")
+            )
+        except (RuntimeError, ImportError) as e:
+            self.console.print(f"[red]login failed:[/red] {e}")
+            return
+        suffix = f" (account {account})" if account else ""
+        self.console.print(f"[dim]logged in to chatgpt{suffix}[/dim]")
 
     def _cmd_doctor(self, arg: str) -> None:
         parts = arg.split()

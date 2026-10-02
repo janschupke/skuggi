@@ -28,10 +28,11 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import TypeAdapter, ValidationError
+from pydantic import SecretStr, TypeAdapter, ValidationError
 
 from skuggi import (
     __version__,
+    envfile,
     execution,
     memory,
     preferences,
@@ -77,6 +78,14 @@ from skuggi.vectorstore import Store
 from skuggi.workspace import Workspace, WorkspaceLayout
 
 _PROVIDERS = get_args(Provider)
+
+# The API-key providers: provider name -> (env-file key, Settings field). The
+# key persists to skuggi's own secret file; the field holds it on the live
+# Settings. chatgpt (OAuth) and ollama (no key) are deliberately absent.
+_API_KEY_FIELDS: dict[str, tuple[str, str]] = {
+    "openai": ("OPENAI_API_KEY", "openai_api_key"),
+    "anthropic": ("ANTHROPIC_API_KEY", "anthropic_api_key"),
+}
 
 # How much captured command output to feed the reviewer per command -- enough to
 # judge what happened without blowing the prompt budget on a noisy scan dump.
@@ -331,6 +340,57 @@ class AgentCore:
             raise ValueError(msg)
         self.model = name
         self._rebuild_llm()
+
+    # ----- guided setup: app-owned credentials (the `setup`/`login` verbs) ----
+
+    def set_api_key(self, provider: str, key: str) -> None:
+        """Persist an API key to skuggi's own secret file and use its provider.
+
+        The key goes into ``<config home>/env`` at mode 0600 (via envfile), never
+        the environment; the provider goes into ``config.json``. Both are applied
+        to the live session so the next turn uses them without a restart.
+        """
+        try:
+            env_name, field = _API_KEY_FIELDS[provider]
+        except KeyError:
+            msg = f"{provider} is not an API-key provider"
+            raise ValueError(msg) from None
+        envfile.write_secret(env_name, key)
+        write_config(config_path(), {"provider": provider})
+        self.settings = self.settings.model_copy(
+            update={field: SecretStr(key), "provider": provider}
+        )
+        self.model = None
+        self._rebuild_llm()
+
+    def use_ollama(self, base_url: str | None = None) -> None:
+        """Switch to the local Ollama provider (no credential), setting its URL."""
+        persist: dict[str, object] = {"provider": "ollama"}
+        updates: dict[str, object] = {"provider": "ollama"}
+        if base_url:
+            persist["ollama_base_url"] = base_url
+            updates["ollama_base_url"] = base_url
+        write_config(config_path(), persist)
+        self.settings = self.settings.model_copy(update=updates)
+        self.model = None
+        self._rebuild_llm()
+
+    def login_chatgpt(
+        self, notify: Callable[[str], None] = lambda _msg: None
+    ) -> str | None:
+        """Run the in-app ChatGPT OAuth login, then switch to the chatgpt provider.
+
+        Writes ``auth.json`` (owned by codex_login/CodexTokenStore), persists the
+        provider, and rebuilds the live model. Returns the account id, if any.
+        """
+        from skuggi import codex_login  # noqa: PLC0415 -- lazy: pulls the OpenAI SDK
+
+        account = codex_login.login(auth_path=self.settings.auth_json(), notify=notify)
+        write_config(config_path(), {"provider": "chatgpt"})
+        self.settings = self.settings.model_copy(update={"provider": "chatgpt"})
+        self.model = None
+        self._rebuild_llm()
+        return account
 
     def _rebuild_llm(self) -> None:
         self.llm = providers.get_chat_model(self.settings, model=self.model)

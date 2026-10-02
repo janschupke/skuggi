@@ -23,6 +23,7 @@ import base64
 import hashlib
 import json
 import secrets
+import sys
 import threading
 import webbrowser
 from collections.abc import Callable
@@ -39,7 +40,7 @@ from skuggi.codex_chat import (
     CodexAuthError,
     CodexTokenStore,
 )
-from skuggi.config import CODEX_AUTHORIZE_URL, CODEX_REFRESH_URL
+from skuggi.config import CODEX_AUTHORIZE_URL, CODEX_REFRESH_URL, Settings
 
 # codex listens on 1455 and falls back to 1457; the redirect must match exactly.
 _CALLBACK_PORTS = (1455, 1457)
@@ -315,3 +316,15 @@ def _exchange_code(  # noqa: PLR0913 -- keyword-only OAuth token-exchange fields
     if account is not None:
         tokens["account_id"] = account
     return tokens
+
+
+def main() -> None:  # pragma: no cover -- opens a real browser + OAuth
+    """Console entry (``skuggi-login``): log in to ChatGPT before starting skuggi."""
+    try:
+        login(
+            auth_path=Settings().auth_json(),
+            notify=lambda message: print(f"skuggi: {message}"),
+        )
+    except CodexAuthError as exc:
+        print(f"skuggi: login failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc

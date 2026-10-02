@@ -67,6 +67,7 @@ skuggi-init = "skuggi.init:main"
 skuggi-ingest = "skuggi.ingest:main"
 skuggi-doctor = "skuggi.doctor:main"
 skuggi-client = "skuggi.client:main"
+skuggi-login = "skuggi.codex_login:main"
 skuggi-pdf = "skuggi.pdf:main"
 skuggi-eval = "skuggi.eval.cli:main"
 
@@ -221,6 +222,8 @@ runtime-evaluated-base-classes = [
 "src/skuggi/__init__.py" = ["D104"]
 # The boot guard prints its one actionable line straight to the operator's tty.
 "src/skuggi/boot.py" = ["T201"]
+# skuggi-login (codex_login.main) reports OAuth progress to the operator's tty.
+"src/skuggi/codex_login.py" = ["T201"]
 "src/skuggi/ingest.py" = ["T201"]          # print() is this module's output
 # skuggi-init reports what it seeded/migrated to the operator's tty.
 "src/skuggi/init.py" = ["T201"]
