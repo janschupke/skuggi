@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import secrets
 import sys
 import threading
@@ -34,6 +33,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
+from skuggi.common.jwt import decode_claims
 from skuggi.common.logs import get_logger, setup_logging
 from skuggi.config.config import CODEX_AUTHORIZE_URL, CODEX_REFRESH_URL, Settings
 from skuggi.providers.codex_chat import (
@@ -107,14 +107,7 @@ def build_authorize_url(  # noqa: PLR0913 -- keyword-only OAuth parameters
 
 def jwt_claims(token: str) -> dict[str, object]:
     """Decode a JWT payload without verifying the signature (local read only)."""
-    try:
-        payload = token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
-        claims = json.loads(base64.urlsafe_b64decode(payload))
-    except (IndexError, ValueError, json.JSONDecodeError) as exc:
-        log.warning("could not decode JWT claims: %s", exc)
-        return {}
-    return claims if isinstance(claims, dict) else {}
+    return decode_claims(token)
 
 
 def account_id_from_id_token(id_token: str) -> str | None:

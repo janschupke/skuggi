@@ -26,9 +26,9 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
-from datetime import UTC, datetime
 from pathlib import Path
 
+from skuggi.common.clock import now_iso
 from skuggi.common.paths import ensure_parent
 
 _SCHEMA = """
@@ -86,10 +86,6 @@ class PreferenceRow:
     created_at: str
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
 # Column list derived from the row dataclass, so SELECT order (and the positional
 # PreferenceRow(*row) unpacking) can never drift from the field order.
 _PREF_COLS = tuple(f.name for f in fields(PreferenceRow))
@@ -127,7 +123,7 @@ class PreferenceStore:
             ).fetchone()
             if duplicate:
                 return None
-            created = _now()
+            created = now_iso()
             cur = self._conn.execute(
                 "INSERT INTO preferences (category, text, source, created_at)"
                 " VALUES (?, ?, ?, ?)",

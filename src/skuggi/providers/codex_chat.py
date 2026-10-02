@@ -19,8 +19,6 @@ Endpoint and header details follow the codex CLI:
 
 from __future__ import annotations
 
-import base64
-import binascii
 import json
 import os
 import tempfile
@@ -35,6 +33,7 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_openai import ChatOpenAI
 
 from skuggi.agent.prompts import CODEX_DEFAULT_INSTRUCTIONS
+from skuggi.common.jwt import decode_claims
 from skuggi.common.logs import get_logger
 from skuggi.config.config import CODEX_REFRESH_URL, CODEX_RESPONSES_BASE
 
@@ -55,14 +54,7 @@ def jwt_expiry(token: str) -> int | None:
     unverified claim. The exception list is exactly what the three steps below
     can raise: indexing the payload segment, base64 decoding it, and parsing it.
     """
-    try:
-        payload = token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
-        claims = json.loads(base64.urlsafe_b64decode(payload))
-    except (IndexError, ValueError, binascii.Error) as exc:
-        log.debug("could not parse JWT expiry: %s", exc)
-        return None
-    exp = claims.get("exp") if isinstance(claims, dict) else None
+    exp = decode_claims(token).get("exp")
     return (
         int(exp)
         if isinstance(exp, (int, float)) and not isinstance(exp, bool)

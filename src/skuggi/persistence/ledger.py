@@ -32,10 +32,11 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
-from datetime import UTC, datetime
 from pathlib import Path
 
+from skuggi.common.clock import now_iso
 from skuggi.common.execution import CommandResult
+from skuggi.common.paths import ensure_parent
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -185,10 +186,6 @@ def finding_line(
     return f"{severity} [{row.id}] {row.title}{link}"
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
 # Column lists derived from the row dataclasses, so SELECT order (and the
 # positional Row(*row) unpacking) can never drift from the field order. The
 # INSERT lists drop the autoincrement id.
@@ -251,7 +248,7 @@ class Ledger:
             self._conn.execute(
                 "INSERT OR IGNORE INTO sessions"
                 " (session_id, engagement_name, mode, started_at) VALUES (?, ?, ?, ?)",
-                (session_id, engagement_name, mode, _now()),
+                (session_id, engagement_name, mode, now_iso()),
             )
             self._conn.commit()
 
@@ -277,7 +274,7 @@ class Ledger:
         A matching ``command`` event is written in the same transaction, so the
         command always appears on the ordered timeline.
         """
-        started_at = result.started_at.isoformat() if result else _now()
+        started_at = result.started_at.isoformat() if result else now_iso()
         with self._lock:
             cur = self._conn.execute(
                 _insert_sql("commands", _COMMAND_COLS[1:]),
@@ -319,7 +316,7 @@ class Ledger:
         command_id: int | None = None,
     ) -> int:
         """Insert a finding row (plus its timeline event) and return its id."""
-        created_at = _now()
+        created_at = now_iso()
         with self._lock:
             cur = self._conn.execute(
                 _insert_sql("findings", _FINDING_COLS[1:]),
@@ -357,7 +354,7 @@ class Ledger:
         """Insert one timeline event. The caller holds the lock and commits."""
         cur = self._conn.execute(
             _insert_sql("events", _EVENT_COLS[1:]),
-            (session_id, thread_id, kind, ref_id, text, created_at or _now()),
+            (session_id, thread_id, kind, ref_id, text, created_at or now_iso()),
         )
         return int(cur.lastrowid or 0)
 
@@ -398,7 +395,7 @@ class Ledger:
         with self._lock:
             cur = self._conn.execute(
                 _insert_sql("audit", _AUDIT_COLS[1:]),
-                (session_id, kind, verb, detail, _now()),
+                (session_id, kind, verb, detail, now_iso()),
             )
             self._conn.commit()
             return int(cur.lastrowid or 0)
@@ -494,10 +491,10 @@ def open_ledger(path: Path) -> Iterator[Ledger]:
 
     Hold this open for the lifetime of the session, like the checkpointer.
     """
-    path.expanduser().parent.mkdir(parents=True, exist_ok=True)
+    expanded = ensure_parent(path)
     # check_same_thread=False because graph nodes (and thus ledger-writing tools)
     # run on a worker-thread pool; Ledger serializes every access with a lock.
-    conn = sqlite3.connect(str(path.expanduser()), check_same_thread=False)
+    conn = sqlite3.connect(str(expanded), check_same_thread=False)
     try:
         yield Ledger(conn)
     finally:
