@@ -116,7 +116,9 @@ def test_slash_visualize_writes(daemon: Daemon) -> None:
 def test_slash_report_pdf_writes_both(
     daemon: Daemon, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fake_markdown_to_pdf(md_text: str, out: Path, *, title: str) -> Path:
+    def fake_markdown_to_pdf(
+        md_text: str, out: Path, *, title: str, generated_label: str | None = None
+    ) -> Path:
         out.write_bytes(b"%PDF-fake")
         return out
 

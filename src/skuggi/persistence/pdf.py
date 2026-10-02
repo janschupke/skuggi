@@ -97,8 +97,17 @@ def _tint_severity_headings(html: str) -> str:
     return re.sub(r"<h3>(?P<body>(?P<word>[A-Za-z]+)[^<]*)</h3>", repl, html)
 
 
-def markdown_to_html(md_text: str, *, title: str) -> str:
-    """Render Markdown to a standalone, print-styled HTML document."""
+def markdown_to_html(
+    md_text: str, *, title: str, generated_label: str | None = None
+) -> str:
+    """Render Markdown to a standalone, print-styled HTML document.
+
+    ``generated_label`` is the footer "generated at" line. The report pipeline
+    passes the same label it stamped into the Markdown body (in the engagement
+    timezone) so the footer agrees with the document. When omitted -- the
+    standalone ``skuggi-pdf`` CLI, which has no engagement -- it falls back to a
+    UTC stamp computed here.
+    """
     # autoescape keeps the (user-derived) title safe; the CSS assets and the
     # rendered body are our own trusted HTML. The parser runs with html=False
     # (the commonmark default), so raw HTML in the Markdown source is escaped,
@@ -106,11 +115,13 @@ def markdown_to_html(md_text: str, *, title: str) -> str:
     body = _tint_severity_headings(_make_parser().render(md_text))
     env = Environment(autoescape=select_autoescape(default=True))
     template = env.from_string(_asset_text(_TEMPLATE_NAME))
-    generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    if generated_label is None:
+        generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        generated_label = f"Generated {generated}"
     return template.render(
         title=title,
         brand=f"{palette.SHIELD} skuggi",
-        generated_label=f"Generated {generated}",
+        generated_label=generated_label,
         base_css=Markup(_asset_text(_STYLESHEET_NAME)),  # noqa: S704
         pygments_css=Markup(_pygments_css()),  # noqa: S704
         severity_tokens={s: palette.severity_hex(s) for s in palette.severities()},
@@ -135,9 +146,15 @@ def render_pdf(html: str, out: Path) -> Path:
     return out
 
 
-def markdown_to_pdf(md_text: str, out: Path, *, title: str) -> Path:
-    """Render Markdown straight to a styled PDF at ``out``."""
-    return render_pdf(markdown_to_html(md_text, title=title), out)
+def markdown_to_pdf(
+    md_text: str, out: Path, *, title: str, generated_label: str | None = None
+) -> Path:
+    """Render Markdown straight to a styled PDF at ``out``.
+
+    ``generated_label`` is forwarded to the footer; see :func:`markdown_to_html`.
+    """
+    html = markdown_to_html(md_text, title=title, generated_label=generated_label)
+    return render_pdf(html, out)
 
 
 def default_title(md_text: str, fallback: str) -> str:

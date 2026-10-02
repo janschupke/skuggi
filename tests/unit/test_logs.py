@@ -9,6 +9,8 @@ writing to the developer's real data home.
 from __future__ import annotations
 
 import logging
+import re
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -110,3 +112,28 @@ def test_log_exception_captures_a_traceback(tmp_path: Path) -> None:
 def test_noisy_libraries_are_capped_at_warning() -> None:
     logs.setup_logging(level=logging.DEBUG)
     assert logging.getLogger("httpx").level == logging.WARNING
+
+
+def test_the_handler_timestamps_in_utc() -> None:
+    # The diagnostic log must line up with the UTC ledger: asctime defaults to
+    # local time, so the formatter has to convert via time.gmtime.
+    logs.setup_logging(level=logging.DEBUG)
+    handler = next(
+        h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)
+    )
+    assert handler.formatter is not None
+    assert handler.formatter.converter is time.gmtime
+
+
+def test_a_log_line_carries_a_utc_z_timestamp() -> None:
+    path = logs.setup_logging(level=logging.DEBUG)
+    logs.get_logger("skuggi.test").error("stamp-canary")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    line = next(
+        ln
+        for ln in path.read_text(encoding="utf-8").splitlines()
+        if "stamp-canary" in ln
+    )
+    # Leading ISO-8601 UTC timestamp ending in Z, e.g. 2026-10-02T14:30:00Z.
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z ", line)

@@ -76,7 +76,13 @@ def score_compliance_case(
     """Guard the case's command against its scope and score the verdict."""
     scope = scopes[case.scope_ref]
     parsed = parse_command(case.command, registry)
-    verdict = check_command(parsed, scope, now=datetime.fromisoformat(case.now))
+    now = datetime.fromisoformat(case.now)
+    if now.tzinfo is None:
+        # The guard compares against timezone-aware bounds; a naive fixture clock
+        # would otherwise surface as an opaque TypeError deep in check_command.
+        msg = f"compliance case {case.id!r}: 'now' must be timezone-aware: {case.now!r}"
+        raise ValueError(msg)
+    verdict = check_command(parsed, scope, now=now)
     return guard_compliance(verdict, case)
 
 

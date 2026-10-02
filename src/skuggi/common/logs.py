@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -40,6 +41,11 @@ _MAX_BYTES = 5 * 1024 * 1024
 _BACKUP_COUNT = 5
 
 _FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+# UTC, ISO-8601 with an explicit ``Z`` -- so the diagnostic log lines up with the
+# UTC ledger/preferences timestamps instead of drifting by the host's offset. The
+# formatter's ``converter`` (set to ``time.gmtime`` below) is what actually makes
+# ``%(asctime)s`` render in UTC; ``%(asctime)s`` defaults to ``time.localtime``.
+_DATEFMT = "%Y-%m-%dT%H:%M:%SZ"
 
 # Env knobs. ``SKUGGI_LOG_LEVEL`` takes a level name or number; ``SKUGGI_DEBUG``
 # (the existing traceback toggle read in ``skuggi.boot``) forces DEBUG.
@@ -117,7 +123,9 @@ def setup_logging(path: Path | None = None, level: int | None = None) -> Path:
             backupCount=_BACKUP_COUNT,
             encoding="utf-8",
         )
-        handler.setFormatter(logging.Formatter(_FORMAT))
+        formatter = logging.Formatter(_FORMAT, datefmt=_DATEFMT)
+        formatter.converter = time.gmtime
+        handler.setFormatter(formatter)
         setattr(handler, _MARKER, True)
         root.addHandler(handler)
     existing_or_new = next(h for h in root.handlers if getattr(h, _MARKER, False))

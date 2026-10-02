@@ -8,8 +8,24 @@ from pathlib import Path
 import pytest
 
 from skuggi.common.execution import CommandResult
+from skuggi.engagement.engagement import EngagementConfig
+from skuggi.persistence import pdf as pdf_mod
 from skuggi.persistence.ledger import Ledger, open_ledger
-from skuggi.persistence.reports import render_report, write_report
+from skuggi.persistence.reports import _local_stamp, render_report, write_report
+
+
+def _engagement(timezone: str = "Europe/Helsinki") -> EngagementConfig:
+    return EngagementConfig.model_validate(
+        {
+            "name": "acme ext",
+            "timezone": timezone,
+            "authorized_start": datetime(2026, 1, 1, tzinfo=UTC),
+            "authorized_end": datetime(2026, 12, 31, 23, 59, tzinfo=UTC),
+            "allowed_hosts": frozenset({"scanme.example.com"}),
+            "allowed_tools": frozenset({"nmap"}),
+            "allowed_methods": frozenset({"scan"}),
+        }
+    )
 
 
 def _seed(led: Ledger) -> None:
@@ -64,6 +80,86 @@ def test_write_report_creates_a_markdown_file(tmp_path: Path) -> None:
     assert path.parent == reports
     assert path.suffix == ".md"
     assert "SSH exposed" in path.read_text(encoding="utf-8")
+
+
+def test_local_stamp_converts_a_utc_string_to_the_engagement_zone() -> None:
+    eng = _engagement("Europe/Helsinki")
+    # Summer: Helsinki is EEST, UTC+3. 11:30Z -> 14:30 local.
+    summer = _local_stamp("2026-07-01T11:30:00+00:00", eng)
+    assert summer == "2026-07-01 14:30:00 EEST (+03:00)"
+    # Winter: Helsinki is EET, UTC+2. 11:30Z -> 13:30 local.
+    winter = _local_stamp("2026-01-15T11:30:00+00:00", eng)
+    assert winter == "2026-01-15 13:30:00 EET (+02:00)"
+
+
+def test_local_stamp_stays_utc_without_an_engagement() -> None:
+    stamp = _local_stamp("2026-07-01T11:30:00+00:00", None)
+    assert stamp == "2026-07-01 11:30:00 UTC (+00:00)"
+
+
+def test_local_stamp_treats_a_naive_string_as_utc() -> None:
+    # The ledger never writes a naive string; the display must still be total.
+    stamp = _local_stamp("2026-07-01T11:30:00", None)
+    assert stamp == "2026-07-01 11:30:00 UTC (+00:00)"
+
+
+def test_report_renders_timestamps_in_the_engagement_timezone(tmp_path: Path) -> None:
+    eng = _engagement("Europe/Helsinki")
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme ext", mode="pentest")
+        moment = datetime(2026, 7, 1, 11, 30, tzinfo=UTC)
+        result = CommandResult("nmap 10.0.0.5", 0, "open", "", moment, moment)
+        led.record_command(
+            session_id="s1",
+            thread_id="t1",
+            command="nmap 10.0.0.5",
+            binary="nmap",
+            method="scan",
+            status="executed",
+            result=result,
+        )
+        session = led.session("s1")
+        assert session is not None
+        report = render_report(
+            session,
+            led.commands_for("s1"),
+            led.findings_for("s1"),
+            engagement=eng,
+            generated_label=_local_stamp("2026-07-01T12:00:00+00:00", eng),
+        )
+    assert "Times shown in: Europe/Helsinki" in report
+    # The command-log "when" column is converted to Helsinki summer time.
+    assert "2026-07-01 14:30:00 EEST (+03:00)" in report
+    assert "Generated: 2026-07-01 15:00:00 EEST (+03:00)" in report
+
+
+def test_write_report_shares_one_generated_stamp_with_the_pdf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The Markdown body and the PDF footer must carry the SAME generated-at label,
+    # so a later re-render cannot drift. We capture what reaches markdown_to_pdf.
+    captured: dict[str, object] = {}
+
+    def _fake_pdf(md_text: str, out: Path, *, title: str, generated_label: str) -> Path:
+        captured["label"] = generated_label
+        captured["body"] = md_text
+        out.write_bytes(b"%PDF-1.4 fake")
+        return out
+
+    monkeypatch.setattr(pdf_mod, "markdown_to_pdf", _fake_pdf)
+    reports = tmp_path / "reports"
+    eng = _engagement("Europe/Helsinki")
+    with open_ledger(tmp_path / "l.db") as led:
+        _seed(led)
+        result = write_report("s1", led, reports, engagement=eng, pdf=True)
+    assert isinstance(result, tuple)
+    label = captured["label"]
+    assert isinstance(label, str)
+    # Footer label is "Generated <stamp>"; the body carries the same <stamp>.
+    body = captured["body"]
+    assert isinstance(body, str)
+    assert label.startswith("Generated ")
+    assert f"- Generated: {label.removeprefix('Generated ')}" in body
 
 
 def test_write_report_without_a_session_raises(tmp_path: Path) -> None:

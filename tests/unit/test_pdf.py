@@ -64,6 +64,22 @@ def test_markdown_to_html_renders_gfm_pygments_and_palette_tokens() -> None:
     assert "<h3>Overview</h3>" in html
 
 
+def test_markdown_to_html_uses_a_given_generated_label() -> None:
+    html = pdf.markdown_to_html(
+        _SAMPLE,
+        title="t",
+        generated_label="Generated 2026-07-01 14:30:00 EEST (+03:00)",
+    )
+    assert "Generated 2026-07-01 14:30:00 EEST (+03:00)" in html
+
+
+def test_markdown_to_html_falls_back_to_a_utc_label() -> None:
+    # The standalone skuggi-pdf CLI has no engagement, so the footer is UTC.
+    html = pdf.markdown_to_html(_SAMPLE, title="t")
+    assert "Generated " in html
+    assert "UTC" in html
+
+
 def test_highlight_falls_back_for_unknown_and_plain_fences() -> None:
     unknown = pdf.markdown_to_html("```notalang\nx = 1\n```\n", title="t")
     assert '<pre class="highlight">' not in unknown
@@ -144,7 +160,9 @@ def test_write_report_pdf_flag_returns_both_paths(
 ) -> None:
     captured: dict[str, object] = {}
 
-    def fake_markdown_to_pdf(md_text: str, out: Path, *, title: str) -> Path:
+    def fake_markdown_to_pdf(
+        md_text: str, out: Path, *, title: str, generated_label: str | None = None
+    ) -> Path:
         captured["title"] = title
         captured["has_finding"] = "SSH exposed" in md_text
         out.write_bytes(b"%PDF-fake")
