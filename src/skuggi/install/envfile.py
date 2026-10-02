@@ -19,6 +19,8 @@ from skuggi.common.paths import ensure_parent
 
 # A dotenv assignment line: KEY= ... . Comments and blanks are preserved as-is.
 _ASSIGNMENT = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_]*)=")
+# A valid dotenv key on its own (the assignment pattern without the trailing =).
+_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def write_secret(name: str, value: str, *, path: Path | None = None) -> Path:
@@ -30,6 +32,13 @@ def write_secret(name: str, value: str, *, path: Path | None = None) -> Path:
     narrow the mode -- a secret must never be left world-readable. Returns the
     path written.
     """
+    if not _KEY.match(name):
+        msg = f"invalid env key: {name!r}"
+        raise ValueError(msg)
+    if "\n" in value or "\r" in value:
+        # A newline would inject additional KEY=VALUE lines into the dotenv file.
+        msg = "env value must not contain a newline"
+        raise ValueError(msg)
     target = (path or home.env_path()).expanduser()
     ensure_parent(target)
     existing = (

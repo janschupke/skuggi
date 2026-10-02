@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from skuggi.engagement.workspace import Workspace, WorkspaceLayout
 
 
@@ -56,3 +58,19 @@ def test_layout_override_changes_paths(tmp_path: Path) -> None:
     assert ws.reports_dir == ws.root / "out"
     assert ws.recon_dir == ws.root / "scans"
     assert (ws.root / "out").is_dir()
+
+
+# --- S5: an engagement name must not traverse out of engagements_dir --------
+
+
+@pytest.mark.parametrize(
+    "bad", ["../../tmp/x", "/etc/skuggi", "a/b", "..", "~root", "", ".hidden"]
+)
+def test_for_engagement_rejects_an_unsafe_name(tmp_path: Path, bad: str) -> None:
+    with pytest.raises(ValueError, match="engagement name"):
+        Workspace.for_engagement(tmp_path, bad)
+
+
+def test_for_engagement_accepts_a_safe_name(tmp_path: Path) -> None:
+    ws = Workspace.for_engagement(tmp_path, "acme-2026")
+    assert ws.root == tmp_path / "acme-2026"

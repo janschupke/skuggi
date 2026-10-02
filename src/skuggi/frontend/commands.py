@@ -25,8 +25,9 @@ from __future__ import annotations
 
 import shlex
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
+from skuggi.common.text import safe_cmd_fragment
 from skuggi.tooling.registry import ToolRegistry
 
 # Literal shell expressions preserved in the rendered command (the operator's
@@ -56,6 +57,24 @@ class CommandAlias(BaseModel):
     output_flag: str | None = None
     output_dir: str | None = None
     output_extra: tuple[str, ...] = ()
+
+    @field_validator("label")
+    @classmethod
+    def _safe_label(cls, value: str) -> str:
+        # Rendered UNQUOTED into the command; a bare filename label only.
+        return safe_cmd_fragment(value, field="label", strict=True) or ""
+
+    @field_validator("output_flag", "output_dir")
+    @classmethod
+    def _safe_output_field(cls, value: str | None) -> str | None:
+        return safe_cmd_fragment(value, field="output field")
+
+    @field_validator("output_extra")
+    @classmethod
+    def _safe_output_extra(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for item in value:
+            safe_cmd_fragment(item, field="output_extra")
+        return value
 
     def resolve(self, extra: list[str]) -> list[str]:
         """The full argv: the base plus the operator's extra arguments."""

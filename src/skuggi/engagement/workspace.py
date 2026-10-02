@@ -17,12 +17,28 @@ idempotent and the only thing that writes directories.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
 from skuggi.common.paths import ensure_dir
+
+# An engagement name becomes a directory under ``engagements/``. It is an
+# identity, not free text: restrict it to one path segment of safe characters so
+# a name like ``../../tmp/x`` or ``/etc/skuggi`` cannot escape the workspace
+# root (``engagements_dir / name`` would otherwise traverse, and an absolute
+# name makes ``/`` discard the base entirely).
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def safe_engagement_name(name: str) -> str:
+    """Return `name` if it is a single safe path segment, else raise ValueError."""
+    if ".." in name or not _SAFE_NAME.match(name):
+        msg = f"invalid engagement name: {name!r}"
+        raise ValueError(msg)
+    return name
 
 
 class WorkspaceLayout(BaseModel):
@@ -69,9 +85,14 @@ class Workspace:
     def for_engagement(
         cls, engagements_dir: Path, name: str, *, layout: WorkspaceLayout | None = None
     ) -> Workspace:
-        """The workspace for `name` under `engagements_dir`."""
+        """The workspace for `name` under `engagements_dir`.
+
+        `name` is validated as a single safe path segment so it cannot traverse
+        out of ``engagements_dir`` -- this is the one choke point both
+        ``create_engagement`` and ``skuggi-visualize`` route through.
+        """
         return cls(
-            root=engagements_dir.expanduser() / name,
+            root=engagements_dir.expanduser() / safe_engagement_name(name),
             layout=layout or WorkspaceLayout(),
         )
 

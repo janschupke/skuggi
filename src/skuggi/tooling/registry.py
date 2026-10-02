@@ -19,7 +19,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, NamedTuple
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from skuggi.common.text import safe_cmd_fragment
 
 # How a tool's output flag wants its path shaped: a basename *prefix* (nmap
 # ``-oA scan`` writes ``scan.nmap``/``.gnmap``/``.xml``), a single *file*
@@ -59,6 +61,19 @@ class ToolSpec(BaseModel):
     output_extra: tuple[str, ...] = ()
     output_kind: OutputKind = "prefix"
     output_ext: str | None = None
+
+    @field_validator("output_flag", "output_dir")
+    @classmethod
+    def _safe_output_field(cls, value: str | None) -> str | None:
+        # Rendered UNQUOTED into the cheatsheet command (see commands.render).
+        return safe_cmd_fragment(value, field="output field")
+
+    @field_validator("output_extra")
+    @classmethod
+    def _safe_output_extra(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for item in value:
+            safe_cmd_fragment(item, field="output_extra")
+        return value
 
 
 class ToolRegistry(BaseModel):

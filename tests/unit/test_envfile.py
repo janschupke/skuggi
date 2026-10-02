@@ -5,6 +5,8 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
+import pytest
+
 from skuggi.install import envfile
 
 
@@ -43,3 +45,18 @@ def test_narrows_a_previously_widened_file(tmp_path: Path) -> None:
     target.chmod(0o644)  # a file an earlier version left world-readable
     envfile.write_secret("OPENAI_API_KEY", "sk-new", path=target)
     assert stat.S_IMODE(target.stat().st_mode) & 0o077 == 0
+
+
+# --- S10: a secret value/name must not inject extra dotenv lines ------------
+
+
+def test_rejects_a_newline_in_the_value(tmp_path: Path) -> None:
+    target = tmp_path / "env"
+    with pytest.raises(ValueError, match="newline"):
+        envfile.write_secret("API_KEY", "a\nINJECTED=b", path=target)
+    assert not target.exists()  # nothing written on rejection
+
+
+def test_rejects_an_invalid_key(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="invalid env key"):
+        envfile.write_secret("bad name", "x", path=tmp_path / "env")
