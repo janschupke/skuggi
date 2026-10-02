@@ -395,7 +395,7 @@ def test_attach_config_request_confirms_and_applies(
     # The LLM proposal is unit-tested in test_core; stub it so the attach flow
     # (propose -> confirm -> apply, applied to the warm core) is what's exercised.
     monkeypatch.setattr(
-        daemon.core, "propose_config", lambda _request: [("mode", "blueteam")]
+        daemon.core.config, "propose", lambda _request: [("mode", "blueteam")]
     )
     # The confirm is a menu now: the daemon emits a {"choose"} frame and the
     # client sends back the selected option ("yes").

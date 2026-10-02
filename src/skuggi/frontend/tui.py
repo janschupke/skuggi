@@ -349,7 +349,7 @@ class Tui:
         )
 
     def _cmd_config(self, arg: str) -> None:
-        text = self.core.config_line(arg)
+        text = self.core.config.line(arg)
         if text is not None:  # show / mechanical key-value
             self.console.print(text)
             return
@@ -357,8 +357,8 @@ class Tui:
             arg,
             choose=self._choose,
             notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
-            propose=self.core.propose_config,
-            apply=self.core.apply_config,
+            propose=self.core.config.propose,
+            apply=self.core.config.apply,
         )
 
     def _cmd_setup(self, _arg: str) -> None:

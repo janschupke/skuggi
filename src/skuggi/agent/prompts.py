@@ -3,7 +3,7 @@
 Prompts used to be scattered: the planner/worker/critic sets lived in
 ``modes.py``, but the reviewer brief and the automatic-memory extractor brief
 were inline constants in ``core.py``, the ``config`` verb's instruction was built
-inside ``AgentCore.propose_config``, the "briefly evaluate this command" turn was
+inside ``core.config.propose``, the "briefly evaluate this command" turn was
 duplicated verbatim in both front-ends, and codex's default ``instructions`` sat
 in ``codex_chat.py``. This module is the single source; ``modes.py`` is now a thin
 re-export shim so existing ``from skuggi.agent.modes import ...`` imports keep working.

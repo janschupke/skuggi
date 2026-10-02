@@ -22,26 +22,21 @@ from pathlib import Path
 from typing import Any, Literal, cast, get_args
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import SecretStr, ValidationError
 
-from skuggi.agent import prompts
 from skuggi.agent.commandbook import CommandBook
+from skuggi.agent.config_controller import ConfigController
 from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.preferencebook import PreferenceBook
-from skuggi.agent.protocol import (
-    ConfigProposal,
-    structured_invoke,
-)
 from skuggi.agent.session_archive import SessionArchive
 from skuggi.agent.state import AgentState
 from skuggi.agent.tooldoctor import ToolDoctor
 from skuggi.common import logs
-from skuggi.config import editing
 from skuggi.config.config import (
     Provider,
     Settings,
@@ -154,6 +149,7 @@ class AgentCore:
         self.cmds = CommandBook(self)
         self.journal = Journal(self)
         self.memory = PreferenceBook(self)
+        self.config = ConfigController(self)
 
     # ----- config + workspace ------------------------------------------------
 
@@ -459,85 +455,6 @@ class AgentCore:
         return self.engagement
 
     # ----- app config (the `config` verb) ------------------------------------
-
-    @staticmethod
-    def settable_config_keys() -> frozenset[str]:
-        """Config keys the operator may edit -- every setting except secrets."""
-        return editing.settable_keys()
-
-    def config_summary(self) -> str:
-        """Every setting, one per line, with credentials redacted."""
-        return editing.render_summary(self.settings)
-
-    def config_line(self, arg: str) -> str | None:
-        """Handle the mechanical `config` forms; None means "escalate to the LLM".
-
-        ``config`` / ``config show`` prints the settings; ``config <key> <value>``
-        for a known setting applies it. A first word that is not a setting is a
-        natural-language request, which the interactive front-end escalates.
-        """
-        key, _, rest = arg.strip().partition(" ")
-        if not key or key == "show":
-            return self.config_summary()
-        if key not in self.settable_config_keys():
-            return None
-        value = rest.strip()
-        if not value:
-            return f"usage: config {key} <value>"
-        return self.apply_config(key, value)
-
-    def apply_config(self, key: str, value: str) -> str:
-        """Validate, persist and (where possible) hot-apply one setting.
-
-        Coerces `value` to the field's type, writes it to ``configs/config.json``
-        (never a secret), and applies ``provider``/``mode`` to the live session;
-        other keys persist and take effect on restart.
-        """
-        result = editing.coerce_value(key, value)
-        if isinstance(result, str):
-            return result
-        json_value = result.json_value
-        write_config(config_path(), {key: json_value})
-        try:
-            if key == "provider":
-                self.set_provider(str(result.value))
-                applied = True
-            elif key == "mode":
-                self.set_mode(str(result.value))
-                applied = True
-            else:
-                self.settings = self.settings.model_copy(update={key: result.value})
-                applied = False
-        except (ValueError, RuntimeError, ImportError) as exc:
-            return f"config: {key} written, but the live switch failed: {exc}"
-        tail = "applied live" if applied else "written; restart to apply"
-        return f"config: {key} = {json_value} ({tail})"
-
-    def propose_config(self, request: str) -> list[tuple[str, str]]:
-        """Ask the LLM to map a natural-language request to config edits.
-
-        Returns only proposals whose key is an editable setting; the front-end
-        shows them and applies on confirmation. Never proposes a secret. The reply
-        is a strict ``ConfigProposal``, so no free-text key=value parsing.
-        """
-        keys = ", ".join(sorted(self.settable_config_keys()))
-        proposal = structured_invoke(
-            self._ensure_llm(),
-            ConfigProposal,
-            [
-                SystemMessage(
-                    content=prompts.PROPOSE_CONFIG_INSTRUCTION.format(keys=keys)
-                ),
-                HumanMessage(content=request),
-            ],
-            native=self.settings.supports_structured_output(),
-        )
-        settable = self.settable_config_keys()
-        return [
-            (edit.key.strip(), edit.value.strip())
-            for edit in proposal.edits
-            if edit.key.strip() in settable
-        ]
 
     # ----- self-update (the `update` verb) -----------------------------------
 

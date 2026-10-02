@@ -220,7 +220,7 @@ class Daemon:
         parts = rest.split(maxsplit=1)
         if not parts or parts[0] == "show":
             return False
-        return parts[0] not in self.core.settable_config_keys()
+        return parts[0] not in self.core.config.settable_keys()
 
     def _attach_config(
         self,
@@ -240,8 +240,8 @@ class Daemon:
                 arg,
                 choose=choose,
                 notify=lambda text: emit({"chunk": text + "\n"}),
-                propose=self.core.propose_config,
-                apply=self.core.apply_config,
+                propose=self.core.config.propose,
+                apply=self.core.config.apply,
             )
         emit({"end": True, "exit": False})
 
@@ -447,7 +447,7 @@ class Daemon:
             yield f"no engagement loaded -- run {hint} to create one\n"
 
     def _config(self, arg: str) -> Iterator[str]:
-        text = self.core.config_line(arg)
+        text = self.core.config.line(arg)
         if text is None:  # a natural-language request; needs the interactive loop
             yield (
                 f"a natural-language config request is interactive -- run "

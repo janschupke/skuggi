@@ -1,7 +1,7 @@
 """The interactive half of the `config` verb: confirm an LLM-proposed edit.
 
 The mechanical forms (``config show`` / ``config <key> <value>``) are answered
-synchronously by ``AgentCore.config_line`` and need no front-end help. A
+synchronously by ``core.config.line`` and need no front-end help. A
 natural-language request escalates: the core proposes ``key=value`` edits, and
 this shared driver -- front-end-agnostic, like ``wizard`` -- shows them, asks
 the operator to confirm through the supplied ``ask`` callable (the REPL's

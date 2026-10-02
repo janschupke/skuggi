@@ -349,19 +349,19 @@ def test_config_summary_redacts_secrets(core: AgentCore) -> None:
     core.settings = core.settings.model_copy(
         update={"openai_api_key": SecretStr("sk-super-secret")}
     )
-    summary = core.config_summary()
+    summary = core.config.summary()
     assert "sk-super-secret" not in summary
     assert "provider = ollama" in summary
 
 
 def test_config_line_show_and_escalation(core: AgentCore) -> None:
-    assert "provider = ollama" in (core.config_line("show") or "")
-    assert core.config_line("") is not None  # empty == show
-    assert core.config_line("please make retrieval faster") is None  # NL -> escalate
+    assert "provider = ollama" in (core.config.line("show") or "")
+    assert core.config.line("") is not None  # empty == show
+    assert core.config.line("please make retrieval faster") is None  # NL -> escalate
 
 
 def test_apply_config_hot_applies_mode(core: AgentCore) -> None:
-    msg = core.apply_config("mode", "blueteam")
+    msg = core.config.apply("mode", "blueteam")
     assert "applied live" in msg
     assert core.mode == "blueteam"
     persisted = json.loads(config_path().read_text(encoding="utf-8"))
@@ -369,21 +369,21 @@ def test_apply_config_hot_applies_mode(core: AgentCore) -> None:
 
 
 def test_apply_config_persists_and_notes_restart(core: AgentCore) -> None:
-    msg = core.apply_config("retrieve_k", "9")
+    msg = core.config.apply("retrieve_k", "9")
     assert "restart" in msg
     assert core.settings.retrieve_k == 9
 
 
 def test_apply_config_rejects_bad_value(core: AgentCore) -> None:
-    assert "invalid" in core.apply_config("retrieve_k", "not-an-int")
+    assert "invalid" in core.config.apply("retrieve_k", "not-an-int")
 
 
 def test_apply_config_refuses_secret_key(core: AgentCore) -> None:
-    assert "secret" in core.apply_config("openai_api_key", "sk-x")
+    assert "secret" in core.config.apply("openai_api_key", "sk-x")
 
 
 def test_apply_config_unknown_key(core: AgentCore) -> None:
-    assert "unknown" in core.apply_config("nope", "x")
+    assert "unknown" in core.config.apply("nope", "x")
 
 
 def test_propose_config_returns_structured_edits(core: AgentCore) -> None:
@@ -399,7 +399,7 @@ def test_propose_config_returns_structured_edits(core: AgentCore) -> None:
             )
         ),
     )
-    proposals = core.propose_config("faster and use anthropic")
+    proposals = core.config.propose("faster and use anthropic")
     assert ("retrieve_k", "8") in proposals
     assert ("provider", "anthropic") in proposals
     assert len(proposals) == 2  # the unknown key is dropped
