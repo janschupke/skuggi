@@ -164,6 +164,11 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
 
 _PROMPT = "🐐 skuggi> "
 
+# Verbs that drive an interactive round-trip and so need an attach session rather
+# than a one-shot request: setup (prompts + menus), engagement (the wizard), and
+# login (streams OAuth progress). Everything else stays one-shot.
+_INTERACTIVE_VERBS = frozenset({"setup", "engagement", "login"})
+
 
 def _stream_turn(
     frames: Iterator[bytes],
@@ -247,11 +252,57 @@ def attach(  # pragma: no cover -- interactive loop over a real socket
         return 1
 
 
+def attach_once_over(
+    conn: socket.socket,
+    text: str,
+    prompt_in: Callable[[str], str | None],
+    out: TextIO,
+) -> int:
+    """Run ONE interactive verb over an open connection, then return.
+
+    Like ``run_over`` but attaches first, so the daemon routes the verb through
+    its interactive handlers (setup/wizard) and its ``{"ask"}``/``{"choose"}``
+    round-trips reach the operator. Used for ``/skuggi setup`` &c. -- the verb
+    runs to completion and control returns to the shell (it does not drop into
+    the persistent chat loop). Split from ``attach_once`` so it is testable over
+    a plain socket pair.
+    """
+    conn.sendall((json.dumps({"op": "attach", "mode": "once"}) + "\n").encode())
+    frames = _iter_lines(conn)
+    conn.sendall((json.dumps(build_message(text)) + "\n").encode())
+    # These verbs never signal a shell exit; a True here means the operator
+    # aborted (Ctrl-C), which returns to the shell just the same.
+    _stream_turn(frames, out, conn=conn, ask=prompt_in)
+    return 0
+
+
+def attach_once(  # pragma: no cover -- opens a real socket
+    sock_path: str, text: str, prompt_in: Callable[[str], str | None], out: TextIO
+) -> int:
+    """Connect to the daemon and run one interactive verb (see ``attach_once_over``)."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.connect(sock_path)
+            return attach_once_over(conn, text, prompt_in, out)
+    except KeyboardInterrupt:
+        out.write("\n")
+        return 0
+    except OSError as e:
+        print(f"skuggi: cannot reach the harness: {e}", file=sys.stderr)
+        return 1
+
+
 def _stdin_prompt(prompt: str) -> str | None:  # pragma: no cover -- real terminal
-    """Read one line from the operator with `prompt`, returning ``None`` on EOF."""
+    """Read one line from the operator, returning ``None`` on EOF or Ctrl-C.
+
+    Ctrl-C must abort the current prompt (a wizard/setup question) cleanly, not
+    tear the client down with a traceback: returning ``None`` makes the flow
+    cancel and the connection close, which the daemon reads as an abort.
+    """
     try:
         return input(prompt)
-    except EOFError:
+    except (EOFError, KeyboardInterrupt):
+        print()  # move off the prompt line so the next output is clean
         return None
 
 
@@ -266,6 +317,11 @@ def main() -> int:  # pragma: no cover -- console entry point
         return record(sock_path, " ".join(args[1:]))
     if not args:  # bare `/skuggi` -> attach an interactive loop to the warm daemon
         return attach(sock_path, _stdin_prompt, sys.stdout)
+    if args[0] in _INTERACTIVE_VERBS:
+        # Verbs that prompt (setup, the engagement wizard, login progress) need an
+        # attach session so their ask/choose round-trips reach the operator --
+        # `/skuggi setup` runs the flow instead of being refused as one-shot.
+        return attach_once(sock_path, " ".join(args), _stdin_prompt, sys.stdout)
     return run(sock_path, " ".join(args), sys.stdout)
 
 

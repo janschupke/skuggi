@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import builtins
 import io
 import json
 import socket
 from typing import cast
 
+import pytest
+
 from skuggi.client import (
+    _stdin_prompt,
     _stream_turn,
+    attach_once_over,
     attach_over,
     build_message,
     build_record_message,
@@ -214,3 +219,35 @@ def test_stream_turn_leaves_loop_when_wizard_aborted() -> None:
         frames, out, conn=cast(socket.socket, conn), ask=lambda _q: None
     )  # abort -> leave
     assert conn.sent == []  # nothing sent; the socket close aborts the daemon
+
+
+# --- attach_once (interactive verbs like /skuggi setup) ---------------------
+
+
+def test_attach_once_over_runs_one_verb_then_returns() -> None:
+    conn = _FakeConn(
+        {"setup": _reply({"chunk": "done\n"}, {"end": True, "exit": False})}
+    )
+    out = io.StringIO()
+    code = attach_once_over(_as_socket(conn), "setup", lambda _p: None, out)
+    assert code == 0
+    assert out.getvalue() == "done\n"
+
+
+def test_attach_once_over_aborts_cleanly_when_prompt_cancelled() -> None:
+    # An ask frame whose prompt the operator cancels (Ctrl-C -> None): the verb
+    # aborts and control returns to the shell (0), never a shell exit.
+    conn = _FakeConn({"setup": _reply({"ask": "provider? "})})
+    out = io.StringIO()
+    code = attach_once_over(_as_socket(conn), "setup", lambda _p: None, out)
+    assert code == 0
+
+
+def test_stdin_prompt_returns_none_on_interrupt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise(_prompt: str) -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(builtins, "input", _raise)
+    assert _stdin_prompt("provider? ") is None  # no traceback escapes
