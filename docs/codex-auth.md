@@ -1,7 +1,9 @@
 # Codex auth (the `openai` and `chatgpt` providers)
 
-`~/.codex/auth.json` is written by the OpenAI `codex` CLI after `codex login`.
-It can be in one of two shapes.
+`~/.codex/auth.json` holds the OpenAI/ChatGPT credentials. skuggi writes it
+itself — run `/setup` → `chatgpt`, or `/login`, or `skuggi-login` before
+starting — so you do not need the external `codex` CLI (the same file the codex
+CLI writes is read back unchanged). It can be in one of two shapes.
 
 ## API-key mode (`openai` provider)
 
@@ -17,7 +19,7 @@ works too.
 
 ## ChatGPT-account mode (`chatgpt` provider)
 
-After the browser-based ChatGPT login:
+After the browser-based ChatGPT login (skuggi's own `/login`, or `codex login`):
 
 ```json
 {
@@ -64,7 +66,7 @@ it, set `SKUGGI_MODEL_CHATGPT` to a current model rather than checking your plan
 A 404 (rather than a 400) means the route is wrong.
 
 If the `chatgpt` path stops working after an `OAuth refresh failed` error, run
-`codex login` again.
+`/login` (or `skuggi-login`) again.
 
 ## Notes
 

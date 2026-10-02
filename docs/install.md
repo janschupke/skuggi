@@ -124,17 +124,19 @@ and a second checkout can never clobber the first one's data.
 
 ## Credentials
 
-Any one of these works. The `env` file is the one that survives being run from
-anywhere without touching your shell rc:
+The app owns its credentials. Start `skuggi` (it boots with or without a
+configured provider) and run `/setup`: it walks you through choosing a provider
+and, for `openai`/`anthropic`, writes the key to `~/.config/skuggi/env` at mode
+0600 for you — no `export`, no editing files by hand. For a ChatGPT account,
+`/setup` (or `/login`, or `skuggi-login` before you start) runs the OAuth
+browser flow itself and writes `~/.codex/auth.json`. `ollama` needs no
+credential. `skuggi-doctor` shows which providers are configured.
+
+Setting them by hand still works if you prefer:
 
 ```sh
 printf 'ANTHROPIC_API_KEY=sk-ant-...\n' > ~/.config/skuggi/env
 chmod 600 ~/.config/skuggi/env
-```
-
-```sh
-export ANTHROPIC_API_KEY=sk-ant-...     # from your shell rc
-codex login                             # ~/.codex/auth.json, already absolute
 ```
 
 Precedence is shell environment > `<config home>/env` > `config.json` >
