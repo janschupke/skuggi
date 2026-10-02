@@ -7,7 +7,14 @@ where everything ends up, and what to check when it misbehaves.
 
 ## The one command
 
+Clone the repo somewhere **permanent** first — the install is editable, so this
+checkout is referenced for the life of the install (see the `--editable` note
+below). Do not clone to a temp dir, and do not move or delete it afterward; if
+you must relocate it, re-run `make install-cli` from the new path.
+
 ```sh
+git clone <repo-url> ~/dev/skuggi
+cd ~/dev/skuggi
 make install-cli
 ```
 
@@ -57,7 +64,10 @@ skuggi-doctor        # the install table is the first thing it prints
 
 ## Where everything lives
 
-Two homes, plus one deliberate exception.
+skuggi follows the **XDG Base Directory** convention: editable config you might
+keep in dotfiles lives in one home, regenerable state (databases, the FAISS
+index, history) you would never back up lives in another. That is the whole
+reason for the split — not a bespoke scheme. Plus one deliberate exception.
 
 | | Default | Overrides |
 |---|---|---|

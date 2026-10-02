@@ -38,7 +38,12 @@ output, so it uses a JSON contract with one repair retry. See
 Requires Python ≥3.12 and [uv](https://docs.astral.sh/uv/) (developed on 3.14;
 CI covers 3.12–3.14).
 
+Clone the repo to a **permanent** location — not a temp directory — then install
+from it:
+
 ```sh
+git clone <repo-url> ~/dev/skuggi     # keep this checkout; see the note below
+cd ~/dev/skuggi
 make install-cli
 ```
 
@@ -359,8 +364,12 @@ The layout is configurable
 
 ## Configuration
 
-skuggi is a command you run from anywhere, so its config does not live next to
-your cwd. It lives in **two fixed homes**, seeded by `skuggi-init`:
+skuggi is a command you run from anywhere, so its files do not live next to your
+cwd. It follows the **XDG Base Directory** convention — the same config/data
+split most modern CLI tools use, seeded by `skuggi-init`. Editable config (small,
+backup-friendly) lives under `~/.config/skuggi`; regenerable state (databases,
+the FAISS index, history) lives under `~/.local/share/skuggi`. Both honour the
+standard `XDG_*` variables, each with a `SKUGGI_*` override in front of it:
 
 | | Default | Overrides | Holds |
 |---|---|---|---|
@@ -466,9 +475,9 @@ make bench       # the full eval benchmark across providers; costs money
 `make check` is the gate. The test suite is five layers, three of them offline;
 `make eval` (real providers) and `make e2e` (the frozen [e2e fixture
 target](docs/lab.md)) are opt-in — see [docs/testing.md](docs/testing.md). A committed, local-only
-**eval system** (`skuggi-eval`) scores the agent across five dimensions — budget,
-latency, factuality, host-system compatibility, and compliance with the
-methodology and engagement constraints — and hard-gates on regression against
+**eval system** (`skuggi-eval`) scores the agent across seven dimensions — four
+deterministic (`compliance`, `methodology`, `schema`, `result_compat`) and three
+quality (`factuality`, `budget`, `latency`) — and hard-gates on regression against
 [evals/baseline.json](evals/baseline.json); see [evals/README.md](evals/README.md).
 
 ## Further reading

@@ -57,14 +57,14 @@ drift from what the REPL/daemon do. It skips cleanly when the lab is down.
 ## The eval system
 
 Beyond the five layers, `skuggi.eval` is a committed, **local-only** evaluation
-system that scores the agent across five quality dimensions and gates on
-regression. It is documented in [../evals/README.md](../evals/README.md); the
+system that scores the agent across seven dimensions — four deterministic and
+three quality — and gates on regression. It is documented in [../evals/README.md](../evals/README.md); the
 short version:
 
 - **Deterministic tier** (`tests/eval_det/`, part of the default `make check`
-  run): `compliance` (the engagement guard + phase machine), `schema` and
-  `result_compat` (host-system compatibility -- the protocol schemas, the SQLite
-  ledger, the Markdown report). Each golden case is scored against skuggi's own
+  run): `compliance` (the engagement guard), `methodology` (the phase machine),
+  `schema` and `result_compat` (host-system compatibility -- the protocol
+  schemas, the SQLite ledger, the Markdown report). Each golden case is scored against skuggi's own
   pure oracles; one parametrized test per case, plus `test_baseline_gate.py`,
   which fails if any dimension drops below `evals/baseline.json`. This is a
   **hard CI gate** and it runs inside the network/subprocess block above, so the
@@ -157,7 +157,7 @@ skips with a fix hint rather than failing:
 ```
 $ make e2e
 7 passed, 1 skipped
-SKIPPED  192.0.2.10 is not directly routable      # macOS without WireGuard
+SKIPPED  192.0.2.10 is not directly routable      # macOS (fixture has no overlay)
 
 # with the lab down:
 $ make e2e
