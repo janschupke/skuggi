@@ -398,7 +398,7 @@ class Daemon:
     def _replay(self, arg: str) -> Iterator[str]:
         a = arg.strip()
         if a == "list":
-            rows = self.core.list_sessions()
+            rows = self.core.archive.sessions()
             if not rows:
                 yield "(no sessions)\n"
                 return
@@ -406,10 +406,10 @@ class Daemon:
                 mark = " *" if s.session_id == self.core.session_id else ""
                 yield f"  {s.session_id[:8]}  {s.started_at}  {s.mode}{mark}\n"
             return
-        yield self.core.transcript(a or None) + "\n"
+        yield self.core.archive.transcript(a or None) + "\n"
 
     def _review(self, arg: str) -> Iterator[str]:
-        yield self.core.review_session(arg.strip() or None) + "\n"
+        yield self.core.archive.review(arg.strip() or None) + "\n"
 
     def _memory(self, arg: str) -> Iterator[str]:
         match dispatch.run_memory(self.core, arg):

@@ -99,16 +99,16 @@ def test_note_interaction_writes_to_the_audit_log(core: AgentCore) -> None:
 
 def test_list_sessions_and_transcript(core: AgentCore) -> None:
     list(core.turn("enumerate services"))
-    sessions = core.list_sessions()
+    sessions = core.archive.sessions()
     assert core.session_id in {s.session_id for s in sessions}
-    text = core.transcript()  # current session
+    text = core.archive.transcript()  # current session
     assert "enumerate services" in text
     # a short-prefix reference resolves the same session
-    assert "enumerate services" in core.transcript(core.session_id[:8])
+    assert "enumerate services" in core.archive.transcript(core.session_id[:8])
 
 
 def test_transcript_of_unknown_session(core: AgentCore) -> None:
-    assert "no session found" in core.transcript("deadbeef-nope")
+    assert "no session found" in core.archive.transcript("deadbeef-nope")
 
 
 # --- the private LLM review -------------------------------------------------
@@ -118,7 +118,7 @@ def test_review_feeds_the_timeline_and_is_audit_logged(core: AgentCore) -> None:
     list(core.turn("what is exposed?"))
     core.llm = cast(Any, ScriptedChatModel(replies=["you rushed recon; see cmd:1"]))
 
-    out = core.review_session()
+    out = core.archive.review()
 
     assert out == "you rushed recon; see cmd:1"
     # the session timeline actually reached the model's prompt (wired to an
@@ -133,7 +133,7 @@ def test_review_feeds_the_timeline_and_is_audit_logged(core: AgentCore) -> None:
 
 
 def test_review_of_unknown_session_reports_it(core: AgentCore) -> None:
-    assert "no session found" in core.review_session("nope-nope")
+    assert "no session found" in core.archive.review("nope-nope")
 
 
 def test_review_model_override_is_used(
@@ -148,5 +148,5 @@ def test_review_model_override_is_used(
         return ScriptedChatModel(replies=["deep review"])
 
     monkeypatch.setattr(providers, "get_chat_model", fake_get_chat_model)
-    assert core.review_session() == "deep review"
+    assert core.archive.review() == "deep review"
     assert seen["model"] == "big-model"  # the override model was requested

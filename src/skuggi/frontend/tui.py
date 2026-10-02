@@ -566,7 +566,7 @@ class Tui:
     def _cmd_replay(self, arg: str) -> None:
         """Reconstruct & view a session transcript (``list`` enumerates them)."""
         if arg.strip() == "list":
-            rows = self.core.list_sessions()
+            rows = self.core.archive.sessions()
             if not rows:
                 self.console.print("[dim](no sessions)[/dim]")
                 return
@@ -576,12 +576,12 @@ class Tui:
                     f"[cyan]{s.session_id[:8]}[/cyan]  {s.started_at}  {s.mode}{marker}"
                 )
             return
-        self.console.print(Markdown(self.core.transcript(arg.strip() or None)))
+        self.console.print(Markdown(self.core.archive.transcript(arg.strip() or None)))
 
     def _cmd_review(self, arg: str) -> None:
         """Print the private LLM critique of a session (also audit-logged)."""
         with self.console.status("reviewing the session...", spinner="dots"):
-            text = self.core.review_session(arg.strip() or None)
+            text = self.core.archive.review(arg.strip() or None)
         self.console.print(Markdown(text))
 
     def _cmd_memory(self, arg: str) -> None:

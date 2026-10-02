@@ -37,10 +37,10 @@ from skuggi.agent.protocol import (
     Severity,
     structured_invoke,
 )
+from skuggi.agent.session_archive import SessionArchive
 from skuggi.agent.state import AgentState
 from skuggi.agent.tooldoctor import ToolDoctor
 from skuggi.common import logs
-from skuggi.common.text import join_blocks, labeled
 from skuggi.config import editing
 from skuggi.config.config import (
     Provider,
@@ -69,8 +69,7 @@ from skuggi.install import envfile
 from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence import memory, preferences, reports, visualize
-from skuggi.persistence import transcript as transcript_mod
-from skuggi.persistence.ledger import FindingRow, SessionRow
+from skuggi.persistence.ledger import FindingRow
 from skuggi.persistence.vectorstore import Store
 from skuggi.providers import providers
 from skuggi.tooling.registry import ToolRegistry
@@ -87,9 +86,6 @@ _API_KEY_FIELDS: dict[str, tuple[str, str]] = {
     "anthropic": ("ANTHROPIC_API_KEY", "anthropic_api_key"),
 }
 
-# How much captured command output to feed the reviewer per command -- enough to
-# judge what happened without blowing the prompt budget on a noisy scan dump.
-_REVIEW_OUTPUT_CAP = 2_000
 
 EventKind = Literal["reset", "status", "token", "final"]
 
@@ -177,6 +173,7 @@ class AgentCore:
 
         # ----- sub-components (public; hold a back-ref and read live state) -
         self.doctor = ToolDoctor(self)
+        self.archive = SessionArchive(self)
 
     # ----- config + workspace ------------------------------------------------
 
@@ -697,79 +694,6 @@ class AgentCore:
             method=parsed.method,
             status="passthrough",
         )
-
-    def list_sessions(self) -> list[SessionRow]:
-        """Every session recorded in this engagement's ledger, newest first."""
-        return self.ledger.sessions()
-
-    def _resolve_session_id(self, ref: str | None) -> str | None:
-        """Resolve a session reference (full id or short prefix) to a session id.
-
-        An empty reference means the current session; otherwise the first
-        session whose id equals or starts with `ref` (the short ids shown by
-        ``replay list``). ``None`` when nothing matches.
-        """
-        if not ref:
-            return self.session_id
-        for row in self.ledger.sessions():
-            if row.session_id == ref or row.session_id.startswith(ref):
-                return row.session_id
-        return None
-
-    def _render_session(
-        self, session_ref: str | None, *, max_output: int | None
-    ) -> tuple[str | None, str]:
-        """Resolve a session and render its transcript; shared by replay + review.
-
-        Returns ``(session_id, text)``; ``session_id`` is ``None`` (and `text` an
-        error message) when the reference matches no session.
-        """
-        sid = self._resolve_session_id(session_ref)
-        if sid is None:
-            return None, f"no session found for {session_ref!r}"
-        session = self.ledger.session(sid)
-        if session is None:  # pragma: no cover -- a resolved id always has a row
-            return None, f"no session recorded for {sid!r}"
-        events = self.ledger.events_for(sid)
-        commands = {c.id: c for c in self.ledger.commands_for(sid)}
-        findings = {f.id: f for f in self.ledger.findings_for(sid)}
-        text = transcript_mod.render_transcript(
-            session, events, commands, findings, max_output=max_output
-        )
-        return sid, text
-
-    def transcript(self, session_ref: str | None = None) -> str:
-        """The ordered, replayable transcript of a session (default: current)."""
-        return self._render_session(session_ref, max_output=None)[1]
-
-    def review_session(self, session_ref: str | None = None) -> str:
-        """Ask the LLM for private feedback on a session, and audit-log it.
-
-        Reads the session timeline, prompts the model (one-shot ``invoke``, so it
-        works on every provider, including the tool-less chatgpt one), records the
-        critique to the audit log (never the client-facing report), and returns
-        it. ``settings.review_model`` overrides the model used.
-        """
-        sid, timeline = self._render_session(session_ref, max_output=_REVIEW_OUTPUT_CAP)
-        if sid is None:
-            return timeline  # the "no session" message
-        prompt = join_blocks(
-            prompts.REVIEW_INSTRUCTION,
-            labeled("Session timeline", timeline, heading=True),
-        )
-        llm = (
-            self._ensure_llm()
-            if self.settings.review_model is None
-            else providers.get_chat_model(
-                self.settings, model=self.settings.review_model
-            )
-        )
-        reply = llm.invoke(prompt)
-        content = str(getattr(reply, "content", reply))
-        self.ledger.record_audit(
-            session_id=self.session_id, kind="review", detail=content
-        )
-        return content
 
     # ----- harness memory (operator preferences) -----------------------------
 

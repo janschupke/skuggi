@@ -426,7 +426,7 @@ def test_replay_lists_and_renders(daemon: Daemon) -> None:
 def test_review_routes_to_the_core(
     daemon: Daemon, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(daemon.core, "review_session", lambda _ref: "you rushed recon")
+    monkeypatch.setattr(daemon.core.archive, "review", lambda _ref: "you rushed recon")
     assert "you rushed recon" in _chunks(daemon, {"op": "input", "text": "review"})
 
 

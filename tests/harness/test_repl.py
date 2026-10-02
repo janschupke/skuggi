@@ -207,7 +207,7 @@ def test_replay_review_and_control_audit(
 ) -> None:
     app, buffer = tui
     # review is stubbed (the LLM path is covered in test_session_logging)
-    monkeypatch.setattr(app.core, "review_session", lambda _ref: "you rushed recon")
+    monkeypatch.setattr(app.core.archive, "review", lambda _ref: "you rushed recon")
     app.dispatch("/review")
     assert "you rushed recon" in _out(buffer)
 
