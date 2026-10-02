@@ -14,7 +14,8 @@ import pytest
 
 from skuggi.common import home
 from skuggi.config.config import Settings
-from skuggi.install.init import SCOPE_TEMPLATE, SEEDED, checkout_root, initialise
+from skuggi.install.init import SCOPE_TEMPLATE, SEEDED, initialise
+from skuggi.install.update import checkout_root
 
 
 def _homes(tmp_path: Path) -> tuple[Path, Path]:

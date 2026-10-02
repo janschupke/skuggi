@@ -37,6 +37,7 @@ from pathlib import Path
 from skuggi.common import home
 from skuggi.common.logs import get_logger, setup_logging
 from skuggi.common.paths import ensure_dir
+from skuggi.install.update import checkout_root
 
 # Harness config seeded into the config home, as (template, installed name).
 # `scope.example.json` is deliberately NOT in this list: a scope is per-engagement
@@ -66,22 +67,6 @@ _AUTO = Path("<auto>")
 def _template(name: str) -> bytes:
     """Read a packaged template. Ships inside the wheel, so no repo path is used."""
     return (files("skuggi") / _TEMPLATE_DIR / name).read_bytes()
-
-
-def checkout_root() -> Path | None:
-    """The checkout this module runs from, or None for a non-editable install.
-
-    Mirrors ``core._checkout_root``: verified rather than assumed, because
-    ``parents[3]`` only means "the repo root" for an editable install (this
-    module lives at ``src/skuggi/install/init.py``).
-    """
-    here = Path(__file__).resolve()
-    root = here.parents[3]
-    if here.parents[2].name != "src":
-        return None
-    if not (root / "pyproject.toml").is_file():
-        return None
-    return root
 
 
 def _migrate(src_dir: Path, dest_dir: Path, *, skip_examples: bool) -> list[str]:

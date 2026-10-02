@@ -15,13 +15,13 @@ from typing import Any, cast
 import pytest
 from pydantic import SecretStr
 
-from skuggi.agent import core as core_mod
 from skuggi.agent.core import AgentCore
 from skuggi.agent.protocol import ConfigEdit, ConfigProposal
 from skuggi.common.execution import CommandResult
 from skuggi.config.config import config_path
 from skuggi.config.configs import ConfigError, load_commands
 from skuggi.frontend.commands import CommandAlias, CommandRegistry
+from skuggi.install import update as update_mod
 from skuggi.tooling import probe as probe_mod
 from skuggi.tooling.registry import ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
@@ -385,7 +385,7 @@ def _result(argv: list[str], *, exit_code: int, err: str = "") -> CommandResult:
 def test_self_update_runs_pull_then_sync(
     core: AgentCore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(core_mod, "_is_uv_tool_env", lambda: False)
+    monkeypatch.setattr(update_mod, "is_uv_tool_env", lambda: False)
     calls: list[list[str]] = []
 
     def runner(argv: list[str]) -> CommandResult:
@@ -401,7 +401,7 @@ def test_self_update_runs_pull_then_sync(
 def test_self_update_aborts_on_a_failed_step(
     core: AgentCore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(core_mod, "_is_uv_tool_env", lambda: False)
+    monkeypatch.setattr(update_mod, "is_uv_tool_env", lambda: False)
     calls: list[list[str]] = []
 
     def runner(argv: list[str]) -> CommandResult:
@@ -423,7 +423,7 @@ def test_self_update_refreshes_the_tool_install_from_a_tool_env(
     .pth, but a new *dependency* would land in the wrong environment -- so the
     tool install is what gets refreshed.
     """
-    monkeypatch.setattr(core_mod, "_is_uv_tool_env", lambda: True)
+    monkeypatch.setattr(update_mod, "is_uv_tool_env", lambda: True)
     calls: list[list[str]] = []
 
     def runner(argv: list[str]) -> CommandResult:
@@ -442,7 +442,7 @@ def test_self_update_refuses_when_there_is_no_checkout(
     core: AgentCore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A non-editable install has no repo; running git in site-packages is worse."""
-    monkeypatch.setattr(core_mod, "_checkout_root", lambda: None)
+    monkeypatch.setattr(update_mod, "checkout_root", lambda **_k: None)
     calls: list[list[str]] = []
 
     def runner(argv: list[str]) -> CommandResult:

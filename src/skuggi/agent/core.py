@@ -15,8 +15,6 @@ front-end shows them) rather than crashing the session.
 
 from __future__ import annotations
 
-import re
-import sys
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
@@ -30,14 +28,12 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import SecretStr, TypeAdapter, ValidationError
 
-from skuggi import __version__
 from skuggi.agent import prompts
 from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.protocol import ConfigProposal, MemoryExtraction, structured_invoke
 from skuggi.agent.state import AgentState
-from skuggi.common import execution, logs
-from skuggi.common.execution import CommandResult
+from skuggi.common import logs
 from skuggi.common.text import join_blocks, labeled
 from skuggi.config.config import (
     _SECRET_FIELDS,
@@ -63,6 +59,7 @@ from skuggi.engagement.engagement import (
 from skuggi.engagement.workspace import Workspace, WorkspaceLayout
 from skuggi.frontend.commands import CommandAlias, CommandRegistry, raw_command, render
 from skuggi.install import envfile
+from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence import memory, preferences, reports
 from skuggi.persistence import transcript as transcript_mod
@@ -89,54 +86,6 @@ _API_KEY_FIELDS: dict[str, tuple[str, str]] = {
 _REVIEW_OUTPUT_CAP = 2_000
 
 EventKind = Literal["reset", "status", "token", "final"]
-
-# A subprocess runner for `update`, injectable so the path is captured + tested.
-UpdateRunner = Callable[[list[str]], CommandResult]
-# Update commands can build wheels; give them far longer than a scan's cap.
-_UPDATE_TIMEOUT_S = 600.0
-
-
-def _checkout_root() -> Path | None:
-    """The git checkout this module is running from, or None for a wheel copy.
-
-    ``skuggi`` is installed with ``uv tool install --editable``, whose ``.pth``
-    points at the checkout's ``src``, so ``parents[3]`` is the repo root (this
-    module lives at ``src/skuggi/agent/core.py``). A non-editable install has no
-    checkout at all, and there ``parents[3]`` lands somewhere inside the tool
-    environment's ``site-packages`` -- which is why the result is verified rather
-    than assumed. Running ``git pull`` in a stranger's directory is the failure
-    this guards.
-    """
-    here = Path(__file__).resolve()
-    root = here.parents[3]
-    if here.parents[2].name != "src":
-        return None
-    if not (root / "pyproject.toml").is_file() or not (root / ".git").exists():
-        return None
-    return root
-
-
-def _is_uv_tool_env() -> bool:
-    """Whether the running interpreter is a ``uv tool`` environment.
-
-    ``uv`` drops a ``uv-receipt.toml`` beside ``pyvenv.cfg`` in a tool env and
-    nowhere else, which makes this a one-file check rather than path arithmetic
-    against ``uv tool dir``. It decides which command refreshes dependencies:
-    ``uv sync`` syncs the *checkout's* ``.venv``, which is the wrong environment
-    when skuggi is running from a tool install.
-    """
-    return (Path(sys.prefix) / "uv-receipt.toml").is_file()
-
-
-def _installed_version(root: Path) -> str:
-    """Read ``__version__`` from the on-disk source (post-pull), or ``?``."""
-    try:
-        text = (root / "src" / "skuggi" / "__init__.py").read_text(encoding="utf-8")
-    except OSError as exc:
-        log.debug("could not read installed version from %s: %s", root, exc)
-        return "?"
-    match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
-    return match.group(1) if match else "?"
 
 
 def parse_toggle(arg: str) -> bool | None:
@@ -619,48 +568,13 @@ class AgentCore:
 
     # ----- self-update (the `update` verb) -----------------------------------
 
-    def self_update(self, runner: UpdateRunner | None = None) -> Iterator[str]:
+    def self_update(self, runner: updater.UpdateRunner | None = None) -> Iterator[str]:
         """Update the install in place: ``git pull --ff-only`` then a dependency sync.
 
-        Yields progress text. `runner` is injected (default ``execution.run``,
-        bound to the repo root) so the subprocess path stays captured and
-        testable. A non-zero step aborts; code changes take effect on restart.
-
-        Two install shapes, two second steps. From the checkout's own ``.venv``,
-        ``uv sync`` is right. From a ``uv tool`` environment it is not -- it would
-        sync the checkout's ``.venv`` while skuggi keeps running the tool env's
-        dependencies -- so the tool install is refreshed instead. Without a
-        checkout at all there is nothing to pull, and we say so rather than
-        running git somewhere arbitrary.
+        Thin delegator to :func:`skuggi.install.update.perform_update`; ``runner``
+        is forwarded so the subprocess path stays injectable and testable.
         """
-        root = _checkout_root()
-        if root is None:
-            yield (
-                f"skuggi {__version__} -- not running from a git checkout, "
-                "so there is nothing to pull.\n"
-                "Reinstall with: uv tool install --editable <path/to/skuggi> --force\n"
-            )
-            return
-        run_cmd = runner or (
-            lambda argv: execution.run(argv, timeout=_UPDATE_TIMEOUT_S, cwd=root)
-        )
-        sync = (
-            ["uv", "tool", "install", "--editable", f"{root}[pdf]", "--force"]
-            if _is_uv_tool_env()
-            else ["uv", "sync", "--all-groups", "--all-extras"]
-        )
-        yield f"skuggi {__version__} -- updating in {root}\n"
-        for argv in (["git", "pull", "--ff-only"], sync):
-            yield f"$ {' '.join(argv)}\n"
-            result = run_cmd(list(argv))
-            output = (result.stdout + result.stderr).strip()
-            if output:
-                yield output + "\n"
-            if result.exit_code != 0:
-                yield f"update aborted: '{' '.join(argv)}' exited {result.exit_code}\n"
-                return
-        after = _installed_version(root)
-        yield f"updated to skuggi {after}; restart skuggi to run the new code\n"
+        return updater.perform_update(runner)
 
     def findings(self) -> list[FindingRow]:
         """Findings recorded this session."""
