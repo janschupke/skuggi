@@ -21,7 +21,7 @@ from skuggi.config.configs import ConfigError
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
-    from skuggi.persistence.ledger import FindingRow
+    from skuggi.persistence.ledger import FindingRow, SessionRow
     from skuggi.persistence.preferences import PreferenceRow
 
 
@@ -334,3 +334,36 @@ def run_install(core: AgentCore, binary: str) -> InstallOutcome:
     if status.found:
         return Installed(binary, status.version, status.source)
     return InstallFailed(binary)
+
+
+# ----- replay ---------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class ReplayEmpty:
+    """``replay list`` with no sessions recorded yet."""
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayList:
+    """The recorded sessions; `current_id` marks the live one for the renderer."""
+
+    rows: list[SessionRow]
+    current_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayTranscript:
+    """A reconstructed session transcript for the front-end to render."""
+
+    text: str
+
+
+ReplayOutcome = ReplayEmpty | ReplayList | ReplayTranscript
+
+
+def run_replay(core: AgentCore, arg: str, *, current_id: str | None) -> ReplayOutcome:
+    """List sessions (``replay list``) or reconstruct one's transcript."""
+    a = arg.strip()
+    if a == "list":
+        rows = core.archive.sessions()
+        return ReplayList(rows, current_id) if rows else ReplayEmpty()
+    return ReplayTranscript(core.archive.transcript(a or None))

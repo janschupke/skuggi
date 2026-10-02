@@ -396,17 +396,15 @@ class Daemon:
             yield f"{line}\n"
 
     def _replay(self, arg: str) -> Iterator[str]:
-        a = arg.strip()
-        if a == "list":
-            rows = self.core.archive.sessions()
-            if not rows:
+        match dispatch.run_replay(self.core, arg, current_id=self.core.session_id):
+            case dispatch.ReplayEmpty():
                 yield "(no sessions)\n"
-                return
-            for s in rows:
-                mark = " *" if s.session_id == self.core.session_id else ""
-                yield f"  {s.session_id[:8]}  {s.started_at}  {s.mode}{mark}\n"
-            return
-        yield self.core.archive.transcript(a or None) + "\n"
+            case dispatch.ReplayList(rows, current_id):
+                for s in rows:
+                    mark = " *" if s.session_id == current_id else ""
+                    yield f"  {s.session_id[:8]}  {s.started_at}  {s.mode}{mark}\n"
+            case dispatch.ReplayTranscript(text):
+                yield text + "\n"
 
     def _review(self, arg: str) -> Iterator[str]:
         yield self.core.archive.review(arg.strip() or None) + "\n"

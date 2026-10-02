@@ -567,18 +567,18 @@ class Tui:
 
     def _cmd_replay(self, arg: str) -> None:
         """Reconstruct & view a session transcript (``list`` enumerates them)."""
-        if arg.strip() == "list":
-            rows = self.core.archive.sessions()
-            if not rows:
+        match dispatch.run_replay(self.core, arg, current_id=self.session_id):
+            case dispatch.ReplayEmpty():
                 self.console.print("[dim](no sessions)[/dim]")
-                return
-            for s in rows:
-                marker = " *" if s.session_id == self.session_id else ""
-                self.console.print(
-                    f"[cyan]{s.session_id[:8]}[/cyan]  {s.started_at}  {s.mode}{marker}"
-                )
-            return
-        self.console.print(Markdown(self.core.archive.transcript(arg.strip() or None)))
+            case dispatch.ReplayList(rows, current_id):
+                for s in rows:
+                    marker = " *" if s.session_id == current_id else ""
+                    self.console.print(
+                        f"[cyan]{s.session_id[:8]}[/cyan]  "
+                        f"{s.started_at}  {s.mode}{marker}"
+                    )
+            case dispatch.ReplayTranscript(text):
+                self.console.print(Markdown(text))
 
     def _cmd_review(self, arg: str) -> None:
         """Print the private LLM critique of a session (also audit-logged)."""
