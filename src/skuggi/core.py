@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
@@ -194,7 +195,7 @@ class AgentCore:
 
         self._embeddings = providers.get_embeddings(self.settings)
         self.store = Store.from_settings(self.settings, self._embeddings)
-        self.llm = providers.get_chat_model(self.settings, model=self.model)
+        self.llm: BaseChatModel | None = self._load_chat_model()
 
         self._saver_ctx = memory.open_checkpointer(self.settings.sqlite_path)
         self.saver = self._saver_ctx.__enter__()
@@ -334,6 +335,35 @@ class AgentCore:
     def _rebuild_llm(self) -> None:
         self.llm = providers.get_chat_model(self.settings, model=self.model)
         self.graph = self._build()
+
+    def _load_chat_model(self) -> BaseChatModel | None:
+        """Build the chat model at boot, or degrade to a warning if uncredentialed.
+
+        Boot must never die for lack of a model: the shell wrapper only needs one
+        when the operator actually asks something, and the graph just holds the
+        reference until a turn runs. A missing/unusable credential becomes a
+        warning (the front-end shows it) and a ``None`` llm; `_ensure_llm` builds
+        it on first use, where the operator can fix it with `/setup` or
+        `/provider`. Mirrors the credential-free boot of `providers.get_embeddings`.
+        """
+        try:
+            return providers.get_chat_model(self.settings, model=self.model)
+        except (RuntimeError, ImportError):
+            self.warnings.append(providers.NO_MODEL_CONFIGURED)
+            return None
+
+    def _ensure_llm(self) -> BaseChatModel:
+        """Return the chat model, building it on first use.
+
+        Deferred from construction so the session boots without credentials.
+        Raises ``ConfigError`` (with the provider's specific guidance) when no
+        usable credential is configured; callers on the turn path let that
+        surface as a clean error event rather than a crash.
+        """
+        if self.llm is None:
+            self.llm = providers.get_chat_model(self.settings, model=self.model)
+            self.graph = self._build()
+        return self.llm
 
     def set_mode(self, mode: str) -> Mode:
         """Switch operating mode, rebuilding the graph's prompt set."""
@@ -504,7 +534,7 @@ class AgentCore:
         """
         keys = ", ".join(sorted(self.settable_config_keys()))
         proposal = structured_invoke(
-            self.llm,
+            self._ensure_llm(),
             ConfigProposal,
             [
                 SystemMessage(
@@ -682,7 +712,7 @@ class AgentCore:
             labeled("Session timeline", timeline, heading=True),
         )
         llm = (
-            self.llm
+            self._ensure_llm()
             if self.settings.review_model is None
             else providers.get_chat_model(
                 self.settings, model=self.settings.review_model
@@ -743,6 +773,8 @@ class AgentCore:
         if not self.settings.memory_auto or not preferences.looks_like_directive(
             user_text
         ):
+            return []
+        if self.llm is None:  # no model configured; nothing to extract with
             return []
         try:
             extraction = structured_invoke(
@@ -886,6 +918,10 @@ class AgentCore:
         )
         final_text = ""
         try:
+            # Build the model on first use. A missing credential raises here and
+            # is caught below, surfacing as a clean, actionable error event
+            # (pointing at /setup) rather than a dead session.
+            self._ensure_llm()
             # Structured output is not token-streamed; each node's state update is
             # turned into a status/final event as the graph advances.
             stream: Iterator[Any] = self.graph.stream(

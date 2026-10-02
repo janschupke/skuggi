@@ -121,8 +121,9 @@ def test_review_feeds_the_timeline_and_is_audit_logged(core: AgentCore) -> None:
     out = core.review_session()
 
     assert out == "you rushed recon; see cmd:1"
-    # the session timeline actually reached the model's prompt
-    prompt_text = core.llm.calls[-1][-1].text  # type: ignore[attr-defined]
+    # the session timeline actually reached the model's prompt (wired to an
+    # offline fake, so read its recorded calls through a cast)
+    prompt_text = cast("Any", core.llm).calls[-1][-1].text
     assert "Session timeline" in prompt_text
     assert "what is exposed?" in prompt_text
     # the critique is recorded to the audit log, never the report

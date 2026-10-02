@@ -47,6 +47,14 @@ _NO_OPENAI_KEY = (
     "  4. switch with `/provider anthropic` or `/provider ollama`"
 )
 
+# Shown at boot (as a warning) when no provider is credentialed, and anywhere a
+# model is needed but none is configured. Points only at remedies reachable from
+# a running session -- unlike the provider-specific messages above.
+NO_MODEL_CONFIGURED = (
+    "no model provider configured -- run /setup to configure one "
+    "(or /provider ollama for a local model)"
+)
+
 
 def _key_from_auth_json(path: Path) -> str | None:
     """Read a usable top-level OPENAI_API_KEY out of a codex auth.json."""

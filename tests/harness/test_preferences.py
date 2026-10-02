@@ -56,7 +56,8 @@ def test_add_list_forget_clear_rebuild_the_graph(core: AgentCore) -> None:
 def test_a_remembered_preference_reaches_the_worker_prompt(core: AgentCore) -> None:
     core.add_preference("Prefer ffuf over gobuster")
     list(core.turn("what is exposed?"))  # not a directive -> no auto-capture noise
-    worker_prompt = core.llm.prompts_for("worker")[-1]  # type: ignore[attr-defined]
+    # core.llm is wired to the offline role-scripted fake; read it through a cast
+    worker_prompt = cast("Any", core.llm).prompts_for("worker")[-1]
     assert "Operator preferences" in worker_prompt
     assert "Prefer ffuf over gobuster" in worker_prompt
 

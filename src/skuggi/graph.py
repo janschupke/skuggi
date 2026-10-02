@@ -84,7 +84,10 @@ class GraphDeps:
     agent-only mode (no engagement loaded), where the worker can still advise.
     """
 
-    llm: BaseChatModel
+    # None only transiently, before a model is configured: the core's `turn`
+    # builds the model (and rebuilds the graph) before ever streaming it, so a
+    # node always sees a live llm. The `ask` helper guards defensively.
+    llm: BaseChatModel | None = None
     store: Store | None = None
     engagement: EngagementConfig | None = None
     ledger: Ledger | None = None
@@ -249,9 +252,11 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
             SystemMessage(content=system),
             HumanMessage(content=render_request(ctx)),
         ]
-        return structured_invoke(
-            deps.llm, schema, prompt, native=deps.native_structured
-        )
+        llm = deps.llm
+        if llm is None:  # defensive: core.turn builds the model before streaming
+            msg = "no model provider configured; run /setup"
+            raise RuntimeError(msg)
+        return structured_invoke(llm, schema, prompt, native=deps.native_structured)
 
     def plan_node(state: AgentState) -> PlanUpdate:
         ctx = context(state, prior_critique=state.get("critique") or "")
