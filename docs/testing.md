@@ -69,17 +69,17 @@ short version:
   which fails if any dimension drops below `evals/baseline.json`. This is a
   **hard CI gate** and it runs inside the network/subprocess block above, so the
   `result_compat` turns are proven offline.
-- **Quality tier** (`skuggi-eval` / `make bench`): `factuality`
-  (`autoevals.Factuality` LLM judge), `budget` (token cost) and `latency`. Needs
-  a real provider, so it is opt-in and never blocks CI -- the same convention as
-  the `eval` marker.
+- **Quality tier** (`skuggi-eval` / `make bench`): `factuality` (an in-house
+  `LLMJudge`), `budget` (token cost) and `latency`. Needs a real provider, so it
+  is opt-in and never blocks CI -- the same convention as the `eval` marker. It
+  runs across a configurable model matrix (`evals/models.json`) and treats
+  cross-model divergence as a regression; a `--suite fast` subset grades cheaply.
 
 Both tiers share one golden corpus (`evals/goldens/`) and one set of scorers
-(`skuggi.eval.scorers`). The Braintrust benchmark always runs local
-(`no_send_logs=True`): no experiment is uploaded and the baseline lives in git.
-The deterministic tier is deliberately Braintrust-free -- importing `braintrust`
-pulls in `langsmith`, so keeping it out of the default suite keeps the tier fast
-and its imports clean.
+(`skuggi.eval.scorers`). The whole system is framework-free and local: there is
+no eval SDK, nothing is uploaded, the judge is skuggi's own provider-agnostic
+chat model, and the baseline lives in git. Keeping the quality tier's live-model
+imports out of the default suite keeps the deterministic tier fast and clean.
 
 ```
 make eval-det   # the deterministic gate as a standalone offline run

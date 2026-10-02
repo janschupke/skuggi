@@ -1,11 +1,10 @@
 """Pure scoring functions for the eval dimensions.
 
-Each returns a :class:`Score` in ``[0, 1]`` where ``1.0`` is a pass. Deliberately
-Braintrust-free: importing ``braintrust`` pulls in ``langsmith`` which emits a
-``DeprecationWarning`` under Python 3.14, and the default test suite runs with
-``filterwarnings = ["error"]`` -- so the deterministic gate must score without it.
-:meth:`Score.as_braintrust` adapts a score into the dict Braintrust's ``Eval``
-accepts, which is how :mod:`skuggi.eval.runner` reuses these in the quality tier.
+Each returns a :class:`Score` in ``[0, 1]`` where ``1.0`` is a pass. These are
+framework-free by design and have no third-party dependency: the deterministic
+gate (:mod:`skuggi.eval.runner`) and the quality tier (:mod:`skuggi.eval.quality`)
+both consume the same :class:`Score`, so a dimension is scored identically
+whether it is graded offline against a pure oracle or online against a live model.
 """
 
 from __future__ import annotations
@@ -24,10 +23,6 @@ class Score:
     name: str
     score: float
     metadata: dict[str, object] = field(default_factory=dict)
-
-    def as_braintrust(self) -> dict[str, object]:
-        """The ``{name, score, metadata}`` dict Braintrust's ``Eval`` accepts."""
-        return {"name": self.name, "score": self.score, "metadata": dict(self.metadata)}
 
 
 def _clamp(value: float) -> float:

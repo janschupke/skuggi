@@ -453,7 +453,8 @@ methodology and engagement constraints — and hard-gates on regression against
   `~/.codex/auth.json`, OAuth refresh, and the model-name gotcha.
 - [docs/testing.md](docs/testing.md) — the test layers and the eval system.
 - [evals/README.md](evals/README.md) — the local eval system: golden sets, the
-  deterministic gate, the Braintrust quality benchmark, and the baseline.
+  deterministic gate, the configurable model matrix, cross-model divergence, and
+  the baseline.
 - [docs/labs.md](docs/labs.md) — the practice range: 10 tiered engagement
   exercises (`labs/`) with planted loot, and the `labctl` wipe/restore workflow.
 - [docs/lab.md](docs/lab.md) — the frozen e2e fixture target

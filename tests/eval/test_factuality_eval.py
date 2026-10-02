@@ -5,8 +5,8 @@ Run with:  make eval  (or: skuggi-eval --tier quality)
 Deselected by default and nondeterministic (a real model answers, an LLM judge
 scores). Asserts properties -- every factuality case is scored, the aggregate is
 a real fraction, and it clears the committed baseline threshold -- never an exact
-score. The judge (``autoevals.Factuality``) uses OpenAI, so this requires an
-OpenAI key regardless of the agent provider under test.
+score. The judge is skuggi's own provider-agnostic ``LLMJudge`` (no third-party
+service); here it grades with the same provider as the agent under test.
 """
 
 from __future__ import annotations

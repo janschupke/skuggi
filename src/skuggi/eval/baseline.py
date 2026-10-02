@@ -90,12 +90,15 @@ def update_baseline(
     baseline: Mapping[str, dict[str, object]],
     *,
     provider: str = "",
+    per_model: Mapping[str, Mapping[str, DimensionResult]] | None = None,
 ) -> dict[str, dict[str, object]]:
     """Return a new baseline mapping with each result's score written in.
 
-    Thresholds are preserved from the existing entry (or default to the measured
-    score, rounded down a little, for a first-time dimension). Never called
-    implicitly -- only ``skuggi-eval --update-baseline`` writes the file.
+    Thresholds and any ``divergence_tolerance`` are preserved from the existing
+    entry (threshold defaults to the measured score, rounded down a little, for a
+    first-time dimension). When ``per_model`` is given, each dimension records the
+    per-model scores that produced the matrix run. Never called implicitly -- only
+    ``skuggi-eval --update-baseline`` writes the file.
     """
     merged: dict[str, dict[str, object]] = {k: dict(v) for k, v in baseline.items()}
     for dim, res in results.items():
@@ -104,6 +107,13 @@ def update_baseline(
         entry.setdefault("threshold", round(max(0.0, res.score - 0.05), 4))
         if provider:
             entry["provider"] = provider
+    if per_model:
+        by_dim: dict[str, dict[str, float]] = {}
+        for label, model_results in per_model.items():
+            for dim, res in model_results.items():
+                by_dim.setdefault(dim, {})[label] = round(res.score, 4)
+        for dim, scores in by_dim.items():
+            merged.setdefault(dim, {})["models"] = dict(sorted(scores.items()))
     path.write_text(
         json.dumps(merged, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install install-cli lint format typecheck test eval e2e eval-det bench check clean pdf \
+.PHONY: install install-cli lint format typecheck test eval e2e eval-det bench bench-fast check clean pdf \
 	lab-list lab-up lab-down lab-restore lab-wipe lab-verify
 
 # The user-facing practice range controller (labs/). Standalone dev tooling --
@@ -79,12 +79,18 @@ lab-verify:
 eval-det:
 	$(UV) run skuggi-eval --tier det --check
 
-## The full eval benchmark across providers: adds the quality tier (factuality,
-## budget, latency) and regenerates evals/scorecard.md. Costs money; needs
-## credentials. Every Braintrust Eval runs local (no_send_logs); nothing uploads.
+## The full eval benchmark: adds the quality tier (factuality, budget, latency)
+## across the configured model matrix (evals/models.json), flags cross-model
+## divergence as a regression, and regenerates evals/scorecard.md. Costs money;
+## needs credentials. Framework-free and local: nothing is uploaded, and the
+## judge is skuggi's own provider-agnostic model.
 bench:
-	$(UV) run skuggi-eval --tier all --provider openai --provider anthropic \
-		--check --scorecard evals/scorecard.md
+	$(UV) run skuggi-eval --tier all --suite full --check --scorecard evals/scorecard.md
+
+## The cheap quality signal: the `fast` suite -- a curated case subset graded by a
+## single model -- without the full matrix. Costs money; needs a credential.
+bench-fast:
+	$(UV) run skuggi-eval --tier quality --suite fast
 
 ## The gate. Same commands, same order as .github/workflows/ci.yml.
 ## `ruff format --check` and never `ruff format`: a target that rewrites files

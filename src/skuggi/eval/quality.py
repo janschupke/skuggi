@@ -1,22 +1,23 @@
-"""The quality tier: the Braintrust benchmark over a real provider.
+"""The quality tier: live agent turns scored in-house across a model matrix.
 
-Everything here needs a live model (and, for factuality, an ``autoevals`` judge),
+Everything here needs a live model (and, for factuality, an :class:`LLMJudge`),
 so it is opt-in (``skuggi-eval`` / ``make bench``) and excluded from coverage --
 it cannot run on a credential-free CI machine. It is still linted and type-checked.
 
-Every ``Eval`` is local: ``no_send_logs=True`` on every call, no experiment is
-uploaded, and no ``BRAINTRUST_API_KEY`` is read. ``braintrust`` is imported here
-(not in :mod:`skuggi.eval.runner`) so the deterministic path never imports it.
+There is no eval framework: each dimension is a plain loop that produces the same
+pure :class:`~skuggi.eval.scorers.Score` the deterministic tier uses, aggregated
+with :func:`~skuggi.eval.runner.aggregate`. ``run_quality`` grades one model;
+``run_matrix`` runs the whole configured matrix so :mod:`skuggi.eval.divergence`
+can compare them. Nothing is uploaded and no third-party judge service is called.
 """
 
 from __future__ import annotations
 
 import tempfile
 import time
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from skuggi.config import Settings
 from skuggi.core import AgentCore
@@ -30,31 +31,10 @@ from skuggi.eval.goldens import (
     load_cases,
     load_scopes,
 )
-from skuggi.eval.scorers import budget_threshold, latency_threshold
-
-
-@dataclass(frozen=True, slots=True)
-class _TurnSpec:  # pragma: no cover
-    """One quality-tier turn: its id, prompt, scope and threshold ceiling."""
-
-    id: str
-    prompt: str
-    scope_ref: str
-    ceiling: float
-
-
-def _local_eval(  # pragma: no cover
-    name: str, *, data: Any, task: Any, scores: list[Any]
-) -> Any:
-    """Run one local Braintrust eval (never uploads); return its result object.
-
-    The one place ``braintrust`` is imported and the one place its strict eval
-    generics are absorbed -- our plain dict data and scorer callables are valid
-    at runtime but do not satisfy the published overloads.
-    """
-    from braintrust import Eval  # noqa: PLC0415
-
-    return Eval(name, data=data, task=task, scores=scores, no_send_logs=True)
+from skuggi.eval.judge import Judge, LLMJudge
+from skuggi.eval.models import ModelSpec, eval_settings, load_prices
+from skuggi.eval.runner import aggregate
+from skuggi.eval.scorers import Score, budget_threshold, latency_threshold
 
 
 def build_live_core(  # pragma: no cover
@@ -108,71 +88,60 @@ def _cost_latency(  # pragma: no cover
         core.close()
 
 
-def _summary_result(  # pragma: no cover
-    dim: str, res: Any, n_cases: int
-) -> DimensionResult:
-    """Pull the single mean score out of a Braintrust eval summary."""
-    scores = getattr(getattr(res, "summary", None), "scores", {}) or {}
-    mean = next((s.score for s in scores.values()), 0.0)
-    return DimensionResult(dimension=dim, score=float(mean or 0.0), n_cases=n_cases)
-
-
 def _run_factuality(  # pragma: no cover
-    settings: Settings, scopes: dict[str, EngagementConfig], root: Path
-) -> DimensionResult:
-    from autoevals import Factuality  # noqa: PLC0415
-
-    cases = [cast("FactualityCase", c) for c in load_cases("factuality", root)]
-    by_prompt = {c.prompt: c for c in cases}
-
-    def task(prompt: str) -> str:
-        return _answer(settings, scopes[by_prompt[prompt].scope_ref], prompt)
-
-    res = _local_eval(
-        "skuggi-factuality",
-        data=[
-            {"input": c.prompt, "expected": c.expected, "metadata": {"id": c.id}}
-            for c in cases
-        ],
-        task=task,
-        scores=[Factuality()],
-    )
-    return _summary_result("factuality", res, len(cases))
-
-
-def _run_threshold(  # noqa: PLR0913 -- one threshold runner, parameterised per dimension  # pragma: no cover
     settings: Settings,
     scopes: dict[str, EngagementConfig],
+    root: Path,
+    judge: Judge,
     *,
-    dim: str,
-    specs: list[_TurnSpec],
-    measure: Callable[[Settings, EngagementConfig, str], float],
-    score_of: Callable[[float, float], dict[str, object]],
+    suite: str,
 ) -> DimensionResult:
-    by_prompt = {spec.prompt: spec for spec in specs}
+    cases = [
+        c
+        for c in load_cases("factuality", root)
+        if isinstance(c, FactualityCase) and suite in c.suites
+    ]
+    scores: list[Score] = []
+    for case in cases:
+        actual = _answer(settings, scopes[case.scope_ref], case.prompt)
+        scores.append(
+            judge.score(prompt=case.prompt, expected=case.expected, actual=actual)
+        )
+    return aggregate("factuality", scores)
 
-    def task(prompt: str) -> float:
-        return measure(settings, scopes[by_prompt[prompt].scope_ref], prompt)
 
-    def score(
-        output: float, metadata: dict[str, object], **_: object
-    ) -> dict[str, object]:
-        return score_of(output, float(cast("float", metadata["ceiling"])))
+def _run_budget(  # pragma: no cover
+    settings: Settings, scopes: dict[str, EngagementConfig], root: Path, *, suite: str
+) -> DimensionResult:
+    cases = [
+        c
+        for c in load_cases("budget", root)
+        if isinstance(c, BudgetCase) and suite in c.suites
+    ]
+    scores = [
+        budget_threshold(
+            _cost_latency(settings, scopes[c.scope_ref], c.prompt)[0], c.max_cost_usd
+        )
+        for c in cases
+    ]
+    return aggregate("budget", scores)
 
-    res = _local_eval(
-        f"skuggi-{dim}",
-        data=[
-            {
-                "input": spec.prompt,
-                "expected": None,
-                "metadata": {"id": spec.id, "ceiling": spec.ceiling},
-            }
-            for spec in specs
-        ],
-        task=task,
-        scores=[score],
-    )
-    return _summary_result(dim, res, len(specs))
+
+def _run_latency(  # pragma: no cover
+    settings: Settings, scopes: dict[str, EngagementConfig], root: Path, *, suite: str
+) -> DimensionResult:
+    cases = [
+        c
+        for c in load_cases("latency", root)
+        if isinstance(c, LatencyCase) and suite in c.suites
+    ]
+    scores = [
+        latency_threshold(
+            _cost_latency(settings, scopes[c.scope_ref], c.prompt)[1], c.max_latency_s
+        )
+        for c in cases
+    ]
+    return aggregate("latency", scores)
 
 
 def run_quality(  # pragma: no cover
@@ -180,39 +149,49 @@ def run_quality(  # pragma: no cover
     root: Path,
     *,
     dimensions: Sequence[str],
+    suite: str = "full",
+    judge: Judge | None = None,
 ) -> dict[str, DimensionResult]:
-    """Run the requested quality dimensions through a local Braintrust ``Eval``."""
+    """Grade the requested quality dimensions for one model (``settings``).
+
+    ``judge`` grades factuality; when omitted a :class:`LLMJudge` on the same
+    provider is built (only if factuality is requested, so budget/latency-only
+    runs need no judge-capable provider). ``suite`` filters cases by membership.
+    """
     scopes = load_scopes(root)
     results: dict[str, DimensionResult] = {}
-    for dim in dimensions:
-        if dim == "factuality":
-            results[dim] = _run_factuality(settings, scopes, root)
-        elif dim == "budget":
-            budget_cases = [cast("BudgetCase", c) for c in load_cases("budget", root)]
-            results[dim] = _run_threshold(
-                settings,
-                scopes,
-                dim="budget",
-                specs=[
-                    _TurnSpec(c.id, c.prompt, c.scope_ref, c.max_cost_usd)
-                    for c in budget_cases
-                ],
-                measure=lambda s, sc, p: _cost_latency(s, sc, p)[0],
-                score_of=lambda out, ceil: budget_threshold(out, ceil).as_braintrust(),
-            )
-        elif dim == "latency":
-            latency_cases = [
-                cast("LatencyCase", c) for c in load_cases("latency", root)
-            ]
-            results[dim] = _run_threshold(
-                settings,
-                scopes,
-                dim="latency",
-                specs=[
-                    _TurnSpec(c.id, c.prompt, c.scope_ref, c.max_latency_s)
-                    for c in latency_cases
-                ],
-                measure=lambda s, sc, p: _cost_latency(s, sc, p)[1],
-                score_of=lambda out, ceil: latency_threshold(out, ceil).as_braintrust(),
-            )
+    if "factuality" in dimensions:
+        active_judge = judge or LLMJudge(settings)
+        results["factuality"] = _run_factuality(
+            settings, scopes, root, active_judge, suite=suite
+        )
+    if "budget" in dimensions:
+        results["budget"] = _run_budget(settings, scopes, root, suite=suite)
+    if "latency" in dimensions:
+        results["latency"] = _run_latency(settings, scopes, root, suite=suite)
     return results
+
+
+def run_matrix(  # pragma: no cover
+    matrix: Sequence[ModelSpec],
+    judge_spec: ModelSpec,
+    root: Path,
+    *,
+    dimensions: Sequence[str],
+    suite: str = "full",
+) -> dict[str, dict[str, DimensionResult]]:
+    """Grade ``dimensions`` for every model in ``matrix``; return per-model results.
+
+    One shared :class:`LLMJudge` (built from ``judge_spec``) grades factuality for
+    every model, so the comparison is fair. Prices come from ``evals/prices.json``
+    so the budget dimension is correct for whatever models the matrix pins.
+    """
+    prices = load_prices(root)
+    judge = LLMJudge(eval_settings(judge_spec, prices))
+    per_model: dict[str, dict[str, DimensionResult]] = {}
+    for spec in matrix:
+        settings = eval_settings(spec, prices)
+        per_model[spec.label] = run_quality(
+            settings, root, dimensions=dimensions, suite=suite, judge=judge
+        )
+    return per_model

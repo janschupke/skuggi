@@ -97,10 +97,6 @@ dev = [
     "respx>=0.23.1",
     "pre-commit>=4.6.2",
 ]
-eval = [
-    "autoevals>=0.3,<1",
-    "braintrust>=0.42,<1",
-]
 
 [tool.pytest.ini_options]
 minversion = "9.0"
@@ -232,8 +228,7 @@ runtime-evaluated-base-classes = [
 # _get_request_payload's **kwargs: Any is fixed by the ChatOpenAI signature.
 "src/skuggi/codex_chat.py" = ["ANN401"]
 # The offline eval model subclasses BaseChatModel (with_structured_output /
-# _generate carry the base's Any signatures); the quality scorers match
-# Braintrust's untyped (output, metadata, **kwargs) score-function contract.
+# _generate carry the base's Any signatures).
 "src/skuggi/eval/offline.py" = ["ANN401", "ARG002"]
 # skuggi-eval prints its scorecard to stdout.
 "src/skuggi/eval/cli.py" = ["T201"]
@@ -306,10 +301,4 @@ warn_required_dynamic_aliases = true
 # markupsafe are all typed.
 [[tool.mypy.overrides]]
 module = ["weasyprint.*", "pygments.*"]
-ignore_missing_imports = true
-
-# autoevals (the LLM-judge scorers for the quality eval tier) ships no type
-# information; braintrust itself is typed. Scoped to autoevals only.
-[[tool.mypy.overrides]]
-module = ["autoevals.*"]
 ignore_missing_imports = true

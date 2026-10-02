@@ -67,27 +67,35 @@ class ResultCompatCase(_Case):
     expect_finding_titles: tuple[str, ...] = ()
 
 
-class FactualityCase(_Case):
-    """One lab-knowledge case scored by an LLM judge against ``expected``."""
+class _QualityCase(_Case):
+    """A quality-tier case: carries suite membership for the fast/full split.
+
+    ``suites`` names the judge suites a case belongs to. ``fast`` is a curated,
+    cheap subset; ``full`` is the comprehensive run. A case is run when the
+    requested suite is in this list; the default is ``full`` only, so a case is
+    opted into ``fast`` explicitly with ``["fast", "full"]``.
+    """
 
     scope_ref: str
     prompt: str
+    suites: tuple[str, ...] = ("full",)
+
+
+class FactualityCase(_QualityCase):
+    """One lab-knowledge case scored by an LLM judge against ``expected``."""
+
     expected: str
 
 
-class BudgetCase(_Case):
+class BudgetCase(_QualityCase):
     """One turn whose token cost must stay under ``max_cost_usd``."""
 
-    scope_ref: str
-    prompt: str
     max_cost_usd: float
 
 
-class LatencyCase(_Case):
+class LatencyCase(_QualityCase):
     """One turn whose wall-clock must stay under ``max_latency_s``."""
 
-    scope_ref: str
-    prompt: str
     max_latency_s: float
 
 

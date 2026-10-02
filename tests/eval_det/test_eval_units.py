@@ -30,9 +30,9 @@ from tests.eval_det.conftest import EVALS_ROOT, REGISTRY_PATH
 # --- scorers ---------------------------------------------------------------
 
 
-def test_score_as_braintrust_shape() -> None:
-    bt = Score(name="x", score=0.5, metadata={"k": 1}).as_braintrust()
-    assert bt == {"name": "x", "score": 0.5, "metadata": {"k": 1}}
+def test_score_is_plain_value() -> None:
+    score = Score(name="x", score=0.5, metadata={"k": 1})
+    assert (score.name, score.score, score.metadata) == ("x", 0.5, {"k": 1})
 
 
 def test_budget_threshold_grades() -> None:
@@ -264,4 +264,4 @@ def test_load_cases_invalid_case(tmp_path: Path) -> None:
 
 def test_quality_module_is_importable() -> None:
     assert callable(quality.run_quality)
-    assert quality._TurnSpec("i", "p", "lab", 1.0).ceiling == 1.0
+    assert callable(quality.run_matrix)

@@ -1,0 +1,14 @@
+{
+  "_note": "The model matrix for the quality tier. `full` runs every entry in `matrix` and treats their divergence as a regression; `fast` runs the cheap subset. `judge` is the model that grades factuality (pinned for reproducibility). Overridable per run with --provider/--model. Model names are skuggi's configured defaults, not vendor SKUs -- adjust to your account.",
+  "judge": { "provider": "openai", "model": "gpt-6-luna" },
+  "matrix": [
+    { "provider": "anthropic", "model": "claude-haiku-4-5", "label": "anthropic:haiku" },
+    { "provider": "openai", "model": "gpt-6-luna", "label": "openai:luna" }
+  ],
+  "fast": {
+    "judge": { "provider": "openai", "model": "gpt-6-luna" },
+    "matrix": [
+      { "provider": "anthropic", "model": "claude-haiku-4-5", "label": "anthropic:haiku" }
+    ]
+  }
+}

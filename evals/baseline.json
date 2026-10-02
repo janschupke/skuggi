@@ -1,8 +1,8 @@
 {
-  "budget": { "score": null, "threshold": 0.8, "provider": null },
+  "budget": { "score": null, "threshold": 0.8, "provider": null, "divergence_tolerance": 0.25 },
   "compliance": { "score": 1.0, "threshold": 1.0, "provider": "deterministic" },
-  "factuality": { "score": null, "threshold": 0.6, "provider": null },
-  "latency": { "score": null, "threshold": 0.8, "provider": null },
+  "factuality": { "score": null, "threshold": 0.6, "provider": null, "divergence_tolerance": 0.25 },
+  "latency": { "score": null, "threshold": 0.8, "provider": null, "divergence_tolerance": 0.3 },
   "methodology": { "score": 1.0, "threshold": 1.0, "provider": "deterministic" },
   "result_compat": { "score": 1.0, "threshold": 1.0, "provider": "deterministic" },
   "schema": { "score": 1.0, "threshold": 1.0, "provider": "deterministic" }

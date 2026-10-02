@@ -7,14 +7,16 @@ Two tiers, split by whether a pure oracle can decide the answer:
   ``schema`` and ``result_compat`` (host-system compatibility). Scored offline
   against skuggi's own pure oracles, so these run in the default test suite and
   hard-gate CI against ``evals/baseline.json``.
-* **quality** -- ``factuality`` (``autoevals.Factuality`` LLM judge), ``budget``
-  and ``latency``. Need a real provider, so they are opt-in (``skuggi-eval`` /
-  ``make bench``) and never block CI.
+* **quality** -- ``factuality`` (an in-house LLM judge, :mod:`skuggi.eval.judge`),
+  ``budget`` and ``latency``. Need a real provider, so they are opt-in
+  (``skuggi-eval`` / ``make bench``) and never block CI. They run across a
+  configurable model matrix (:mod:`skuggi.eval.models`) and treat cross-model
+  divergence as a regression (:mod:`skuggi.eval.divergence`).
 
-Every run is local: the Braintrust ``Eval`` in :mod:`skuggi.eval.runner` is always
-invoked with ``no_send_logs=True`` and no experiment is ever uploaded. The
-scorers (:mod:`skuggi.eval.scorers`) are pure and Braintrust-free so the
-deterministic gate stays inside the suite's ``filterwarnings = ["error"]``.
+Every run is local and framework-free: there is no eval SDK, nothing is uploaded,
+and no third-party judge service is contacted -- the judge is skuggi's own
+provider-agnostic chat model. The scorers (:mod:`skuggi.eval.scorers`) are pure,
+so the deterministic gate stays inside the suite's ``filterwarnings = ["error"]``.
 """
 
 from __future__ import annotations
