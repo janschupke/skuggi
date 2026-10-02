@@ -182,6 +182,7 @@ def no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) 
         raise RuntimeError(msg)
 
     monkeypatch.setattr(httpx.Client, "send", _blocked)
+    monkeypatch.setattr(httpx.AsyncClient, "send", _blocked)
     monkeypatch.setattr(httpx, "post", _blocked)
     monkeypatch.setattr(httpx, "get", _blocked)
 
