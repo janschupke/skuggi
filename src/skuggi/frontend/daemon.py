@@ -29,8 +29,7 @@ from skuggi.agent import prompts
 from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.common.logs import get_logger
 from skuggi.config.config import PROVIDERS
-from skuggi.config.configs import ConfigError
-from skuggi.frontend import cmdflow, configflow, setup, verbs, wizard
+from skuggi.frontend import cmdflow, configflow, dispatch, setup, verbs, wizard
 from skuggi.frontend.commands import CommandAlias, render
 from skuggi.persistence import reports
 from skuggi.persistence.ledger import finding_line
@@ -404,33 +403,24 @@ class Daemon:
         yield self.core.review_session(arg.strip() or None) + "\n"
 
     def _memory(self, arg: str) -> Iterator[str]:
-        sub, _, rest = arg.partition(" ")
-        sub, rest = sub.strip().lower(), rest.strip()
-        if sub == "add":
-            if not rest:
-                yield "usage: memory add <preference>\n"
-                return
-            row = self.core.add_preference(rest)
-            yield (
-                f"remembered [{row.id}] {row.text}\n" if row else "already remembered\n"
-            )
-            return
-        if sub == "forget":
-            if not rest.isdigit():
-                yield "usage: memory forget <id>\n"
-                return
-            removed = self.core.forget_preference(int(rest))
-            yield "forgotten\n" if removed else f"no preference {rest}\n"
-            return
-        if sub == "clear":
-            yield f"cleared {self.core.clear_preferences()} preference(s)\n"
-            return
-        rows = self.core.list_preferences()
-        if not rows:
-            yield "(nothing remembered yet)\n"
-            return
-        for row in rows:
-            yield f"  [{row.id}] {row.text} ({row.source})\n"
+        match dispatch.run_memory(self.core, arg):
+            case dispatch.MemoryUsage(form):
+                yield f"usage: memory {form}\n"
+            case dispatch.MemoryAdded(row):
+                yield f"remembered [{row.id}] {row.text}\n"
+            case dispatch.MemoryAlreadyKnown():
+                yield "already remembered\n"
+            case dispatch.MemoryForgotten():
+                yield "forgotten\n"
+            case dispatch.MemoryMissing(ref):
+                yield f"no preference {ref}\n"
+            case dispatch.MemoryCleared(count):
+                yield f"cleared {count} preference(s)\n"
+            case dispatch.MemoryList(rows):
+                if not rows:
+                    yield "(nothing remembered yet)\n"
+                for row in rows:
+                    yield f"  [{row.id}] {row.text} ({row.source})\n"
 
     def _engagement(self, arg: str) -> Iterator[str]:
         parts = arg.split()
@@ -516,41 +506,37 @@ class Daemon:
         yield f"autonomous execution is now {'ON' if state else 'off'}\n"
 
     def _provider(self, arg: str) -> Iterator[str]:
-        if not arg.strip():
-            yield (
-                f"usage: provider <{'|'.join(PROVIDERS)}> -- "
-                f"or run {self._cmd('setup')} to configure one\n"
-            )
-            return
-        try:
-            self.core.set_provider(arg)
-        except ValueError as e:
-            yield f"{e}\n"
-            return
-        except ConfigError:  # switched, but the new provider has no credential
-            yield f"{arg} isn't configured -- run {self._cmd('setup')} to add a key\n"
-            return
-        except (RuntimeError, ImportError) as e:
-            yield f"provider error: {e}\n"
-            return
-        yield f"switched to {self.core.provider}/{self.core.model or '(default)'}\n"
+        match dispatch.run_provider(self.core, arg):
+            case dispatch.ProviderUsage():
+                yield (
+                    f"usage: provider <{'|'.join(PROVIDERS)}> -- "
+                    f"or run {self._cmd('setup')} to configure one\n"
+                )
+            case dispatch.ProviderUnknown(message):
+                yield f"{message}\n"
+            case dispatch.ProviderNoCredential(provider):
+                yield (
+                    f"{provider} isn't configured -- "
+                    f"run {self._cmd('setup')} to add a key\n"
+                )
+            case dispatch.ProviderError(message):
+                yield f"provider error: {message}\n"
+            case dispatch.ProviderSwitched(provider, model):
+                yield f"switched to {provider}/{model or '(default)'}\n"
 
     def _model(self, arg: str) -> Iterator[str]:
-        try:
-            self.core.set_model(arg)
-        except ValueError:
-            yield f"usage: {self._cmd('model <name>')}\n"
-            return
-        except ConfigError:  # the model switch rebuilt the llm and found no key
-            yield (
-                f"can't switch model: {self.core.provider} isn't configured -- "
-                f"run {self._cmd('setup')} first\n"
-            )
-            return
-        except (RuntimeError, ImportError) as e:
-            yield f"provider error: {e}\n"
-            return
-        yield f"switched to {self.core.provider}/{self.core.model}\n"
+        match dispatch.run_model(self.core, arg):
+            case dispatch.ModelUsage():
+                yield f"usage: {self._cmd('model <name>')}\n"
+            case dispatch.ModelNoCredential(provider):
+                yield (
+                    f"can't switch model: {provider} isn't configured -- "
+                    f"run {self._cmd('setup')} first\n"
+                )
+            case dispatch.ModelError(message):
+                yield f"provider error: {message}\n"
+            case dispatch.ModelSwitched(provider, model):
+                yield f"switched to {provider}/{model}\n"
 
     def _thread(self, arg: str) -> Iterator[str]:
         if arg in ("new", ""):

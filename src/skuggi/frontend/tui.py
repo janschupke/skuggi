@@ -25,9 +25,8 @@ from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.agent.state import AgentState
 from skuggi.common import palette
 from skuggi.config.config import PROVIDERS, Settings
-from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import EngagementConfig
-from skuggi.frontend import cmdflow, configflow, menu, setup, verbs, wizard
+from skuggi.frontend import cmdflow, configflow, dispatch, menu, setup, verbs, wizard
 from skuggi.frontend.commands import CommandAlias, render
 from skuggi.persistence import reports
 from skuggi.persistence.ledger import Ledger, finding_line
@@ -261,46 +260,41 @@ class Tui:
         self.console.print(table)
 
     def _cmd_provider(self, arg: str) -> None:
-        if not arg.strip():
-            self.console.print(
-                f"[yellow]usage:[/yellow] /provider <{'|'.join(PROVIDERS)}> "
-                f"-- or run {verbs.cmd('setup', 'repl')} to configure one"
-            )
-            return
-        try:
-            self.core.set_provider(arg)
-        except ValueError as e:
-            self.console.print(f"[red]{e}[/red]")
-            return
-        except ConfigError:  # switched, but the new provider has no credential
-            self.console.print(
-                f"[yellow]{arg} isn't configured[/yellow] -- run "
-                f"{verbs.cmd('setup', 'repl')} to add a key"
-            )
-            return
-        except (RuntimeError, ImportError) as e:
-            self.console.print(f"[red]provider error:[/red] {e}")
-            return
-        self.console.print(
-            f"[dim]switched to[/dim] {self.provider}/{self.core.model or '(default)'}"
-        )
+        """Switch the LLM provider on the live session."""
+        match dispatch.run_provider(self.core, arg):
+            case dispatch.ProviderUsage():
+                self.console.print(
+                    f"[yellow]usage:[/yellow] /provider <{'|'.join(PROVIDERS)}> "
+                    f"-- or run {verbs.cmd('setup', 'repl')} to configure one"
+                )
+            case dispatch.ProviderUnknown(message):
+                self.console.print(f"[red]{message}[/red]")
+            case dispatch.ProviderNoCredential(provider):
+                self.console.print(
+                    f"[yellow]{provider} isn't configured[/yellow] -- run "
+                    f"{verbs.cmd('setup', 'repl')} to add a key"
+                )
+            case dispatch.ProviderError(message):
+                self.console.print(f"[red]provider error:[/red] {message}")
+            case dispatch.ProviderSwitched(provider, model):
+                self.console.print(
+                    f"[dim]switched to[/dim] {provider}/{model or '(default)'}"
+                )
 
     def _cmd_model(self, arg: str) -> None:
-        try:
-            self.core.set_model(arg)
-        except ValueError:
-            self.console.print("[yellow]usage:[/yellow] /model <name>")
-            return
-        except ConfigError:  # the model switch rebuilt the llm and found no key
-            self.console.print(
-                f"[yellow]can't switch model:[/yellow] {self.provider} isn't "
-                f"configured -- run {verbs.cmd('setup', 'repl')} first"
-            )
-            return
-        except (RuntimeError, ImportError) as e:
-            self.console.print(f"[red]provider error:[/red] {e}")
-            return
-        self.console.print(f"[dim]switched to[/dim] {self.provider}/{self.core.model}")
+        """Switch the model on the current provider."""
+        match dispatch.run_model(self.core, arg):
+            case dispatch.ModelUsage():
+                self.console.print("[yellow]usage:[/yellow] /model <name>")
+            case dispatch.ModelNoCredential(provider):
+                self.console.print(
+                    f"[yellow]can't switch model:[/yellow] {provider} isn't "
+                    f"configured -- run {verbs.cmd('setup', 'repl')} first"
+                )
+            case dispatch.ModelError(message):
+                self.console.print(f"[red]provider error:[/red] {message}")
+            case dispatch.ModelSwitched(provider, model):
+                self.console.print(f"[dim]switched to[/dim] {provider}/{model}")
 
     def _cmd_mode(self, arg: str) -> None:
         try:
@@ -537,42 +531,26 @@ class Tui:
 
     def _cmd_memory(self, arg: str) -> None:
         """Show, add or forget remembered operator preferences (harness memory)."""
-        sub, _, rest = arg.partition(" ")
-        sub, rest = sub.strip().lower(), rest.strip()
-        if sub == "add":
-            if not rest:
-                self.console.print("[red]usage:[/red] /memory add <preference>")
-                return
-            row = self.core.add_preference(rest)
-            if row is None:
-                self.console.print("[dim]already remembered[/dim]")
-            else:
+        match dispatch.run_memory(self.core, arg):
+            case dispatch.MemoryUsage(form):
+                self.console.print(f"[red]usage:[/red] /memory {form}")
+            case dispatch.MemoryAdded(row):
                 self.console.print(f"[green]remembered[/green] [{row.id}] {row.text}")
-            return
-        if sub == "forget":
-            if not rest.isdigit():
-                self.console.print("[red]usage:[/red] /memory forget <id>")
-                return
-            removed = self.core.forget_preference(int(rest))
-            self.console.print(
-                "[dim]forgotten[/dim]"
-                if removed
-                else f"[yellow]no preference {rest}[/yellow]"
-            )
-            return
-        if sub == "clear":
-            self.console.print(
-                f"[dim]cleared {self.core.clear_preferences()} preference(s)[/dim]"
-            )
-            return
-        rows = self.core.list_preferences()
-        if not rows:
-            self.console.print("[dim](nothing remembered yet)[/dim]")
-            return
-        for row in rows:
-            self.console.print(
-                f"[cyan][{row.id}][/cyan] {row.text} [dim]({row.source})[/dim]"
-            )
+            case dispatch.MemoryAlreadyKnown():
+                self.console.print("[dim]already remembered[/dim]")
+            case dispatch.MemoryForgotten():
+                self.console.print("[dim]forgotten[/dim]")
+            case dispatch.MemoryMissing(ref):
+                self.console.print(f"[yellow]no preference {ref}[/yellow]")
+            case dispatch.MemoryCleared(count):
+                self.console.print(f"[dim]cleared {count} preference(s)[/dim]")
+            case dispatch.MemoryList(rows):
+                if not rows:
+                    self.console.print("[dim](nothing remembered yet)[/dim]")
+                for row in rows:
+                    self.console.print(
+                        f"[cyan][{row.id}][/cyan] {row.text} [dim]({row.source})[/dim]"
+                    )
 
     def _cmd_autonomous(self, arg: str) -> None:
         try:
