@@ -69,6 +69,7 @@ skuggi-doctor = "skuggi.tooling.doctor:main"
 skuggi-client = "skuggi.frontend.client:main"
 skuggi-login = "skuggi.providers.codex_login:main"
 skuggi-pdf = "skuggi.persistence.pdf:main"
+skuggi-visualize = "skuggi.persistence.visualize:main"
 skuggi-eval = "skuggi.eval.cli:main"
 
 [tool.hatch.version]
@@ -252,6 +253,9 @@ runtime-evaluated-base-classes = [
 "src/skuggi/persistence/pdf.py" = ["PLC0415", "T201"]
 # reports.write_report imports skuggi.pdf lazily so the PDF deps stay optional.
 "src/skuggi/persistence/reports.py" = ["PLC0415"]
+# skuggi-visualize keeps the config/workspace plumbing lazy inside main() so the
+# importable render module stays light, and prints its result path to the tty.
+"src/skuggi/persistence/visualize.py" = ["PLC0415", "T201"]
 # The lab-range controller renders its tables/prompts straight to the operator's
 # tty, and shells out to `docker compose` with a fixed argv (shell=False).
 "labs/_lib/labctl/cli.py" = ["T201"]

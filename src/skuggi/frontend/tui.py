@@ -28,7 +28,7 @@ from skuggi.config.config import PROVIDERS, Settings
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.frontend import cmdflow, configflow, dispatch, menu, setup, verbs, wizard
 from skuggi.frontend.commands import CommandAlias, render
-from skuggi.persistence import reports
+from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import Ledger, finding_line
 from skuggi.tooling.doctor import PROBING_MSG, render_doctor
 from skuggi.tooling.registry import ToolRegistry
@@ -113,6 +113,7 @@ class Tui:
             "loot": self._cmd_loot,
             "findings": self._cmd_findings,
             "report": self._cmd_report,
+            "visualize": self._cmd_visualize,
             "replay": self._cmd_replay,
             "review": self._cmd_review,
             "memory": self._cmd_memory,
@@ -555,6 +556,11 @@ class Tui:
     def _cmd_report(self, arg: str) -> None:
         result = self.core.write_report(pdf=arg.strip().lower() == "pdf")
         for line in reports.report_written_lines(result):
+            self.console.print(f"[green]{line}[/green]")
+
+    def _cmd_visualize(self, _arg: str) -> None:
+        path = self.core.write_visualization()
+        for line in visualize.visualization_written_lines(path):
             self.console.print(f"[green]{line}[/green]")
 
     def _cmd_replay(self, arg: str) -> None:

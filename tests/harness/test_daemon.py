@@ -108,6 +108,11 @@ def test_slash_report_writes(daemon: Daemon) -> None:
     assert "report written" in _chunks(daemon, {"op": "input", "text": "/report"})
 
 
+def test_slash_visualize_writes(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "/visualize"})
+    assert "visualization written" in out
+
+
 def test_slash_report_pdf_writes_both(
     daemon: Daemon, monkeypatch: pytest.MonkeyPatch
 ) -> None:

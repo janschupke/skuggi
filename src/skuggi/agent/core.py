@@ -67,7 +67,7 @@ from skuggi.frontend.commands import CommandAlias, CommandRegistry, raw_command,
 from skuggi.install import envfile
 from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
-from skuggi.persistence import memory, preferences, reports
+from skuggi.persistence import memory, preferences, reports, visualize
 from skuggi.persistence import transcript as transcript_mod
 from skuggi.persistence.ledger import FindingRow, SessionRow
 from skuggi.persistence.vectorstore import Store
@@ -630,6 +630,31 @@ class AgentCore:
             self.reports_dir,
             engagement=self.engagement,
             pdf=pdf,
+        )
+
+    def write_visualization(self) -> Path:
+        """Write the engagement's interactive HTML dashboard and return its path.
+
+        An internal operator artifact (unlike ``write_report``): it spans every
+        session in the ledger and pulls in the notes/loot journals, the agent
+        transcript, the audit log and the diagnostic log bounded to the
+        engagement's timeframe.
+        """
+        log_path = logs.default_log_path()
+        log_text = (
+            log_path.read_text(encoding="utf-8", errors="replace")
+            if log_path.is_file()
+            else ""
+        )
+        return visualize.write_visualization(
+            self.ledger,
+            self.reports_dir,
+            engagement=self.engagement,
+            registry=self.registry,
+            notes_text=self.notes(),
+            loot_text=self.loot(),
+            log_text=log_text,
+            engagement_name=self.engagement.name if self.engagement else None,
         )
 
     # ----- session logging, retrieval, replay & review ----------------------

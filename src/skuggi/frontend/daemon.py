@@ -31,7 +31,7 @@ from skuggi.common.logs import get_logger
 from skuggi.config.config import PROVIDERS
 from skuggi.frontend import cmdflow, configflow, dispatch, setup, verbs, wizard
 from skuggi.frontend.commands import CommandAlias, render
-from skuggi.persistence import reports
+from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import finding_line
 from skuggi.tooling.doctor import PROBING_MSG, doctor_ansi
 
@@ -296,6 +296,7 @@ class Daemon:
             "loot": self._loot,
             "findings": self._findings,
             "report": self._report,
+            "visualize": self._visualize,
             "replay": self._replay,
             "review": self._review,
             "memory": self._memory,
@@ -387,6 +388,11 @@ class Daemon:
     def _report(self, arg: str) -> Iterator[str]:
         result = self.core.write_report(pdf=arg.strip().lower() == "pdf")
         for line in reports.report_written_lines(result):
+            yield f"{line}\n"
+
+    def _visualize(self, _arg: str) -> Iterator[str]:
+        path = self.core.write_visualization()
+        for line in visualize.visualization_written_lines(path):
             yield f"{line}\n"
 
     def _replay(self, arg: str) -> Iterator[str]:

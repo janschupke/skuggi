@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>skuggi engagement</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f7f9;
+        --surface: #ffffff;
+        --surface-2: #f0f2f5;
+        --ink: #111827;
+        --ink-2: #374151;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --accent: #1d4ed8;
+        --good: #047857;
+        --warn: #b45309;
+        --bad: #b91c1c;
+        --radius: 10px;
+        --mono: "SF Mono", "Menlo", "Consolas", ui-monospace, monospace;
+        --sans: "Helvetica Neue", Arial, system-ui, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --surface: #161b22;
+          --surface-2: #1c2330;
+          --ink: #e6edf3;
+          --ink-2: #c3ccd6;
+          --muted: #8b949e;
+          --border: #2d333b;
+          --accent: #4493f8;
+          --good: #3fb950;
+          --warn: #d29922;
+          --bad: #f85149;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      header.top {
+        padding: 20px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+      }
+      header.top h1 { margin: 0 0 4px; font-size: 20px; }
+      header.top .meta { color: var(--muted); font-size: 13px; }
+      header.top .meta code { font-family: var(--mono); }
+      main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+      nav.tabs {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding: 8px 16px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+      }
+      nav.tabs button {
+        border: 1px solid transparent;
+        background: none;
+        color: var(--ink-2);
+        padding: 6px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+        font: inherit;
+      }
+      nav.tabs button[aria-selected="true"] {
+        background: var(--surface);
+        border-color: var(--border);
+        color: var(--ink);
+        font-weight: 600;
+      }
+      section.panel { display: none; }
+      section.panel.active { display: block; }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .card > h2 { margin: 0 0 12px; font-size: 15px; }
+      .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+      .tile {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+      }
+      .tile .n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .row { display: flex; align-items: center; gap: 8px; }
+      .muted { color: var(--muted); }
+      .mono { font-family: var(--mono); }
+      code, pre { font-family: var(--mono); }
+      pre.out {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        overflow: auto;
+        max-height: 360px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12.5px;
+        margin: 8px 0 0;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-size: 11.5px;
+        font-weight: 600;
+        border: 1px solid var(--border);
+        white-space: nowrap;
+      }
+      .method-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: none; }
+      /* timeline */
+      .tl-item { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+      .tl-item:first-child { border-top: none; }
+      .tl-when { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+      .tl-gap { color: var(--muted); font-size: 11px; margin-top: 2px; }
+      .tl-body .cmd { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+      .durbar-track { height: 8px; background: var(--surface-2); border-radius: 4px; margin-top: 6px; overflow: hidden; }
+      .durbar { height: 8px; border-radius: 4px; }
+      .pin { font-weight: 600; }
+      /* bar chart */
+      .bars { display: flex; flex-direction: column; gap: 8px; }
+      .bar-row { display: grid; grid-template-columns: 120px 1fr 48px; gap: 10px; align-items: center; }
+      .bar-label { font-family: var(--mono); font-size: 12.5px; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+      .bar-track { background: var(--surface-2); border-radius: 4px; height: 16px; position: relative; }
+      .bar-fill { height: 16px; border-radius: 4px; min-width: 2px; }
+      .bar-val { font-variant-numeric: tabular-nums; font-weight: 600; }
+      .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+      .legend span.row { gap: 5px; }
+      /* conversation */
+      .turn { margin: 0 0 14px; }
+      .turn .who { font-weight: 600; font-size: 12px; }
+      .turn.response .who { color: var(--accent); }
+      .turn .ts { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+      .turn .text { white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+      /* log */
+      .log-line { display: grid; grid-template-columns: 170px 70px 1fr; gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); font-size: 12.5px; }
+      .log-line:first-child { border-top: none; }
+      .log-line .lts { color: var(--muted); font-family: var(--mono); }
+      .log-line .lmsg { font-family: var(--mono); white-space: pre-wrap; word-break: break-word; }
+      .lvl-ERROR, .lvl-CRITICAL { color: var(--bad); font-weight: 700; }
+      .lvl-WARNING { color: var(--warn); font-weight: 700; }
+      .lvl-INFO, .lvl-DEBUG { color: var(--muted); }
+      /* controls */
+      .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+      .controls input, .controls select {
+        font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+        border-radius: 8px; background: var(--surface); color: var(--ink);
+      }
+      details.trace { border-top: 1px solid var(--border); padding: 8px 0; }
+      details.trace summary { cursor: pointer; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      details.trace summary::-webkit-details-marker { display: none; }
+      .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
+      .kv dt { color: var(--muted); }
+      .kv dd { margin: 0; font-family: var(--mono); word-break: break-word; }
+      .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+      /* tooltip */
+      #tip {
+        position: fixed; z-index: 50; pointer-events: none; display: none;
+        background: var(--ink); color: var(--bg); padding: 6px 9px; border-radius: 6px;
+        font-size: 12px; max-width: 320px; box-shadow: 0 4px 18px rgba(0,0,0,.25);
+      }
+      @media (max-width: 620px) {
+        .tl-item { grid-template-columns: 1fr; }
+        .bar-row { grid-template-columns: 90px 1fr 40px; }
+        .log-line { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <h1 id="title">skuggi engagement</h1>
+      <div class="meta" id="submeta"></div>
+    </header>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <main id="app"></main>
+    <div id="tip" role="tooltip"></div>
+
+    <script id="skuggi-data" type="application/json">__SKUGGI_DATA__</script>
+    <script>
+      "use strict";
+      const DATA = JSON.parse(document.getElementById("skuggi-data").textContent);
+
+      // Inject the palette (skuggi's single source of truth) as CSS variables.
+      const root = document.documentElement.style;
+      for (const [k, v] of Object.entries(DATA.palette.severity)) root.setProperty("--sev-" + k, v);
+      for (const [k, v] of Object.entries(DATA.palette.method)) root.setProperty("--method-" + k, v);
+      const methodHex = (m) => (m && DATA.palette.method[m]) || "var(--muted)";
+      const sevHex = (s) => DATA.palette.severity[s] || "var(--muted)";
+
+      // --- tiny safe DOM builder (never innerHTML with engagement data) --------
+      function el(tag, props, ...kids) {
+        const n = document.createElement(tag);
+        if (props) for (const [k, v] of Object.entries(props)) {
+          if (v == null) continue;
+          if (k === "class") n.className = v;
+          else if (k === "text") n.textContent = v;
+          else if (k === "style") n.setAttribute("style", v);
+          else if (k.startsWith("on") && typeof v === "function") n.addEventListener(k.slice(2), v);
+          else n.setAttribute(k, v);
+        }
+        for (const kid of kids.flat()) if (kid != null) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+        return n;
+      }
+      const fmtTs = (iso) => (iso ? iso.replace("T", " ").replace(/\+00:00$/, "Z").replace(/\.\d+/, "") : "—");
+      function fmtDur(s) {
+        if (s == null) return "—";
+        if (s < 1) return (s * 1000).toFixed(0) + " ms";
+        if (s < 90) return s.toFixed(1) + " s";
+        if (s < 5400) return (s / 60).toFixed(1) + " min";
+        return (s / 3600).toFixed(1) + " h";
+      }
+      function fmtGap(s) {
+        if (s == null || s <= 0) return null;
+        return "+" + fmtDur(s) + " gap";
+      }
+
+      // --- tooltip -------------------------------------------------------------
+      const tip = document.getElementById("tip");
+      function hover(node, text) {
+        node.addEventListener("mousemove", (e) => {
+          tip.textContent = text;
+          tip.style.display = "block";
+          const pad = 14;
+          let x = e.clientX + pad, y = e.clientY + pad;
+          const r = tip.getBoundingClientRect();
+          if (x + r.width > innerWidth) x = e.clientX - r.width - pad;
+          if (y + r.height > innerHeight) y = e.clientY - r.height - pad;
+          tip.style.left = x + "px"; tip.style.top = y + "px";
+        });
+        node.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+        return node;
+      }
+
+      function methodBadge(m) {
+        return el("span", { class: "badge", title: m || "unknown" },
+          el("span", { class: "method-dot", style: "background:" + methodHex(m) }),
+          m || "—");
+      }
+      const STATUS_ICON = { executed: "✓", blocked: "⛔", proposed: "·", passthrough: "»" };
+      function statusBadge(status, exit) {
+        const failed = status === "executed" && exit != null && exit !== 0;
+        const color = failed ? "var(--bad)" : status === "executed" ? "var(--good)"
+          : status === "blocked" ? "var(--bad)" : "var(--muted)";
+        const label = failed ? "failed" : status;
+        return el("span", { class: "badge", style: "color:" + color + ";border-color:" + color },
+          (STATUS_ICON[status] || "•") + " " + label + (exit != null ? " (" + exit + ")" : ""));
+      }
+
+      // --- header --------------------------------------------------------------
+      const eng = DATA.engagement;
+      const engName = eng ? eng.name : (DATA.sessions[0] ? DATA.sessions[0].engagement_name : "(no engagement)");
+      document.getElementById("title").textContent = DATA.brand + "  —  " + engName;
+      const w = DATA.window;
+      document.getElementById("submeta").append(
+        el("span", { text: DATA.counts.sessions + " session(s) · " + DATA.counts.commands + " command(s) · " + DATA.counts.findings + " finding(s)" }),
+        el("br"),
+        el("span", { class: "mono", text: "window " + fmtTs(w.start) + " → " + fmtTs(w.end) + "   ·   generated " + fmtTs(DATA.generated) }),
+      );
+
+      // --- panels --------------------------------------------------------------
+      const PANELS = [
+        ["overview", "Overview", renderOverview],
+        ["timeline", "Timeline", renderTimeline],
+        ["trace", "Command trace", renderTrace],
+        ["transcript", "Transcript", renderTranscript],
+        ["log", "Harness log", renderLog],
+        ["scope", "Scope", renderScope],
+        ["tools", "Tools", renderTools],
+      ];
+      const app = document.getElementById("app");
+      const tabs = document.getElementById("tabs");
+      const sections = {};
+      PANELS.forEach(([id, label, fn], i) => {
+        const btn = el("button", { role: "tab", "aria-selected": i === 0 ? "true" : "false", text: label,
+          onclick: () => select(id) });
+        btn.dataset.id = id;
+        tabs.append(btn);
+        const sec = el("section", { class: "panel" + (i === 0 ? " active" : ""), id: "panel-" + id });
+        sections[id] = sec;
+        app.append(sec);
+        fn(sec);
+      });
+      function select(id) {
+        for (const b of tabs.children) b.setAttribute("aria-selected", b.dataset.id === id ? "true" : "false");
+        for (const [pid, sec] of Object.entries(sections)) sec.classList.toggle("active", pid === id);
+        scrollTo(0, 0);
+      }
+
+      // --- bar chart (horizontal, magnitude) -----------------------------------
+      function barChart(rows, { label, value, color, tipText }) {
+        const max = Math.max(1, ...rows.map(value));
+        const box = el("div", { class: "bars" });
+        for (const r of rows) {
+          const v = value(r);
+          const fill = el("div", { class: "bar-fill", style: "width:" + (100 * v / max) + "%;background:" + color(r) });
+          const track = el("div", { class: "bar-track" }, fill);
+          hover(track, tipText(r));
+          box.append(el("div", { class: "bar-row" },
+            el("div", { class: "bar-label", title: label(r), text: label(r) }),
+            track,
+            el("div", { class: "bar-val", text: String(v) })));
+        }
+        return box;
+      }
+      function methodLegend() {
+        const lg = el("div", { class: "legend" });
+        for (const m of DATA.palette.method_order) {
+          lg.append(el("span", { class: "row" },
+            el("span", { class: "method-dot", style: "background:" + methodHex(m) }), m));
+        }
+        return lg;
+      }
+
+      // --- OVERVIEW ------------------------------------------------------------
+      function renderOverview(sec) {
+        const cmds = DATA.timeline.filter((e) => e.type === "command");
+        const totalDur = cmds.reduce((a, c) => a + (c.duration_s || 0), 0);
+        const failed = cmds.filter((c) => c.status === "executed" && c.exit_code != null && c.exit_code !== 0).length;
+        const tiles = [
+          ["sessions", DATA.counts.sessions], ["commands", DATA.counts.commands],
+          ["findings", DATA.counts.findings], ["notes", DATA.counts.notes],
+          ["loot", DATA.counts.loot], ["failed cmds", failed],
+          ["exec time", fmtDur(totalDur)], ["log lines", DATA.log_entries.length],
+        ];
+        const grid = el("div", { class: "tiles" });
+        for (const [k, n] of tiles) grid.append(el("div", { class: "tile" }, el("div", { class: "n", text: String(n) }), el("div", { class: "k", text: k })));
+        sec.append(el("div", { class: "card" }, el("h2", { text: "At a glance" }), grid));
+
+        // findings by severity
+        const bySev = {};
+        for (const f of DATA.timeline.filter((e) => e.type === "finding")) bySev[f.severity] = (bySev[f.severity] || 0) + 1;
+        const sevRows = DATA.palette.severity_order.filter((s) => bySev[s]).map((s) => ({ s, n: bySev[s] }));
+        const fcard = el("div", { class: "card" }, el("h2", { text: "Findings by severity" }));
+        if (sevRows.length) {
+          fcard.append(barChart(sevRows, {
+            label: (r) => r.s, value: (r) => r.n, color: (r) => sevHex(r.s),
+            tipText: (r) => r.n + " " + r.s + " finding(s)",
+          }));
+        } else fcard.append(el("div", { class: "empty", text: "No findings recorded." }));
+        sec.append(fcard);
+
+        // tool usage (top)
+        const ucard = el("div", { class: "card" }, el("h2", { text: "Tool usage" }));
+        if (DATA.tools.usage.length) {
+          ucard.append(barChart(DATA.tools.usage, {
+            label: (r) => r.binary, value: (r) => r.count, color: (r) => methodHex(r.method),
+            tipText: (r) => r.binary + " — " + r.count + " run(s): " + r.executed + " exec, " + r.blocked + " blocked, " + r.proposed + " proposed" + (r.failed ? ", " + r.failed + " failed" : ""),
+          }), methodLegend());
+        } else ucard.append(el("div", { class: "empty", text: "No commands recorded." }));
+        sec.append(ucard);
+      }
+
+      // --- TIMELINE ------------------------------------------------------------
+      function renderTimeline(sec) {
+        const card = el("div", { class: "card" }, el("h2", { text: "Chronological trace" }));
+        if (!DATA.timeline.length) { card.append(el("div", { class: "empty", text: "No activity recorded." })); sec.append(card); return; }
+        const maxDur = Math.max(1, ...DATA.timeline.filter((e) => e.type === "command").map((e) => e.duration_s || 0));
+        for (const e of DATA.timeline) {
+          const left = el("div", {},
+            el("div", { class: "tl-when", text: fmtTs(e.ts) }),
+            fmtGap(e.gap_before_s) ? el("div", { class: "tl-gap", text: fmtGap(e.gap_before_s) }) : null);
+          let body;
+          if (e.type === "command") {
+            const head = el("div", { class: "row", style: "flex-wrap:wrap" }, methodBadge(e.method), statusBadge(e.status, e.exit_code),
+              e.duration_s != null ? el("span", { class: "muted", text: fmtDur(e.duration_s) }) : null);
+            const bar = el("div", { class: "durbar-track" }, el("div", { class: "durbar", style: "width:" + (100 * (e.duration_s || 0) / maxDur) + "%;background:" + methodHex(e.method) }));
+            body = el("div", { class: "tl-body" }, head, el("div", { class: "cmd", text: e.command }), e.duration_s != null ? bar : null);
+          } else if (e.type === "finding") {
+            body = el("div", { class: "tl-body" },
+              el("div", { class: "row" }, el("span", { class: "badge", style: "color:" + sevHex(e.severity) + ";border-color:" + sevHex(e.severity), text: e.severity.toUpperCase() }), el("span", { class: "pin", text: e.title })),
+              e.description ? el("div", { class: "muted", text: e.description }) : null);
+          } else {
+            body = el("div", { class: "tl-body" }, el("div", { class: "row" }, el("span", { class: "pin", text: e.type === "loot" ? "💰 loot" : "📝 note" }), el("span", { text: e.text })));
+          }
+          card.append(el("div", { class: "tl-item" }, left, body));
+        }
+        sec.append(card);
+      }
+
+      // --- TRACE (filterable) --------------------------------------------------
+      function renderTrace(sec) {
+        const cmds = DATA.timeline.filter((e) => e.type === "command");
+        const controls = el("div", { class: "controls" });
+        const q = el("input", { type: "search", placeholder: "filter command text…" });
+        const methodSel = el("select", {}, el("option", { value: "", text: "all methods" }), ...DATA.palette.method_order.map((m) => el("option", { value: m, text: m })));
+        const statusSel = el("select", {}, el("option", { value: "", text: "all statuses" }), ...["executed", "blocked", "proposed", "passthrough"].map((s) => el("option", { value: s, text: s })));
+        controls.append(q, methodSel, statusSel);
+        const card = el("div", { class: "card" }, el("h2", { text: "Command trace (" + cmds.length + ")" }), controls);
+        const list = el("div", {});
+        card.append(list);
+        sec.append(card);
+        function draw() {
+          list.textContent = "";
+          const term = q.value.toLowerCase();
+          const shown = cmds.filter((c) => (!term || c.command.toLowerCase().includes(term)) && (!methodSel.value || c.method === methodSel.value) && (!statusSel.value || c.status === statusSel.value));
+          if (!shown.length) { list.append(el("div", { class: "empty", text: "No commands match." })); return; }
+          for (const c of shown) {
+            const summary = el("summary", {},
+              methodBadge(c.method), statusBadge(c.status, c.exit_code),
+              el("span", { class: "mono", style: "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", text: c.command }),
+              el("span", { class: "muted", text: fmtDur(c.duration_s) }));
+            const det = el("details", { class: "trace" }, summary);
+            const kv = el("dl", { class: "kv" },
+              el("dt", { text: "started" }), el("dd", { text: fmtTs(c.ts) }),
+              el("dt", { text: "binary" }), el("dd", { text: c.binary }),
+              el("dt", { text: "session" }), el("dd", { text: c.session_id.slice(0, 8) }));
+            det.append(kv);
+            if (c.reason) det.append(el("div", { class: "muted", text: c.reason }));
+            if (c.stdout) det.append(el("div", { class: "muted", text: "stdout" }), el("pre", { class: "out", text: c.stdout }));
+            if (c.stderr) det.append(el("div", { class: "muted", text: "stderr" }), el("pre", { class: "out", text: c.stderr }));
+            list.append(det);
+          }
+        }
+        q.addEventListener("input", draw); methodSel.addEventListener("change", draw); statusSel.addEventListener("change", draw);
+        draw();
+      }
+
+      // --- TRANSCRIPT ----------------------------------------------------------
+      function renderTranscript(sec) {
+        const card = el("div", { class: "card" }, el("h2", { text: "Agent conversation (" + DATA.conversation.length + ")" }));
+        if (!DATA.conversation.length) { card.append(el("div", { class: "empty", text: "No conversation recorded." })); sec.append(card); return; }
+        for (const t of DATA.conversation) {
+          card.append(el("div", { class: "turn " + t.kind },
+            el("div", { class: "row" }, el("span", { class: "who", text: t.kind === "response" ? "skuggi" : "operator" }), el("span", { class: "ts", text: fmtTs(t.ts) })),
+            el("div", { class: "text", text: t.text })));
+        }
+        sec.append(card);
+      }
+
+      // --- LOG -----------------------------------------------------------------
+      function renderLog(sec) {
+        const card = el("div", { class: "card" },
+          el("h2", { text: "Harness diagnostic log — entries during the engagement window (" + DATA.log_entries.length + ")" }),
+          el("div", { class: "empty", style: "font-style:normal", text: "The log is not tagged by engagement; these are the lines whose local-time stamp falls inside the engagement window." }));
+        if (!DATA.log_entries.length) { card.append(el("div", { class: "empty", text: "No log entries in window." })); sec.append(card); return; }
+        for (const l of DATA.log_entries) {
+          card.append(el("div", { class: "log-line" },
+            el("div", { class: "lts", text: fmtTs(l.ts) }),
+            el("div", { class: "lvl-" + l.level, text: l.level }),
+            el("div", { class: "lmsg" }, el("span", { class: "muted", text: l.logger + ": " }), l.message)));
+        }
+        sec.append(card);
+      }
+
+      // --- SCOPE ---------------------------------------------------------------
+      function renderScope(sec) {
+        const card = el("div", { class: "card" }, el("h2", { text: "Scope & authorization" }));
+        if (!eng) { card.append(el("div", { class: "empty", text: "No scope loaded for this engagement." })); sec.append(card); return; }
+        if (DATA.scope_describe) card.append(el("pre", { class: "out", text: DATA.scope_describe }));
+        const fields = [
+          ["timezone", eng.timezone], ["authorized", (eng.authorized_start || "") + " → " + (eng.authorized_end || "")],
+          ["autonomous", String(eng.autonomous)], ["stance", eng.stance], ["primary target", eng.primary_target || "—"],
+          ["target networks", (eng.target_networks || []).join(", ") || "—"],
+          ["allowed hosts", (eng.allowed_hosts || []).join(", ") || "—"],
+          ["allowed tools", (eng.allowed_tools || []).join(", ") || "—"],
+          ["allowed methods", (eng.allowed_methods || []).join(", ") || "—"],
+        ];
+        const kv = el("dl", { class: "kv" });
+        for (const [k, v] of fields) kv.append(el("dt", { text: k }), el("dd", { text: v }));
+        card.append(kv);
+        sec.append(card);
+      }
+
+      // --- TOOLS ---------------------------------------------------------------
+      function renderTools(sec) {
+        const ucard = el("div", { class: "card" }, el("h2", { text: "Tool usage counts" }));
+        if (DATA.tools.usage.length) {
+          ucard.append(barChart(DATA.tools.usage, {
+            label: (r) => r.binary, value: (r) => r.count, color: (r) => methodHex(r.method),
+            tipText: (r) => r.binary + " — " + r.count + " run(s): " + r.executed + " exec, " + r.blocked + " blocked, " + r.proposed + " proposed" + (r.failed ? ", " + r.failed + " failed" : ""),
+          }), methodLegend());
+        } else ucard.append(el("div", { class: "empty", text: "No commands recorded." }));
+        sec.append(ucard);
+
+        const rcard = el("div", { class: "card" }, el("h2", { text: "Recognized tools (" + DATA.tools.registry.length + ")" }));
+        if (DATA.tools.registry.length) {
+          const used = new Set(DATA.tools.usage.map((u) => u.binary));
+          const grid = el("div", { class: "bars" });
+          for (const t of DATA.tools.registry) {
+            grid.append(el("div", { class: "row", style: "justify-content:space-between" },
+              el("div", { class: "row" }, methodBadge(t.method), el("span", { class: "mono", text: t.binary }), el("span", { class: "muted", text: t.name })),
+              el("span", { class: "muted", text: used.has(t.binary) ? "used" : "unused" })));
+          }
+          rcard.append(grid);
+        } else rcard.append(el("div", { class: "empty", text: "No tool registry configured." }));
+        sec.append(rcard);
+      }
+    </script>
+  </body>
+</html>

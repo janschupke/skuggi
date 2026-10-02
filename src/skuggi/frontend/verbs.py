@@ -72,6 +72,7 @@ VERBS: tuple[Verb, ...] = (
     Verb(
         "report", "write an engagement report (add 'pdf' for a styled PDF too)", "[pdf]"
     ),
+    Verb("visualize", "build an interactive HTML dashboard of the whole engagement"),
     Verb("replay", "reconstruct & view a session transcript", "[list | <session>]"),
     Verb("review", "private LLM review of a session (feedback for you)", "[<session>]"),
     Verb(

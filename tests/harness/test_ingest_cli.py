@@ -69,6 +69,7 @@ def test_both_console_scripts_resolve() -> None:
         "skuggi-client",
         "skuggi-login",
         "skuggi-pdf",
+        "skuggi-visualize",
         "skuggi-eval",
     }
     for entry in entries.values():
