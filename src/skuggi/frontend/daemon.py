@@ -477,8 +477,9 @@ class Daemon:
         yield f"logged in to chatgpt{f' (account {account})' if account else ''}\n"
 
     def _doctor(self, arg: str) -> Iterator[str]:
-        if arg.split()[:1] == ["install"]:
-            yield from self._install(arg.split(maxsplit=1)[1] if " " in arg else "")
+        target = dispatch.doctor_install_target(arg)
+        if target is not None:
+            yield from self._install(target)
             return
         # Emitted (and flushed) before the probe so the client shows progress.
         yield PROBING_MSG + "\n"
@@ -490,13 +491,13 @@ class Daemon:
         )
 
     def _install(self, binary: str) -> Iterator[str]:
-        status = self.core.doctor.install(binary)
-        if status is None:
-            yield f"unknown tool: {binary!r}\n"
-        elif status.found:
-            yield f"installed {binary} ({status.version or '?'}) via {status.source}\n"
-        else:
-            yield f"install failed or unavailable for {binary}\n"
+        match dispatch.run_install(self.core, binary):
+            case dispatch.InstallUnknown(name):
+                yield f"unknown tool: {name!r}\n"
+            case dispatch.Installed(name, version, source):
+                yield f"installed {name} ({version or '?'}) via {source}\n"
+            case dispatch.InstallFailed(name):
+                yield f"install failed or unavailable for {name}\n"
 
     def _mode(self, arg: str) -> Iterator[str]:
         try:

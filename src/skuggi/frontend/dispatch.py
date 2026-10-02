@@ -284,3 +284,53 @@ def run_add(core: AgentCore, arg: str) -> AddOutcome:
     if sub == "finding":
         return _run_add_finding(core, rest)
     return AddUsage("note <text> | loot <text> | finding <severity> <title>")
+
+
+# ----- doctor install -------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class InstallUnknown:
+    """The install target is not a recognized tool (`binary` may be empty)."""
+
+    binary: str
+
+
+@dataclass(frozen=True, slots=True)
+class Installed:
+    """A tool was installed; names its version and the installer source."""
+
+    binary: str
+    version: str | None
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
+class InstallFailed:
+    """The install ran but the tool is still not available."""
+
+    binary: str
+
+
+InstallOutcome = InstallUnknown | Installed | InstallFailed
+
+
+def doctor_install_target(arg: str) -> str | None:
+    """The binary for a ``doctor install [binary]`` form, else ``None``.
+
+    Shared so the REPL and the daemon parse the sub-command identically -- they
+    diverged (one read the first token, the other the whole tail). ``""`` means
+    ``install`` with no binary (which ``run_install`` reports as unknown).
+    """
+    parts = arg.split()
+    if not parts or parts[0] != "install":
+        return None
+    return parts[1] if len(parts) > 1 else ""
+
+
+def run_install(core: AgentCore, binary: str) -> InstallOutcome:
+    """Install one recognized tool. Issuing the command is itself the confirm."""
+    status = core.doctor.install(binary)
+    if status is None:
+        return InstallUnknown(binary)
+    if status.found:
+        return Installed(binary, status.version, status.source)
+    return InstallFailed(binary)

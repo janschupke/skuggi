@@ -384,9 +384,9 @@ class Tui:
         self.console.print(f"[dim]logged in to chatgpt{suffix}[/dim]")
 
     def _cmd_doctor(self, arg: str) -> None:
-        parts = arg.split()
-        if parts and parts[0] == "install":
-            self._install_tool(parts[1] if len(parts) > 1 else "")
+        target = dispatch.doctor_install_target(arg)
+        if target is not None:
+            self._install_tool(target)
             return
         with self.console.status(PROBING_MSG, spinner="dots"):
             statuses = self.core.doctor.tools()
@@ -397,16 +397,17 @@ class Tui:
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""
         self.console.print(f"[dim]installing {binary}...[/dim]")
-        status = self.core.doctor.install(binary)
-        if status is None:
-            self.console.print(f"[red]unknown tool:[/red] {binary!r}")
-        elif status.found:
-            self.console.print(
-                f"[green]installed[/green] {binary} "
-                f"({status.version or '?'}) via {status.source}"
-            )
-        else:
-            self.console.print(f"[red]install failed or unavailable[/red] for {binary}")
+        match dispatch.run_install(self.core, binary):
+            case dispatch.InstallUnknown(name):
+                self.console.print(f"[red]unknown tool:[/red] {name!r}")
+            case dispatch.Installed(name, version, source):
+                self.console.print(
+                    f"[green]installed[/green] {name} ({version or '?'}) via {source}"
+                )
+            case dispatch.InstallFailed(name):
+                self.console.print(
+                    f"[red]install failed or unavailable[/red] for {name}"
+                )
 
     def _cmd_cmd(self, arg: str) -> None:
         """Search the cheatsheet, resolve an exact alias, or edit the registry."""

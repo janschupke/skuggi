@@ -12,7 +12,7 @@ from skuggi.frontend.daemon import Daemon
 from skuggi.persistence import pdf as pdf_mod
 from skuggi.tooling import probe as probe_mod
 from skuggi.tooling.commands import CommandAlias, CommandRegistry
-from skuggi.tooling.registry import ToolSpec, ToolStatus
+from skuggi.tooling.registry import ToolRegistry, ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
 
 
@@ -240,6 +240,36 @@ def test_doctor_install(daemon: Daemon, monkeypatch: pytest.MonkeyPatch) -> None
     assert "unknown tool" in _chunks(
         daemon, {"op": "input", "text": "doctor install ghost"}
     )
+
+
+def _register_ghost(daemon: Daemon) -> ToolSpec:
+    spec = ToolSpec(name="ghost", binary="ghost", method="scan")
+    daemon.core.registry = ToolRegistry(tools=(spec,))
+    return spec
+
+
+def test_doctor_install_success(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = _register_ghost(daemon)
+    status = ToolStatus(
+        spec=spec, found=True, path=Path("/usr/bin/ghost"), version="9.9", source="brew"
+    )
+    monkeypatch.setattr(probe_mod, "install_tool", lambda *_a, **_k: status)
+    out = _chunks(daemon, {"op": "input", "text": "doctor install ghost"})
+    assert "installed ghost (9.9) via brew" in out
+
+
+def test_doctor_install_failure(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = _register_ghost(daemon)
+    status = ToolStatus(
+        spec=spec, found=False, path=None, version=None, source="missing"
+    )
+    monkeypatch.setattr(probe_mod, "install_tool", lambda *_a, **_k: status)
+    out = _chunks(daemon, {"op": "input", "text": "doctor install ghost"})
+    assert "install failed or unavailable for ghost" in out
 
 
 def test_cmd_resolve_in_scope(daemon: Daemon) -> None:
