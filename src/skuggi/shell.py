@@ -44,7 +44,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from skuggi import palette
+from skuggi import palette, verbs
 
 SHIELD = palette.SHIELD
 
@@ -168,6 +168,15 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
     core = guard_boot(lambda: AgentCore(Settings()))
     for warning in core.warnings:
         print(f"skuggi: {warning}")
+    # Actionable next steps, in the wrapped shell's own command grammar, for the
+    # two things the operator most often needs to set up at boot.
+    if core.llm is None:
+        print(f"skuggi: run '{verbs.cmd('setup', 'shell')}' to configure a model")
+    if core.engagement is None:
+        print(
+            f"skuggi: run '{verbs.cmd('engagement setup', 'shell')}' "
+            "to scope an engagement"
+        )
 
     shell_path = os.environ.get("SHELL", shutil.which("bash") or "/bin/sh")
     # A stray Ctrl+C must never tear the harness down; the child shell owns the

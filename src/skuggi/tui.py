@@ -22,7 +22,8 @@ from rich.table import Table
 
 from skuggi import configflow, palette, prompts, reports, setup, verbs, wizard
 from skuggi.commands import raw_command
-from skuggi.config import Settings
+from skuggi.config import PROVIDERS, Settings
+from skuggi.configs import ConfigError
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, render_doctor
 from skuggi.engagement import EngagementConfig
@@ -77,6 +78,16 @@ class Tui:
         # straight after building the app, before run()/the banner).
         for warning in self.core.warnings:
             self.console.print(f"[yellow]{warning}[/yellow]")
+        # Actionable next steps in the REPL's own grammar.
+        if self.core.llm is None:
+            self.console.print(
+                f"[dim]run {verbs.cmd('setup', 'repl')} to configure a model[/dim]"
+            )
+        if self.core.engagement is None:
+            self.console.print(
+                f"[dim]run {verbs.cmd('engagement setup', 'repl')} "
+                "to scope an engagement[/dim]"
+            )
 
         # Keyed by bare verb (the shared registry in `verbs`); `ask` and `exit`
         # are handled directly in `dispatch`. Kept in sync with `verbs.KNOWN` by
@@ -247,10 +258,22 @@ class Tui:
         self.console.print(table)
 
     def _cmd_provider(self, arg: str) -> None:
+        if not arg.strip():
+            self.console.print(
+                f"[yellow]usage:[/yellow] /provider <{'|'.join(PROVIDERS)}> "
+                f"-- or run {verbs.cmd('setup', 'repl')} to configure one"
+            )
+            return
         try:
             self.core.set_provider(arg)
         except ValueError as e:
             self.console.print(f"[red]{e}[/red]")
+            return
+        except ConfigError:  # switched, but the new provider has no credential
+            self.console.print(
+                f"[yellow]{arg} isn't configured[/yellow] -- run "
+                f"{verbs.cmd('setup', 'repl')} to add a key"
+            )
             return
         except (RuntimeError, ImportError) as e:
             self.console.print(f"[red]provider error:[/red] {e}")
@@ -263,7 +286,13 @@ class Tui:
         try:
             self.core.set_model(arg)
         except ValueError:
-            self.console.print("[red]usage:[/red] /model <name>")
+            self.console.print("[yellow]usage:[/yellow] /model <name>")
+            return
+        except ConfigError:  # the model switch rebuilt the llm and found no key
+            self.console.print(
+                f"[yellow]can't switch model:[/yellow] {self.provider} isn't "
+                f"configured -- run {verbs.cmd('setup', 'repl')} first"
+            )
             return
         except (RuntimeError, ImportError) as e:
             self.console.print(f"[red]provider error:[/red] {e}")
@@ -285,7 +314,10 @@ class Tui:
             return
         eng = self.engagement
         if eng is None:
-            self.console.print("[yellow]no engagement loaded[/yellow]")
+            self.console.print(
+                f"[yellow]no engagement loaded[/yellow] -- run "
+                f"{verbs.cmd('engagement setup', 'repl')} to create one"
+            )
             return
         self.console.print(
             eng.describe(

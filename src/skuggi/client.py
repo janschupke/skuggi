@@ -165,9 +165,10 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
 _PROMPT = "🐐 skuggi> "
 
 # Verbs that drive an interactive round-trip and so need an attach session rather
-# than a one-shot request: setup (prompts + menus), engagement (the wizard), and
-# login (streams OAuth progress). Everything else stays one-shot.
-_INTERACTIVE_VERBS = frozenset({"setup", "engagement", "login"})
+# than a one-shot request: setup (prompts + menus), engagement (the wizard),
+# config (a natural-language request is LLM + confirm), and login (streams OAuth
+# progress). Everything else stays one-shot.
+_INTERACTIVE_VERBS = frozenset({"setup", "engagement", "config", "login"})
 
 
 def _stream_turn(

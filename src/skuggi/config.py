@@ -48,6 +48,8 @@ from skuggi.modes import Mode
 from skuggi.paths import ensure_parent
 
 Provider = Literal["openai", "chatgpt", "anthropic", "ollama"]
+# The provider names as a tuple, for validation and usage listings.
+PROVIDERS: tuple[Provider, ...] = ("openai", "chatgpt", "anthropic", "ollama")
 ToolSource = Literal["host", "managed", "combine"]
 
 # The ChatGPT-account (codex) endpoints. Verified live: the responses route is

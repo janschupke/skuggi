@@ -15,6 +15,25 @@ from typing import Literal
 
 Category = Literal["engagement", "control"]
 
+# The three front-end surfaces, each with its own command grammar. A hint shown
+# on one surface must use that surface's grammar or it will not run there.
+Surface = Literal["shell", "chat", "repl"]
+
+
+def cmd(invocation: str, surface: Surface = "shell") -> str:
+    """Format a command hint for the surface the operator is reading it on.
+
+    - ``shell``: the wrapped-shell prompt, where only ``/skuggi <verb>`` runs
+      (a bare ``/verb`` is a filesystem path to the real shell).
+    - ``chat``: inside the ``/skuggi`` chat loop, where a bare ``<verb>`` runs.
+    - ``repl``: the standalone REPL, which dispatches ``/<verb>``.
+    """
+    if surface == "shell":
+        return f"/skuggi {invocation}"
+    if surface == "repl":
+        return f"/{invocation}"
+    return invocation
+
 
 @dataclass(frozen=True, slots=True)
 class Verb:

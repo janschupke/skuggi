@@ -27,6 +27,8 @@ from pathlib import Path
 
 from skuggi import configflow, prompts, reports, setup, verbs, wizard
 from skuggi.commands import raw_command
+from skuggi.config import PROVIDERS
+from skuggi.configs import ConfigError
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, doctor_ansi
 from skuggi.ledger import finding_line
@@ -38,6 +40,15 @@ class Daemon:
     def __init__(self, core: AgentCore) -> None:
         self.core = core
         self._lock = threading.Lock()
+        # The command grammar to use in hints depends on how this connection
+        # attached. Per-connection (= per thread; the server is threaded), so a
+        # thread-local keeps concurrent connections from clobbering each other.
+        self._local = threading.local()
+
+    def _cmd(self, invocation: str) -> str:
+        """A command hint formatted for this connection's surface."""
+        surface: verbs.Surface = getattr(self._local, "surface", "shell")
+        return verbs.cmd(invocation, surface)
 
     def handle_request(self, msg: dict[str, object]) -> Iterator[dict[str, object]]:
         """Route one request, yielding response objects (last carries ``end``)."""
@@ -48,6 +59,8 @@ class Daemon:
         self,
         read_line: Callable[[], str | None],
         emit: Callable[[dict[str, object]], None],
+        *,
+        mode: str = "loop",
     ) -> None:
         """Drive a persistent attach session against the one warm core.
 
@@ -58,7 +71,13 @@ class Daemon:
         session (thread, ledger, engagement) persists between lines; the routing
         is identical to a one-shot ``{"op":"input"}``, so this is the same code
         the REPL and the one-shot client run.
+
+        ``mode`` is the client's attach intent: ``loop`` is the persistent chat
+        loop (bare verbs run, so hints use that grammar); ``once`` is a single
+        interactive verb like ``/skuggi setup`` whose output is read back at the
+        wrapped-shell prompt (so hints use the ``/skuggi`` grammar).
         """
+        self._local.surface = "chat" if mode == "loop" else "shell"
         while True:
             line = read_line()
             if line is None:  # client disconnected
@@ -324,31 +343,33 @@ class Daemon:
     def _engagement(self, arg: str) -> Iterator[str]:
         parts = arg.split()
         if parts and parts[0] in wizard.WIZARD_ARGS:
-            yield (
-                "engagement setup is interactive: run '/skuggi' (no args) to open "
-                "the chat loop, then 'engagement setup'\n"
-            )
+            # Reached only as a raw one-shot; the client routes the wizard through
+            # the attach loop. Point at the command that works here.
+            hint = self._cmd("engagement setup")
+            yield f"engagement setup is interactive -- run {hint}\n"
             return
         described = self.core.describe_engagement()
-        yield (described + "\n") if described else "no engagement loaded\n"
+        if described:
+            yield described + "\n"
+        else:
+            hint = self._cmd("engagement setup")
+            yield f"no engagement loaded -- run {hint} to create one\n"
 
     def _config(self, arg: str) -> Iterator[str]:
         text = self.core.config_line(arg)
         if text is None:  # a natural-language request; needs the interactive loop
             yield (
-                "config from a natural-language request needs the chat loop: run "
-                "'/skuggi' (no args), then 'config <request>'\n"
+                f"a natural-language config request is interactive -- run "
+                f"{self._cmd('config ' + arg)} in the chat loop, or set a key "
+                f"directly: {self._cmd('config <key> <value>')}\n"
             )
             return
         yield text + "\n"
 
     def _setup(self, _arg: str) -> Iterator[str]:
-        # Setup asks questions, so it needs the interactive attach loop; a
-        # one-shot command cannot prompt (mirrors engagement/config).
-        yield (
-            "setup is interactive: run '/skuggi' (no args) to open the chat "
-            "loop, then 'setup'\n"
-        )
+        # Reached only as a raw one-shot; the client routes setup through the
+        # attach loop. Point at the command that works here.
+        yield f"setup is interactive -- run {self._cmd('setup')}\n"
 
     def _login(self, _arg: str) -> Iterator[str]:
         # Login only reports progress (no questions), so it runs here directly;
@@ -403,10 +424,19 @@ class Daemon:
         yield f"autonomous execution is now {'ON' if state else 'off'}\n"
 
     def _provider(self, arg: str) -> Iterator[str]:
+        if not arg.strip():
+            yield (
+                f"usage: provider <{'|'.join(PROVIDERS)}> -- "
+                f"or run {self._cmd('setup')} to configure one\n"
+            )
+            return
         try:
             self.core.set_provider(arg)
         except ValueError as e:
             yield f"{e}\n"
+            return
+        except ConfigError:  # switched, but the new provider has no credential
+            yield f"{arg} isn't configured -- run {self._cmd('setup')} to add a key\n"
             return
         except (RuntimeError, ImportError) as e:
             yield f"provider error: {e}\n"
@@ -417,7 +447,13 @@ class Daemon:
         try:
             self.core.set_model(arg)
         except ValueError:
-            yield "usage: model <name>\n"
+            yield f"usage: {self._cmd('model <name>')}\n"
+            return
+        except ConfigError:  # the model switch rebuilt the llm and found no key
+            yield (
+                f"can't switch model: {self.core.provider} isn't configured -- "
+                f"run {self._cmd('setup')} first\n"
+            )
             return
         except (RuntimeError, ImportError) as e:
             yield f"provider error: {e}\n"
@@ -517,12 +553,12 @@ def serve(core: AgentCore, sock_path: str) -> ServerHandle:  # pragma: no cover
             except json.JSONDecodeError:
                 msg = {}
             if msg.get("op") == "attach":
-                self._attach()
+                self._attach(str(msg.get("mode", "loop")))
                 return
             for resp in daemon.handle_request(msg):
                 self._emit(resp)
 
-        def _attach(self) -> None:
+        def _attach(self, mode: str) -> None:
             """Serve a persistent interactive session over this connection."""
 
             def read_line() -> str | None:
@@ -534,7 +570,7 @@ def serve(core: AgentCore, sock_path: str) -> ServerHandle:  # pragma: no cover
                 except json.JSONDecodeError:
                     return ""
 
-            daemon.run_attached(read_line, self._emit)
+            daemon.run_attached(read_line, self._emit, mode=mode)
 
     class _Server(socketserver.ThreadingUnixStreamServer):
         daemon_threads = True

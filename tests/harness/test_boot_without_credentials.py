@@ -26,7 +26,9 @@ def test_boot_without_credentials_warns_and_defers(tmp_path: Path) -> None:
     core = _openai_without_a_key(tmp_path)
     try:
         assert core.llm is None
-        assert any("/setup" in w for w in core.warnings)
+        # Descriptive warning (the actionable, grammar-correct hint is added by
+        # each front-end, not baked into the core warning).
+        assert any("no model provider configured" in w for w in core.warnings)
         # The graph is still built (around a deferred model), so state reads work.
         assert core.graph is not None
     finally:

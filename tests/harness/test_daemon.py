@@ -125,12 +125,37 @@ def test_ask_without_prompt_shows_usage(daemon: Daemon) -> None:
 
 def test_provider_and_model(daemon: Daemon) -> None:
     assert "switched to" in _chunks(daemon, {"op": "input", "text": "provider ollama"})
-    assert "usage: model" in _chunks(daemon, {"op": "input", "text": "model"})
+    assert "usage:" in _chunks(daemon, {"op": "input", "text": "model"})
     assert "switched to" in _chunks(daemon, {"op": "input", "text": "model qwen3"})
 
 
 def test_provider_rejects_unknown(daemon: Daemon) -> None:
     assert "unknown" in _chunks(daemon, {"op": "input", "text": "provider banana"})
+
+
+def test_provider_with_no_arg_shows_usage_and_setup_hint(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "provider"})
+    assert "usage: provider" in out
+    assert "/skuggi setup" in out  # one-shot surface uses the shell grammar
+
+
+def test_provider_without_a_credential_points_to_setup(daemon: Daemon) -> None:
+    # Switching to a provider that has no key reports a setup hint, not a raw
+    # "provider error: No OpenAI API key…".
+    out = _chunks(daemon, {"op": "input", "text": "provider openai"})
+    assert "openai isn't configured" in out
+    assert "/skuggi setup" in out
+
+
+def test_attached_hints_use_the_bare_chat_grammar(daemon: Daemon) -> None:
+    # In the persistent chat loop (mode=loop), a hint uses bare-verb grammar,
+    # not the /skuggi-prefixed shell grammar.
+    lines = iter(["provider", None])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(lines), emitted.append, mode="loop")
+    out = "".join(str(e.get("chunk", "")) for e in emitted)
+    assert "run setup to configure one" in out
+    assert "/skuggi" not in out
 
 
 def test_thread_new_list_switch(daemon: Daemon) -> None:

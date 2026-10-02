@@ -61,7 +61,9 @@ def test_provider_switch_rebuilds_the_graph(tui: tuple[Tui, io.StringIO]) -> Non
     app, buffer = tui
     before = app.graph
     app.dispatch("/provider anthropic")
-    assert "provider error" in _out(buffer), "no ANTHROPIC_API_KEY in this environment"
+    assert "isn't configured" in _out(buffer), (
+        "no ANTHROPIC_API_KEY in this environment"
+    )
     assert app.graph is before, "a failed switch must keep the working graph"
 
 

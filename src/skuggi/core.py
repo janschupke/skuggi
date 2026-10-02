@@ -232,9 +232,9 @@ class AgentCore:
 
     def _open_workspace(self) -> Workspace | None:
         if not self.settings.engagement:
-            self.warnings.append(
-                "no engagement selected (set SKUGGI_ENGAGEMENT); running agent-only"
-            )
+            # Descriptive only; the front-end appends a grammar-correct hint to
+            # create one (an env var is not the operator-facing answer).
+            self.warnings.append("no engagement selected; running agent-only")
             return None
         ws = Workspace.for_engagement(
             self.settings.engagements_dir, self.settings.engagement, layout=self.layout
@@ -1000,6 +1000,12 @@ class AgentCore:
                     f"remembered: {row.text} (forget {row.id} to undo)",
                     node="memory",
                 )
+        except ConfigError as e:
+            # A config/credential problem is already a full, actionable sentence
+            # (e.g. "No OpenAI API key configured. Run /setup..."); show it as-is
+            # rather than prefixing it with the exception class name.
+            final_text = f"[error] {e}"
+            yield TurnEvent("status", str(e), node="error")
         except Exception as e:  # noqa: BLE001 -- a bad turn must not kill the loop
             final_text = f"[error] {type(e).__name__}: {e}"
             yield TurnEvent("status", f"{type(e).__name__}: {e}", node="error")

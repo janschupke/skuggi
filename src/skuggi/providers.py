@@ -43,13 +43,10 @@ _NO_OPENAI_KEY = (
     "its own config, not your shell), or `/provider ollama` to use a local model."
 )
 
-# Shown at boot (as a warning) when no provider is credentialed, and anywhere a
-# model is needed but none is configured. Points only at remedies reachable from
-# a running session -- unlike the provider-specific messages above.
-NO_MODEL_CONFIGURED = (
-    "no model provider configured -- run /setup to configure one "
-    "(or /provider ollama for a local model)"
-)
+# Shown at boot (as a warning) when no provider is credentialed. Descriptive
+# only: the front-end appends a setup hint in its own command grammar (the
+# wrapped shell, the chat loop and the REPL each invoke setup differently).
+NO_MODEL_CONFIGURED = "no model provider configured"
 
 
 def _key_from_auth_json(path: Path) -> str | None:
