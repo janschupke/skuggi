@@ -141,12 +141,6 @@ filterwarnings = [
     # PytestUnraisableExceptionWarning. It is GC-timing noise, not a test result,
     # so it must not be fatal under `error`. Scoped to this exact message.
     "ignore:Exception ignored while finalizing database connection:",
-    # WeasyPrint warns at import time on the Debian CI image (not on the Homebrew
-    # stack, which bundles the lib) that HarfBuzz-Subset will be required by
-    # *future* versions. It is advisory -- the current render works without it,
-    # and CI installs Pango -- so it must not be fatal under `error` and abort
-    # collection of tests/integration/test_pdf_render.py. Scoped to this message.
-    "ignore:HarfBuzz-Subset will be required by future versions of WeasyPrint:DeprecationWarning",
 ]
 markers = [
     "eval: talks to a real LLM provider; needs credentials, deselected by default",

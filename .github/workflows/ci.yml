@@ -40,9 +40,12 @@ jobs:
         python: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
-      # WeasyPrint (the `pdf` group) links Pango at runtime; without it the PDF
-      # render test would skip and the pipeline would go unverified.
-      - run: sudo apt-get update && sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0
+      # WeasyPrint (the `pdf` group) links Pango + HarfBuzz at runtime. Without
+      # the harfbuzz-subset lib, WeasyPrint 70+ warns at import that it is falling
+      # back to a coarser font subsetter -- fatal here under filterwarnings=error,
+      # aborting collection -- so install it too and keep the PDF render test real
+      # rather than skipped/degraded. libharfbuzz-subset0 needs Ubuntu 24.04+.
+      - run: sudo apt-get update && sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libharfbuzz-subset0
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
