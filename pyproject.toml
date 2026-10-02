@@ -9,8 +9,11 @@ description = "Locally-hosted LangGraph agent harness with a planner-worker-crit
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Jan Schupke", email = "jan.schupke@gmail.com" }]
+license = "MIT"
+license-files = ["LICENSE"]
 classifiers = [
     "Private :: Do Not Upload",
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",

@@ -33,6 +33,20 @@ in [docs/architecture.md](docs/architecture.md)). Most providers get it natively
 output, so it uses a JSON contract with one repair retry. See
 [docs/codex-auth.md](docs/codex-auth.md).
 
+## Status & legal
+
+- **Early development.** skuggi is pre-1.0 and under active development. Interfaces,
+  config formats, the ledger schema and the engagement boundary may change without
+  notice, and bugs are expected. Do not treat the engagement guard as your only
+  safeguard for staying in scope — review every proposed command yourself.
+- **Authorized use only.** skuggi proposes, and in autonomous mode runs, real
+  offensive-security tooling. Use it only against systems you own or are explicitly
+  authorized in writing to test. You, the operator, are solely responsible for
+  staying within your engagement scope and all applicable law.
+- **No warranty, no liability.** skuggi is provided "as is", without warranty of any
+  kind. The authors accept no liability for any damage, data loss, cost, legal
+  consequence or misuse arising from its use. See [LICENSE](LICENSE).
+
 ## Install
 
 Requires Python ≥3.12 and [uv](https://docs.astral.sh/uv/) (developed on 3.14;
@@ -501,3 +515,19 @@ quality (`factuality`, `budget`, `latency`) — and hard-gates on regression aga
   exercises (`labs/`) with planted loot, and the `labctl` wipe/restore workflow.
 - [docs/lab.md](docs/lab.md) — the frozen e2e fixture target
   (`tests/e2e/fixtures/lab/`) that the L5 suite drives, and its pinned oracles.
+
+## License
+
+skuggi is released under the [MIT License](LICENSE) — © 2026 Jan Schupke.
+
+## Contributing
+
+Contributions are welcome.
+
+- **Found a bug, or want to propose a change?** Open a GitHub issue first, so the
+  problem or feature can be discussed before code is written.
+- **Sending code?** Fork the repo, create a topic branch, and make `make check` green
+  (the full gate — `ruff format --check`, `ruff`, `mypy --strict`, `pytest`; see
+  [Development](#development)). Then open a pull request against `master` that
+  references the issue. Keep each PR focused, and describe the mechanism and the
+  reasoning in the body, matching the existing commit style (`git log`).
