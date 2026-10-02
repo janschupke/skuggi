@@ -6,25 +6,99 @@
       "id": "proposed-command-with-finding",
       "scope_ref": "lab",
       "prompt": "read the hidden draft post",
-      "worker": {"command": "curl http://192.0.2.10/post.php?id=4", "summary": "reads the draft post over IDOR", "findings": [{"title": "IDOR on posts", "severity": "high", "description": "post.php exposes draft id 4 with no authorization check", "evidence": "HTTP 200 with draft body"}], "done": true},
+      "worker": {
+        "command": "curl http://192.0.2.10/post.php?id=4",
+        "summary": "reads the draft post over IDOR",
+        "findings": [
+          {
+            "title": "IDOR on posts",
+            "severity": "high",
+            "description": "post.php exposes draft id 4 with no authorization check",
+            "evidence": "HTTP 200 with draft body"
+          }
+        ],
+        "done": true
+      },
       "expect_command_status": "proposed",
-      "expect_finding_titles": ["IDOR on posts"]
+      "expect_finding_titles": [
+        "IDOR on posts"
+      ]
     },
     {
       "id": "blocked-command-still-records-finding",
       "scope_ref": "lab",
       "prompt": "scan an out of scope host",
-      "worker": {"command": "nmap -sV 8.8.8.8", "summary": "attempts an out-of-scope scan", "findings": [{"title": "Operator asked for out-of-scope target", "severity": "info", "description": "the guard blocked the command"}], "done": true},
+      "worker": {
+        "command": "nmap -sV 8.8.8.8",
+        "summary": "attempts an out-of-scope scan",
+        "findings": [
+          {
+            "title": "Operator asked for out-of-scope target",
+            "severity": "info",
+            "description": "the guard blocked the command"
+          }
+        ],
+        "done": true
+      },
       "expect_command_status": "blocked",
-      "expect_finding_titles": ["Operator asked for out-of-scope target"]
+      "expect_finding_titles": [
+        "Operator asked for out-of-scope target"
+      ]
     },
     {
       "id": "advice-only-with-finding",
       "scope_ref": "lab",
       "prompt": "summarise what you know so far",
-      "worker": {"summary": "no command warranted", "advice": "the backup dump is downloadable", "findings": [{"title": "Sensitive file exposure", "severity": "medium", "description": "/backup/db_dump.sql is world-readable"}], "done": true},
+      "worker": {
+        "summary": "no command warranted",
+        "advice": "the backup dump is downloadable",
+        "findings": [
+          {
+            "title": "Sensitive file exposure",
+            "severity": "medium",
+            "description": "/backup/db_dump.sql is world-readable"
+          }
+        ],
+        "done": true
+      },
       "expect_command_status": null,
-      "expect_finding_titles": ["Sensitive file exposure"]
+      "expect_finding_titles": [
+        "Sensitive file exposure"
+      ]
+    },
+    {
+      "id": "multi-finding-severity-grouping",
+      "scope_ref": "lab",
+      "prompt": "report the findings so far",
+      "worker": {
+        "command": "curl http://192.0.2.10/",
+        "summary": "several issues",
+        "findings": [
+          {
+            "title": "SQLi on post.php",
+            "severity": "high",
+            "description": "UNION-based numeric SQLi",
+            "evidence": "7-column UNION dumps users"
+          },
+          {
+            "title": "Exposed backup dump",
+            "severity": "medium",
+            "description": "/backup/db_dump.sql is world-readable"
+          },
+          {
+            "title": "Server banner disclosure",
+            "severity": "info",
+            "description": "version banner in headers"
+          }
+        ],
+        "done": true
+      },
+      "expect_command_status": "proposed",
+      "expect_finding_titles": [
+        "SQLi on post.php",
+        "Exposed backup dump",
+        "Server banner disclosure"
+      ]
     }
   ]
 }

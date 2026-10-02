@@ -137,6 +137,134 @@
       "now": "2026-06-01T12:00:00+03:00",
       "expect_allowed": false,
       "expect_reason_contains": "no in-scope target"
+    },
+    {
+      "id": "midnight-window-inside",
+      "scope_ref": "midnight-window",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-06-01T23:00:00+00:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "midnight-window-outside",
+      "scope_ref": "midnight-window",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-06-01T12:00:00+00:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the allowed daily time window"
+    },
+    {
+      "id": "ipv6-in-scope",
+      "scope_ref": "ipv6",
+      "command": "nmap -6 2001:db8::1",
+      "now": "2026-06-01T12:00:00+00:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "ipv6-out-of-scope",
+      "scope_ref": "ipv6",
+      "command": "nmap -6 2001:4860::1",
+      "now": "2026-06-01T12:00:00+00:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the authorized scope"
+    },
+    {
+      "id": "ipv6-target-v4-scope",
+      "scope_ref": "lab",
+      "command": "nmap -6 2001:db8::1",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the authorized scope"
+    },
+    {
+      "id": "cidr-target-in-scope",
+      "scope_ref": "lab",
+      "command": "nmap -sV 192.0.2.0/24",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "multi-target-mixed",
+      "scope_ref": "lab",
+      "command": "nmap -sV 192.0.2.10 8.8.8.8",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "target '8.8.8.8' is outside the authorized scope"
+    },
+    {
+      "id": "acme-second-network",
+      "scope_ref": "acme",
+      "command": "nmap -sV 198.51.100.10",
+      "now": "2026-09-15T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "acme-allowed-host",
+      "scope_ref": "acme",
+      "command": "curl http://scanme.example.com/",
+      "now": "2026-09-15T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "bruteforce-allowed",
+      "scope_ref": "lab",
+      "command": "hydra ssh://192.0.2.10",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "exploit-allowed-no-target",
+      "scope_ref": "lab",
+      "command": "msfvenom -p linux/x64/shell_reverse_tcp",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "future-not-authorized",
+      "scope_ref": "future",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-06-01T12:00:00+00:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the authorized date/time range"
+    },
+    {
+      "id": "date-range-lower-boundary",
+      "scope_ref": "lab",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-01-01T00:00:00+02:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "full-path-binary",
+      "scope_ref": "lab",
+      "command": "/usr/bin/nmap -sV 192.0.2.10",
+      "now": "2026-06-01T12:00:00+03:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
+    },
+    {
+      "id": "multi-window-gap",
+      "scope_ref": "multi-window",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-06-01T13:00:00+00:00",
+      "expect_allowed": false,
+      "expect_reason_contains": "outside the allowed daily time window"
+    },
+    {
+      "id": "multi-window-second",
+      "scope_ref": "multi-window",
+      "command": "nmap -sV 192.0.2.10",
+      "now": "2026-06-01T15:00:00+00:00",
+      "expect_allowed": true,
+      "expect_reason_contains": "in scope"
     }
   ]
 }

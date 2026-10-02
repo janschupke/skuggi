@@ -12,7 +12,7 @@ contacted. :class:`Judge` is the swap seam -- a future framework adapter
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
@@ -22,6 +22,9 @@ from skuggi.configs import ConfigError
 from skuggi.eval.scorers import Score
 from skuggi.protocol import structured_invoke
 from skuggi.providers import get_chat_model
+
+if TYPE_CHECKING:
+    from langchain_core.language_models import BaseChatModel
 
 _DEFAULT_CRITERION = (
     "factual accuracy: whether the answer states the key fact(s) in the "
@@ -64,10 +67,11 @@ class Judge(Protocol):
 class LLMJudge:
     """A G-Eval-style factuality judge built on skuggi's own provider-agnostic model.
 
-    The judge model is built once from ``settings`` (optionally overridden by
-    ``model``). A ``chatgpt`` judge is rejected: that endpoint has no native
-    structured output, and a judge must return a schema-validated verdict rather
-    than fall back to a best-effort JSON contract.
+    The judge model is built **lazily**, on the first non-empty grade: an empty
+    answer scores 0 without any model, and constructing the model eagerly would
+    leak a live client in tests that only exercise that path. A ``chatgpt`` judge
+    is rejected up front -- that endpoint has no native structured output, and a
+    judge must return a schema-validated verdict, not a best-effort JSON contract.
     """
 
     def __init__(
@@ -83,14 +87,22 @@ class LLMJudge:
                 "no native structured output. Use openai, anthropic or ollama."
             )
             raise ConfigError(msg)
-        self._llm = get_chat_model(settings, model=model)
+        self._settings = settings
+        self._model = model
         self._model_name = model or settings.model_for(settings.provider)
         self._criterion = criterion
+        self._llm: BaseChatModel | None = None
 
     @property
     def model_name(self) -> str:
         """The resolved judge model name, for scorecard metadata."""
         return self._model_name
+
+    def _get_llm(self) -> BaseChatModel:  # pragma: no cover -- needs a provider
+        """Build the judge model on first use (never for the empty-answer path)."""
+        if self._llm is None:
+            self._llm = get_chat_model(self._settings, model=self._model)
+        return self._llm
 
     def score(self, *, prompt: str, expected: str, actual: str) -> Score:
         """Grade ``actual`` against ``expected`` and return a factuality Score.
@@ -117,7 +129,7 @@ class LLMJudge:
             ),
         ]
         verdict = structured_invoke(
-            self._llm, FactualityJudgement, messages, native=True
+            self._get_llm(), FactualityJudgement, messages, native=True
         )
         return Score(
             name="factuality",

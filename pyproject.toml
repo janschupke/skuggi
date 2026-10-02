@@ -128,6 +128,15 @@ filterwarnings = [
     # integration to move to -- langchain-faiss on PyPI is an unrelated
     # third-party upload. Revisit when langchain-ai publishes a replacement.
     "ignore:.langchain-community. is being sunset:DeprecationWarning",
+    # Python 3.14's sqlite3 prints "Exception ignored while finalizing database
+    # connection ...: None" when a Connection object is garbage-collected rather
+    # than explicitly closed. Under the coverage tracer, coverage.py's own result
+    # DB (and the checkpointer) are collected late, so this benign finalizer
+    # notice -- exception value None, no real leak; forcing gc.collect() in each
+    # teardown clears it -- lands mid-suite, where pytest raises it as a
+    # PytestUnraisableExceptionWarning. It is GC-timing noise, not a test result,
+    # so it must not be fatal under `error`. Scoped to this exact message.
+    "ignore:Exception ignored while finalizing database connection:",
 ]
 markers = [
     "eval: talks to a real LLM provider; needs credentials, deselected by default",

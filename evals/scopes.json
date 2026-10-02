@@ -4,11 +4,43 @@
     "timezone": "Europe/Helsinki",
     "authorized_start": "2026-01-01T00:00:00+02:00",
     "authorized_end": "2027-12-31T23:59:59+02:00",
-    "daily_windows": [{ "start": "00:00:00", "end": "23:59:59" }],
-    "target_networks": ["192.0.2.0/24"],
-    "allowed_hosts": ["web.lab"],
-    "allowed_tools": ["nmap", "nikto", "curl", "whatweb", "gobuster", "ffuf", "sqlmap", "hydra", "nxc", "john", "hashcat", "unshadow", "msfconsole", "msfvenom", "nc"],
-    "allowed_methods": ["recon", "scan", "enumerate", "bruteforce", "crack", "exploit"],
+    "daily_windows": [
+      {
+        "start": "00:00:00",
+        "end": "23:59:59"
+      }
+    ],
+    "target_networks": [
+      "192.0.2.0/24"
+    ],
+    "allowed_hosts": [
+      "web.lab"
+    ],
+    "allowed_tools": [
+      "nmap",
+      "nikto",
+      "curl",
+      "whatweb",
+      "gobuster",
+      "ffuf",
+      "sqlmap",
+      "hydra",
+      "nxc",
+      "john",
+      "hashcat",
+      "unshadow",
+      "msfconsole",
+      "msfvenom",
+      "nc"
+    ],
+    "allowed_methods": [
+      "recon",
+      "scan",
+      "enumerate",
+      "bruteforce",
+      "crack",
+      "exploit"
+    ],
     "autonomous": false,
     "stance": "balanced"
   },
@@ -17,11 +49,32 @@
     "timezone": "Europe/Helsinki",
     "authorized_start": "2026-09-01T00:00:00+03:00",
     "authorized_end": "2026-12-31T23:59:59+02:00",
-    "daily_windows": [{ "start": "09:00:00", "end": "17:00:00" }],
-    "target_networks": ["192.0.2.0/24", "198.51.100.0/24"],
-    "allowed_hosts": ["scanme.example.com"],
-    "allowed_tools": ["nmap", "nikto", "curl", "gobuster", "sqlmap", "whatweb"],
-    "allowed_methods": ["recon", "scan", "enumerate"],
+    "daily_windows": [
+      {
+        "start": "09:00:00",
+        "end": "17:00:00"
+      }
+    ],
+    "target_networks": [
+      "192.0.2.0/24",
+      "198.51.100.0/24"
+    ],
+    "allowed_hosts": [
+      "scanme.example.com"
+    ],
+    "allowed_tools": [
+      "nmap",
+      "nikto",
+      "curl",
+      "gobuster",
+      "sqlmap",
+      "whatweb"
+    ],
+    "allowed_methods": [
+      "recon",
+      "scan",
+      "enumerate"
+    ],
     "autonomous": false,
     "stance": "cautious"
   },
@@ -30,10 +83,17 @@
     "timezone": "UTC",
     "authorized_start": "2026-01-01T00:00:00+00:00",
     "authorized_end": "2027-12-31T23:59:59+00:00",
-    "target_networks": ["192.0.2.0/24"],
+    "target_networks": [
+      "192.0.2.0/24"
+    ],
     "allowed_hosts": [],
-    "allowed_tools": ["nmap", "curl"],
-    "allowed_methods": ["recon"],
+    "allowed_tools": [
+      "nmap",
+      "curl"
+    ],
+    "allowed_methods": [
+      "recon"
+    ],
     "autonomous": false,
     "stance": "passive"
   },
@@ -42,10 +102,114 @@
     "timezone": "UTC",
     "authorized_start": "2024-01-01T00:00:00+00:00",
     "authorized_end": "2024-12-31T23:59:59+00:00",
-    "target_networks": ["192.0.2.0/24"],
+    "target_networks": [
+      "192.0.2.0/24"
+    ],
     "allowed_hosts": [],
-    "allowed_tools": ["nmap", "curl"],
-    "allowed_methods": ["recon", "scan"],
+    "allowed_tools": [
+      "nmap",
+      "curl"
+    ],
+    "allowed_methods": [
+      "recon",
+      "scan"
+    ],
+    "autonomous": false,
+    "stance": "cautious"
+  },
+  "midnight-window": {
+    "name": "midnight-window",
+    "timezone": "UTC",
+    "authorized_start": "2026-01-01T00:00:00+00:00",
+    "authorized_end": "2027-12-31T23:59:59+00:00",
+    "daily_windows": [
+      {
+        "start": "22:00:00",
+        "end": "02:00:00"
+      }
+    ],
+    "target_networks": [
+      "192.0.2.0/24"
+    ],
+    "allowed_hosts": [],
+    "allowed_tools": [
+      "nmap",
+      "curl"
+    ],
+    "allowed_methods": [
+      "recon",
+      "scan"
+    ],
+    "autonomous": false,
+    "stance": "cautious"
+  },
+  "ipv6": {
+    "name": "ipv6-doc-range",
+    "timezone": "UTC",
+    "authorized_start": "2026-01-01T00:00:00+00:00",
+    "authorized_end": "2027-12-31T23:59:59+00:00",
+    "target_networks": [
+      "2001:db8::/32"
+    ],
+    "allowed_hosts": [],
+    "allowed_tools": [
+      "nmap",
+      "curl"
+    ],
+    "allowed_methods": [
+      "recon",
+      "scan"
+    ],
+    "autonomous": false,
+    "stance": "cautious"
+  },
+  "future": {
+    "name": "future-not-yet",
+    "timezone": "UTC",
+    "authorized_start": "2030-01-01T00:00:00+00:00",
+    "authorized_end": "2031-12-31T23:59:59+00:00",
+    "target_networks": [
+      "192.0.2.0/24"
+    ],
+    "allowed_hosts": [],
+    "allowed_tools": [
+      "nmap",
+      "curl"
+    ],
+    "allowed_methods": [
+      "recon",
+      "scan"
+    ],
+    "autonomous": false,
+    "stance": "cautious"
+  },
+  "multi-window": {
+    "name": "multi-window",
+    "timezone": "UTC",
+    "authorized_start": "2026-01-01T00:00:00+00:00",
+    "authorized_end": "2027-12-31T23:59:59+00:00",
+    "daily_windows": [
+      {
+        "start": "09:00:00",
+        "end": "12:00:00"
+      },
+      {
+        "start": "14:00:00",
+        "end": "17:00:00"
+      }
+    ],
+    "target_networks": [
+      "192.0.2.0/24"
+    ],
+    "allowed_hosts": [],
+    "allowed_tools": [
+      "nmap",
+      "curl"
+    ],
+    "allowed_methods": [
+      "recon",
+      "scan"
+    ],
     "autonomous": false,
     "stance": "cautious"
   }

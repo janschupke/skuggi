@@ -11,6 +11,11 @@
     {"id": "advance-mid", "current": "enumeration", "requested": "exploitation", "expect": "exploitation"},
     {"id": "advance-late", "current": "exploitation", "requested": "post_exploitation", "expect": "post_exploitation"},
     {"id": "advance-report", "current": "post_exploitation", "requested": "reporting", "expect": "reporting"},
-    {"id": "terminal", "current": "reporting", "requested": "reporting", "expect": "reporting"}
+    {"id": "terminal", "current": "reporting", "requested": "reporting", "expect": "reporting"},
+    {"id": "clamp-enum-to-report", "current": "enumeration", "requested": "reporting", "expect": "exploitation"},
+    {"id": "clamp-exploit-to-report", "current": "exploitation", "requested": "reporting", "expect": "post_exploitation"},
+    {"id": "no-regress-from-terminal", "current": "reporting", "requested": "recon", "expect": "reporting"},
+    {"id": "none-holds-recon", "current": "recon", "requested": null, "expect": "recon"},
+    {"id": "none-holds-terminal", "current": "reporting", "requested": null, "expect": "reporting"}
   ]
 }

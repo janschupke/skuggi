@@ -11,6 +11,14 @@
     {"id": "critic-valid", "schema_name": "CriticResponse", "raw": {"approved": true, "reason": "scope respected"}, "expect_valid": true},
     {"id": "critic-missing-approved", "schema_name": "CriticResponse", "raw": {"reason": "no verdict"}, "expect_valid": false},
     {"id": "finding-valid", "schema_name": "FindingDraft", "raw": {"title": "SQLi", "severity": "critical", "description": "UNION-based on search.php", "evidence": "id,username,password rows"}, "expect_valid": true},
-    {"id": "finding-missing-title", "schema_name": "FindingDraft", "raw": {"severity": "low", "description": "d"}, "expect_valid": false}
+    {"id": "finding-missing-title", "schema_name": "FindingDraft", "raw": {"severity": "low", "description": "d"}, "expect_valid": false},
+    {"id": "planner-advance-to", "schema_name": "PlannerResponse", "raw": {"phase": "recon", "advance_to": "enumeration", "steps": ["go"], "rationale": "r"}, "expect_valid": true},
+    {"id": "planner-bad-advance-to", "schema_name": "PlannerResponse", "raw": {"phase": "recon", "advance_to": "pillage"}, "expect_valid": false},
+    {"id": "critic-rejected", "schema_name": "CriticResponse", "raw": {"approved": false, "reason": "scope violation"}, "expect_valid": true},
+    {"id": "worker-info-severity-finding", "schema_name": "WorkerResponse", "raw": {"summary": "x", "findings": [{"title": "t", "severity": "info", "description": "d"}]}, "expect_valid": true},
+    {"id": "finding-medium-severity", "schema_name": "FindingDraft", "raw": {"title": "t", "severity": "medium", "description": "d"}, "expect_valid": true},
+    {"id": "worker-extra-field-ignored", "schema_name": "WorkerResponse", "raw": {"summary": "x", "bogus_field": 123}, "expect_valid": true},
+    {"id": "worker-empty-is-valid", "schema_name": "WorkerResponse", "raw": {}, "expect_valid": true},
+    {"id": "planner-empty-invalid", "schema_name": "PlannerResponse", "raw": {}, "expect_valid": false}
   ]
 }
