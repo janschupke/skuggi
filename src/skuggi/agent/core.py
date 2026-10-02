@@ -30,11 +30,11 @@ from pydantic import SecretStr, ValidationError
 from skuggi.agent import prompts
 from skuggi.agent.commandbook import CommandBook
 from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
+from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.protocol import (
     ConfigProposal,
     MemoryExtraction,
-    Severity,
     structured_invoke,
 )
 from skuggi.agent.session_archive import SessionArchive
@@ -55,7 +55,6 @@ from skuggi.config.configs import (
     load_registry,
     load_scope,
 )
-from skuggi.engagement import journal
 from skuggi.engagement.engagement import (
     EngagementConfig,
     parse_command,
@@ -65,8 +64,7 @@ from skuggi.frontend.commands import CommandRegistry
 from skuggi.install import envfile
 from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
-from skuggi.persistence import memory, preferences, reports, visualize
-from skuggi.persistence.ledger import FindingRow
+from skuggi.persistence import memory, preferences
 from skuggi.persistence.vectorstore import Store
 from skuggi.providers import providers
 from skuggi.tooling.registry import ToolRegistry
@@ -154,6 +152,7 @@ class AgentCore:
         self.doctor = ToolDoctor(self)
         self.archive = SessionArchive(self)
         self.cmds = CommandBook(self)
+        self.journal = Journal(self)
 
     # ----- config + workspace ------------------------------------------------
 
@@ -548,94 +547,6 @@ class AgentCore:
         is forwarded so the subprocess path stays injectable and testable.
         """
         return updater.perform_update(runner)
-
-    def findings(self) -> list[FindingRow]:
-        """Findings recorded this session."""
-        return self.ledger.findings_for(self.session_id)
-
-    def record_finding(self, severity: str, title: str) -> FindingRow | None:
-        """Record an operator finding in the ledger, or ``None`` on a bad severity.
-
-        The same writer the worker uses, so hand-entered and agent-found findings
-        share one store -- the ``findings`` listing and the report's severity
-        section. ``description`` defaults to the title (the one-line operator
-        grammar); evidence is left for the agent or a later edit.
-        """
-        sev = severity.strip().lower()
-        if sev not in get_args(Severity):
-            return None
-        fid = self.ledger.record_finding(
-            session_id=self.session_id,
-            title=title.strip(),
-            severity=sev,
-            description=title.strip(),
-        )
-        return self.ledger.finding(fid)
-
-    def add_note(self, text: str) -> Path | None:
-        """Append a timestamped note to the journal (``None`` with no engagement)."""
-        if self.workspace is None:
-            return None
-        journal.append_entry(self.workspace.notes_file, text)
-        return self.workspace.notes_file
-
-    def notes(self) -> str:
-        """The engagement's notes journal (``""`` when none / no engagement)."""
-        if self.workspace is None:
-            return ""
-        return journal.read_entries(self.workspace.notes_file)
-
-    def add_loot(self, text: str) -> Path | None:
-        """Append a timestamped loot entry to the journal (``None`` if unscoped)."""
-        if self.workspace is None:
-            return None
-        journal.append_entry(self.workspace.loot_file, text)
-        return self.workspace.loot_file
-
-    def loot(self) -> str:
-        """The engagement's loot journal (``""`` when none / no engagement)."""
-        if self.workspace is None:
-            return ""
-        return journal.read_entries(self.workspace.loot_file)
-
-    def write_report(self, *, pdf: bool = False) -> Path | tuple[Path, Path]:
-        """Write the session's Markdown report and return its path.
-
-        With ``pdf=True`` a styled PDF is written alongside the canonical
-        Markdown and both paths are returned.
-        """
-        return reports.write_report(
-            self.session_id,
-            self.ledger,
-            self.reports_dir,
-            engagement=self.engagement,
-            pdf=pdf,
-        )
-
-    def write_visualization(self) -> Path:
-        """Write the engagement's interactive HTML dashboard and return its path.
-
-        An internal operator artifact (unlike ``write_report``): it spans every
-        session in the ledger and pulls in the notes/loot journals, the agent
-        transcript, the audit log and the diagnostic log bounded to the
-        engagement's timeframe.
-        """
-        log_path = logs.default_log_path()
-        log_text = (
-            log_path.read_text(encoding="utf-8", errors="replace")
-            if log_path.is_file()
-            else ""
-        )
-        return visualize.write_visualization(
-            self.ledger,
-            self.reports_dir,
-            engagement=self.engagement,
-            registry=self.registry,
-            notes_text=self.notes(),
-            loot_text=self.loot(),
-            log_text=log_text,
-            engagement_name=self.engagement.name if self.engagement else None,
-        )
 
     # ----- session logging, retrieval, replay & review ----------------------
 

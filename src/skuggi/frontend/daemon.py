@@ -386,12 +386,12 @@ class Daemon:
             yield f"unknown alias {name!r}\n"
 
     def _report(self, arg: str) -> Iterator[str]:
-        result = self.core.write_report(pdf=arg.strip().lower() == "pdf")
+        result = self.core.journal.write_report(pdf=arg.strip().lower() == "pdf")
         for line in reports.report_written_lines(result):
             yield f"{line}\n"
 
     def _visualize(self, _arg: str) -> Iterator[str]:
-        path = self.core.write_visualization()
+        path = self.core.journal.write_visualization()
         for line in visualize.visualization_written_lines(path):
             yield f"{line}\n"
 
@@ -610,21 +610,21 @@ class Daemon:
                 yield "recorded " + finding_line(row) + "\n"
 
     def _notes(self, _arg: str) -> Iterator[str]:
-        text = self.core.notes()
+        text = self.core.journal.notes()
         if not text.strip():
             yield "(no notes yet)\n"
             return
         yield text if text.endswith("\n") else text + "\n"
 
     def _loot(self, _arg: str) -> Iterator[str]:
-        text = self.core.loot()
+        text = self.core.journal.loot()
         if not text.strip():
             yield "(no loot yet)\n"
             return
         yield text if text.endswith("\n") else text + "\n"
 
     def _findings(self, _arg: str) -> Iterator[str]:
-        rows = self.core.findings()
+        rows = self.core.journal.findings()
         if not rows:
             yield "(no findings yet)\n"
             return

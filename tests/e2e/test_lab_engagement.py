@@ -101,9 +101,9 @@ def test_report_is_produced_from_real_findings(engage: Runner, lab: Lab) -> None
     command = f"curl -s {lab.base_url}/post.php?{_SQLI_UNION}"
     rows = engage.run(command, findings=(finding,))
     assert _executed(rows).exit_code == 0
-    assert [f.title for f in engage.core.findings()] == [finding.title]
+    assert [f.title for f in engage.core.journal.findings()] == [finding.title]
 
-    report = engage.core.write_report()
+    report = engage.core.journal.write_report()
     assert isinstance(report, Path)  # Markdown only (no pdf=True)
     text = report.read_text(encoding="utf-8")
     assert finding.title in text

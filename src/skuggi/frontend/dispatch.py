@@ -261,7 +261,7 @@ def _run_add_finding(core: AgentCore, rest: str) -> AddOutcome:
         return AddUsage("finding <severity> <title>")
     if severity not in palette.severities():
         return BadSeverity(severity, palette.severities())
-    row = core.record_finding(severity, title)
+    row = core.journal.record_finding(severity, title)
     if row is None:  # pragma: no cover -- severity already validated above
         return BadSeverity(severity, palette.severities())
     return FindingRecorded(row)
@@ -274,12 +274,12 @@ def run_add(core: AgentCore, arg: str) -> AddOutcome:
     if sub == "note":
         if not rest:
             return AddUsage("note <text>")
-        path = core.add_note(rest)
+        path = core.journal.add_note(rest)
         return AddedNote(path) if path is not None else NoEngagement("note")
     if sub == "loot":
         if not rest:
             return AddUsage("loot <text>")
-        path = core.add_loot(rest)
+        path = core.journal.add_loot(rest)
         return AddedLoot(path) if path is not None else NoEngagement("loot")
     if sub == "finding":
         return _run_add_finding(core, rest)

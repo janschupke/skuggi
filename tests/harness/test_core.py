@@ -123,8 +123,8 @@ def test_describe_and_findings_and_report(core: AgentCore) -> None:
     described = core.describe_engagement()
     assert described is not None
     assert "test-eng" in described
-    assert core.findings() == []
-    path = core.write_report()
+    assert core.journal.findings() == []
+    path = core.journal.write_report()
     assert isinstance(path, Path)  # md-only when pdf is not requested
     assert path.suffix == ".md"
     assert path.parent == core.reports_dir
@@ -132,25 +132,25 @@ def test_describe_and_findings_and_report(core: AgentCore) -> None:
 
 def test_record_finding_and_journals(core: AgentCore) -> None:
     # A finding goes to the ledger and surfaces via findings() (severity lowered).
-    row = core.record_finding("High", "SQLi in /login")
+    row = core.journal.record_finding("High", "SQLi in /login")
     assert row is not None
     assert (row.severity, row.title) == ("high", "SQLi in /login")
-    assert [f.title for f in core.findings()] == ["SQLi in /login"]
+    assert [f.title for f in core.journal.findings()] == ["SQLi in /login"]
     # A bad severity records nothing.
-    assert core.record_finding("spicy", "nope") is None
-    assert len(core.findings()) == 1
+    assert core.journal.record_finding("spicy", "nope") is None
+    assert len(core.journal.findings()) == 1
 
     # The notes journal is a workspace file, empty until written.
-    assert core.notes() == ""
-    note_path = core.add_note("port 8080 open")
+    assert core.journal.notes() == ""
+    note_path = core.journal.add_note("port 8080 open")
     assert note_path is not None
     assert note_path.is_file()
-    assert "port 8080 open" in core.notes()
+    assert "port 8080 open" in core.journal.notes()
 
     # The loot journal behaves the same way.
-    assert core.loot() == ""
-    assert core.add_loot("cred admin:hunter2") is not None
-    assert "hunter2" in core.loot()
+    assert core.journal.loot() == ""
+    assert core.journal.add_loot("cred admin:hunter2") is not None
+    assert "hunter2" in core.journal.loot()
 
 
 def test_journals_need_an_engagement_but_findings_do_not(tmp_path: Path) -> None:
@@ -158,12 +158,12 @@ def test_journals_need_an_engagement_but_findings_do_not(tmp_path: Path) -> None
     try:
         assert core.workspace is None
         # No workspace -> no notes/loot file to write.
-        assert core.add_note("x") is None
-        assert core.notes() == ""
-        assert core.add_loot("y") is None
-        assert core.loot() == ""
+        assert core.journal.add_note("x") is None
+        assert core.journal.notes() == ""
+        assert core.journal.add_loot("y") is None
+        assert core.journal.loot() == ""
         # Findings still record against the fallback ledger.
-        assert core.record_finding("low", "info leak") is not None
+        assert core.journal.record_finding("low", "info leak") is not None
     finally:
         core.close()
 

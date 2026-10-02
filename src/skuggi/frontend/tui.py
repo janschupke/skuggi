@@ -527,21 +527,21 @@ class Tui:
                 )
 
     def _cmd_notes(self, _arg: str) -> None:
-        text = self.core.notes()
+        text = self.core.journal.notes()
         if not text.strip():
             self.console.print("[dim](no notes yet)[/dim]")
             return
         self.console.print(Markdown(text))
 
     def _cmd_loot(self, _arg: str) -> None:
-        text = self.core.loot()
+        text = self.core.journal.loot()
         if not text.strip():
             self.console.print("[dim](no loot yet)[/dim]")
             return
         self.console.print(Markdown(text))
 
     def _cmd_findings(self, _arg: str) -> None:
-        rows = self.core.findings()
+        rows = self.core.journal.findings()
         if not rows:
             self.console.print("[dim](no findings yet)[/dim]")
             return
@@ -554,12 +554,12 @@ class Tui:
             )
 
     def _cmd_report(self, arg: str) -> None:
-        result = self.core.write_report(pdf=arg.strip().lower() == "pdf")
+        result = self.core.journal.write_report(pdf=arg.strip().lower() == "pdf")
         for line in reports.report_written_lines(result):
             self.console.print(f"[green]{line}[/green]")
 
     def _cmd_visualize(self, _arg: str) -> None:
-        path = self.core.write_visualization()
+        path = self.core.journal.write_visualization()
         for line in visualize.visualization_written_lines(path):
             self.console.print(f"[green]{line}[/green]")
 
