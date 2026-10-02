@@ -134,6 +134,9 @@ implicit `ask`. The two front-ends share one registry
 |---|---|
 | `ask <prompt>` | Send a prompt to the agent |
 | `cmd [list \| <query> \| <name> \| add \| edit <name> \| rm <name>]` | Search the command cheatsheet; resolve an exact name to render, scope-check & advise (never runs it); `add`/`edit`/`rm` manage it |
+| `add note <text> \| loot <text> \| finding <severity> <title>` | Record an engagement artifact by hand: a timestamped note or loot entry (workspace files), or a finding in the ledger (same store the agent writes) |
+| `notes` | List the engagement notes you have recorded |
+| `loot` | List the captured loot you have recorded |
 | `findings` | List findings recorded this session |
 | `report [pdf]` | Write a Markdown engagement report (add `pdf` for a styled PDF too) |
 | `replay [list \| <session>]` | Reconstruct & view a session transcript (`list` enumerates sessions) |
@@ -350,9 +353,11 @@ Each engagement operates in `engagements/<name>/`
 ```
 engagements/<name>/
   scope.json            # the engagement boundary (the engagement setup)
-  findings/  notes/
+  findings/             # per-finding artefacts (structured records are in the ledger)
+  notes/notes.md        # `/skuggi add note` — timestamped operator notes
   recon/nmap/  recon/dirs/  recon/domains/  recon/web/   # cmd output lands here
   loot/                 # cracked hashes, captured creds, payloads
+  loot/loot.md          # `/skuggi add loot` — timestamped loot log
   reports/              # /report output
   scripts/  tests/
   ledger.db             # this engagement's ledger
