@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from skuggi.configflow import run_config_request
+from skuggi.configflow import Choose, run_config_request
 
 
 class _Recorder:
@@ -16,11 +16,20 @@ class _Recorder:
         return f"{key} = {value}"
 
 
+def _choose(answer: str | None) -> Choose:
+    """A choose() stub that always returns `answer` regardless of the options."""
+
+    def choose(_prompt: str, _options: list[str], _default: str | None) -> str | None:
+        return answer
+
+    return choose
+
+
 def test_applies_each_proposal_on_yes() -> None:
     rec = _Recorder()
     run_config_request(
         "make it faster",
-        ask=lambda _p: "y",
+        choose=_choose("yes"),
         notify=lambda _m: None,
         propose=lambda _r: [("retrieve_k", "8"), ("max_tool_rounds", "2")],
         apply=rec.apply,
@@ -32,7 +41,7 @@ def test_declines_on_no() -> None:
     rec = _Recorder()
     run_config_request(
         "x",
-        ask=lambda _p: "n",
+        choose=_choose("no"),
         notify=lambda _m: None,
         propose=lambda _r: [("mode", "blueteam")],
         apply=rec.apply,
@@ -44,7 +53,7 @@ def test_reports_when_nothing_proposed() -> None:
     notes: list[str] = []
     run_config_request(
         "x",
-        ask=lambda _p: "y",
+        choose=_choose("yes"),
         notify=notes.append,
         propose=lambda _r: [],
         apply=_Recorder().apply,
@@ -52,11 +61,11 @@ def test_reports_when_nothing_proposed() -> None:
     assert any("no changes" in n for n in notes)
 
 
-def test_abort_on_eof_applies_nothing() -> None:
+def test_abort_applies_nothing() -> None:
     rec = _Recorder()
     run_config_request(
         "x",
-        ask=lambda _p: None,
+        choose=_choose(None),  # operator aborted the confirm menu
         notify=lambda _m: None,
         propose=lambda _r: [("mode", "blueteam")],
         apply=rec.apply,

@@ -10,6 +10,7 @@ from typing import cast
 
 import pytest
 
+from skuggi import client
 from skuggi.client import (
     _stdin_prompt,
     _stream_turn,
@@ -251,3 +252,32 @@ def test_stdin_prompt_returns_none_on_interrupt(
 
     monkeypatch.setattr(builtins, "input", _raise)
     assert _stdin_prompt("provider? ") is None  # no traceback escapes
+
+
+def test_stream_turn_answers_choose_frames(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `choose` frame renders a menu and sends the selection back."""
+    conn = _RecordingConn()
+    frames = iter(
+        [
+            json.dumps({"choose": {"prompt": "p", "options": ["a", "b"]}}).encode(),
+            json.dumps({"chunk": "ok\n"}).encode(),
+            json.dumps({"end": True, "exit": False}).encode(),
+        ]
+    )
+    monkeypatch.setattr(client, "_choose_frame", lambda _spec: "b")
+    out = io.StringIO()
+    exit_flag = _stream_turn(frames, out, conn=cast(socket.socket, conn), ask=None)
+    assert exit_flag is False
+    assert conn.sent == [{"op": "input", "text": "b"}]
+    assert out.getvalue() == "ok\n"
+
+
+def test_stream_turn_aborts_when_choose_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = _RecordingConn()
+    frames = iter([json.dumps({"choose": {"prompt": "p", "options": ["a"]}}).encode()])
+    monkeypatch.setattr(client, "_choose_frame", lambda _spec: None)
+    out = io.StringIO()
+    assert _stream_turn(frames, out, conn=cast(socket.socket, conn), ask=None)  # abort
+    assert conn.sent == []

@@ -171,6 +171,22 @@ _PROMPT = "🐐 skuggi> "
 _INTERACTIVE_VERBS = frozenset({"setup", "engagement", "config", "login"})
 
 
+def _choose_frame(spec: object) -> str | None:  # pragma: no cover -- real terminal
+    """Render a ``{"choose"}`` frame as an arrow-key menu; return the selection.
+
+    prompt_toolkit is imported here, not at module load, so the fire-and-forget
+    ``--record`` path never pays for it.
+    """
+    from skuggi import menu  # noqa: PLC0415 -- lazy; keep ptk off the hot path
+
+    data = spec if isinstance(spec, dict) else {}
+    prompt = str(data.get("prompt", "choose:"))
+    options = [str(option) for option in data.get("options", [])]
+    raw_default = data.get("default")
+    default = raw_default if isinstance(raw_default, str) else None
+    return menu.select(prompt, options, default=default)
+
+
 def _stream_turn(
     frames: Iterator[bytes],
     out: TextIO,
@@ -198,6 +214,12 @@ def _stream_turn(
             if answer is None:  # operator aborted the wizard
                 return True
             conn.sendall((json.dumps(build_message(answer)) + "\n").encode())
+            continue
+        if "choose" in resp and conn is not None:
+            selection = _choose_frame(resp["choose"])
+            if selection is None:  # operator aborted the menu
+                return True
+            conn.sendall((json.dumps(build_message(selection)) + "\n").encode())
             continue
         chunk = resp.get("chunk")
         if chunk:

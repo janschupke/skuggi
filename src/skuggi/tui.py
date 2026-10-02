@@ -20,7 +20,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi import configflow, palette, prompts, reports, setup, verbs, wizard
+from skuggi import configflow, menu, palette, prompts, reports, setup, verbs, wizard
 from skuggi.commands import raw_command
 from skuggi.config import PROVIDERS, Settings
 from skuggi.configs import ConfigError
@@ -332,6 +332,12 @@ class Tui:
         except (EOFError, KeyboardInterrupt):
             return None
 
+    def _choose(
+        self, prompt: str, options: list[str], default: str | None
+    ) -> str | None:
+        """Pick one option via an arrow-key menu; None on abort."""
+        return menu.select(prompt, options, default=default)
+
     def _engagement_wizard(self) -> None:
         """Collect a scope field-by-field via the prompt session and load it."""
         wizard.run_wizard(
@@ -348,7 +354,7 @@ class Tui:
             return
         configflow.run_config_request(  # natural-language request -> LLM + confirm
             arg,
-            ask=self._ask,
+            choose=self._choose,
             notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
             propose=self.core.propose_config,
             apply=self.core.apply_config,
@@ -359,6 +365,7 @@ class Tui:
         setup.run_setup(
             self.core,
             self._ask,
+            self._choose,
             lambda text: self.console.print(f"[dim]{text}[/dim]"),
         )
 

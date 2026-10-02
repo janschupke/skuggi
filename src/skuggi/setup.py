@@ -14,6 +14,8 @@ from collections.abc import Callable
 from typing import Protocol
 
 Ask = Callable[[str], str | None]
+# (prompt, options, default) -> the chosen option, or None if the operator aborts.
+Choose = Callable[[str, list[str], str | None], str | None]
 Notify = Callable[[str], None]
 
 _PROVIDERS = ("openai", "anthropic", "ollama", "chatgpt")
@@ -39,19 +41,16 @@ class SetupBackend(Protocol):
         """Run the ChatGPT OAuth login; return the account id, if any."""
 
 
-def run_setup(backend: SetupBackend, ask: Ask, notify: Notify) -> bool:
+def run_setup(backend: SetupBackend, ask: Ask, choose: Choose, notify: Notify) -> bool:
     """Walk the operator through choosing and configuring a provider.
 
-    Returns True when a provider was configured, False on abort or failure.
+    The provider is picked from a menu (`choose`); per-provider details (an API
+    key, the ollama URL) are free text (`ask`). Returns True when a provider was
+    configured, False on abort or failure.
     """
-    notify(f"current provider: {backend.provider}")
-    choice = ask(f"provider? [{'/'.join(_PROVIDERS)}] (blank keeps current): ")
-    if choice is None:
+    provider = choose("Choose a model provider:", list(_PROVIDERS), backend.provider)
+    if provider is None:
         notify("setup cancelled")
-        return False
-    provider = choice.strip().lower() or backend.provider
-    if provider not in _PROVIDERS:
-        notify(f"unknown provider: {provider!r}")
         return False
     try:
         if provider in _KEY_PREFIX:

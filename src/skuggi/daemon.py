@@ -148,9 +148,15 @@ class Daemon:
             emit({"ask": prompt})
             return read_line()
 
+        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
+            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
+            return read_line()
+
         self.core.note_interaction("setup", "")
         with self._lock:
-            setup.run_setup(self.core, ask, lambda text: emit({"chunk": text + "\n"}))
+            setup.run_setup(
+                self.core, ask, choose, lambda text: emit({"chunk": text + "\n"})
+            )
         emit({"end": True, "exit": False})
 
     def _is_config_request(self, line: str) -> bool:
@@ -171,15 +177,15 @@ class Daemon:
     ) -> None:
         """Run the LLM config escalation over the attach connection."""
 
-        def ask(prompt: str) -> str | None:
-            emit({"ask": prompt})
+        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
+            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
             return read_line()
 
         self.core.note_interaction("config", arg)
         with self._lock:
             configflow.run_config_request(
                 arg,
-                ask=ask,
+                choose=choose,
                 notify=lambda text: emit({"chunk": text + "\n"}),
                 propose=self.core.propose_config,
                 apply=self.core.apply_config,

@@ -14,21 +14,22 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-Ask = Callable[[str], str | None]
 Notify = Callable[[str], None]
 Propose = Callable[[str], list[tuple[str, str]]]
 Apply = Callable[[str, str], str]
+# (prompt, options, default) -> the chosen option, or None if the operator aborts.
+Choose = Callable[[str, list[str], str | None], str | None]
 
 
 def run_config_request(
     request: str,
     *,
-    ask: Ask,
+    choose: Choose,
     notify: Notify,
     propose: Propose,
     apply: Apply,
 ) -> None:
-    """Propose edits for `request`, confirm interactively, and apply on a yes."""
+    """Propose edits for `request`, confirm from a menu, and apply on a yes."""
     proposals = propose(request)
     if not proposals:
         notify("config: no changes proposed")
@@ -36,8 +37,7 @@ def run_config_request(
     notify("proposed changes:")
     for key, value in proposals:
         notify(f"  {key} = {value}")
-    answer = ask("apply these changes? (y/N) ")
-    if answer is None or answer.strip().lower() not in ("y", "yes"):
+    if choose("Apply these changes?", ["yes", "no"], "no") != "yes":
         notify("config unchanged")
         return
     for key, value in proposals:

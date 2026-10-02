@@ -306,10 +306,12 @@ def test_attach_config_request_confirms_and_applies(
     monkeypatch.setattr(
         daemon.core, "propose_config", lambda _request: [("mode", "blueteam")]
     )
-    answers = iter(["config switch to blue team", "y"])
+    # The confirm is a menu now: the daemon emits a {"choose"} frame and the
+    # client sends back the selected option ("yes").
+    answers = iter(["config switch to blue team", "yes"])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
-    assert [f["ask"] for f in emitted if "ask" in f]  # asked to confirm
+    assert [f["choose"] for f in emitted if "choose" in f]  # asked to confirm
     assert daemon.core.mode == "blueteam"  # applied to the warm core
     assert "applied live" in "".join(str(f.get("chunk", "")) for f in emitted)
 
