@@ -15,7 +15,7 @@ from collections.abc import Callable
 
 import pytest
 
-from skuggi.state import AgentState
+from skuggi.agent.state import AgentState
 from tests.eval.conftest import answer, require
 
 pytestmark = [

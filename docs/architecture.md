@@ -1,18 +1,18 @@
 # Architecture
 
 skuggi is a pentest harness layered on a LangChain + LangGraph agent. The
-headless core ([src/skuggi/core.py](../src/skuggi/core.py), `AgentCore`) owns a
+headless core ([src/skuggi/agent/core.py](../src/skuggi/agent/core.py), `AgentCore`) owns a
 session — engagement scope, tool registry, ledger, checkpointer, the compiled
 graph — and streams turn events. Two front-ends render it: the Rich +
-prompt_toolkit REPL ([src/skuggi/tui.py](../src/skuggi/tui.py)) and the
-wrapped-shell daemon ([src/skuggi/daemon.py](../src/skuggi/daemon.py)). Neither
+prompt_toolkit REPL ([src/skuggi/frontend/tui.py](../src/skuggi/frontend/tui.py)) and the
+wrapped-shell daemon ([src/skuggi/frontend/daemon.py](../src/skuggi/frontend/daemon.py)). Neither
 holds agent logic; `AgentCore.turn` yields `TurnEvent`s (reset / status / token
 / final) so the same stream drives a Rich `Live` pane and a plain socket alike.
 
 ## The structured protocol
 
 Every LLM interaction is a strict structured exchange, defined in
-[src/skuggi/protocol.py](../src/skuggi/protocol.py). The harness builds a
+[src/skuggi/agent/protocol.py](../src/skuggi/agent/protocol.py). The harness builds a
 `RequestContext` — conversation history, the engagement scope + `stance`, the
 current methodology `Phase`, prior findings and the commands run so far this turn
 — and `render_request` turns it into one labelled block. Each node returns a
@@ -22,7 +22,7 @@ validated pydantic response (`PlannerResponse`, `WorkerResponse`,
 one repair retry on the tool-less chatgpt path. `render_response` lays a
 `WorkerResponse` out deterministically, so the operator only ever sees model text
 inside fields the harness placed — never raw model output pasted to a CLI. All
-prompt text lives in [src/skuggi/prompts.py](../src/skuggi/prompts.py).
+prompt text lives in [src/skuggi/agent/prompts.py](../src/skuggi/agent/prompts.py).
 
 ## The graph
 
@@ -54,7 +54,7 @@ START → planner → retriever → worker → executor ──┬── worker (
 
 ## State channels
 
-State ([src/skuggi/state.py](../src/skuggi/state.py)) has one message channel plus
+State ([src/skuggi/agent/state.py](../src/skuggi/agent/state.py)) has one message channel plus
 typed scalar channels:
 
 ```python
@@ -89,7 +89,7 @@ into `sessions.db` in the data home (`~/.local/share/skuggi` by default),
 keyed by the current thread id. Killing the process
 and resuming a thread with `/thread <id>` restores the full message history.
 This is separate from the engagement **ledger**
-([src/skuggi/ledger.py](../src/skuggi/ledger.py)): the checkpointer is
+([src/skuggi/persistence/ledger.py](../src/skuggi/persistence/ledger.py)): the checkpointer is
 langgraph's private store, the ledger is the harness's own record. The ledger
 keeps two logs, deliberately apart:
 
@@ -101,9 +101,9 @@ keeps two logs, deliberately apart:
   its source command (`findings.command_id`), so a finding is traceable
   prompt → command → finding. Free-typed shell commands are captured here too
   (status `passthrough`). Replaying the events in order reconstructs the whole
-  session ([transcript.py](../src/skuggi/transcript.py)); the `/replay` verb
+  session ([transcript.py](../src/skuggi/persistence/transcript.py)); the `/replay` verb
   views any session (`replay list` enumerates them). The outward-facing report
-  ([reports.py](../src/skuggi/reports.py)) reads only `commands`/`findings`, so
+  ([reports.py](../src/skuggi/persistence/reports.py)) reads only `commands`/`findings`, so
   it never leaks prompts.
 - The **harness-interaction audit** — the `audit` table logs `/skuggi` control
   verbs, filtered CLI noise, and the private `/review` critique. It is kept
@@ -117,7 +117,7 @@ works on every provider) for private feedback — bottlenecks, missed
 opportunities, repeated or wrong commands. It is stored in the audit log, shown
 to the operator, and never client-facing.
 
-**Harness memory** is a third store ([preferences.py](../src/skuggi/preferences.py),
+**Harness memory** is a third store ([preferences.py](../src/skuggi/persistence/preferences.py),
 `preferences.db` in the data home), holding the operator's standing operational
 preferences — which tool to prefer, the language for helper scripts, reply tone.
 It is deliberately *global* (one file, not per-engagement, and in the data home
@@ -131,7 +131,7 @@ the message on a cheap heuristic (`looks_like_directive`) and, if it passes,
 asks the LLM (one-shot) to extract any durable directive, saving it and emitting
 a `remembered: …` status. `settings.memory_auto` switches the automatic path off.
 
-**The diagnostic log** ([logs.py](../src/skuggi/logs.py), `logs/skuggi.log` in the
+**The diagnostic log** ([logs.py](../src/skuggi/common/logs.py), `logs/skuggi.log` in the
 data home) is a different thing again, and orthogonal to all of the above: the
 ledger records what the operator and agent *did*; the diagnostic log records what
 *failed* — swallowed exceptions, degraded config loads, provider/network errors —
@@ -147,27 +147,27 @@ file alone. The level is `SKUGGI_LOG_LEVEL` (or `DEBUG` under `SKUGGI_DEBUG`, el
 
 Files that can be read top-to-bottom in one sitting:
 
-- [config.py](../src/skuggi/config.py) — every setting, in one typed
+- [config.py](../src/skuggi/config/config.py) — every setting, in one typed
   `pydantic-settings` object. No module-level singleton by design: a singleton
   would read the config home's `config.json` at import time and make `import
   skuggi.providers` a filesystem side effect. Storage paths default under the
-  two homes in [home.py](../src/skuggi/home.py); `engagements_dir` is the one
+  two homes in [home.py](../src/skuggi/common/home.py); `engagements_dir` is the one
   that stays relative to the working directory.
-- [registry.py](../src/skuggi/registry.py) / [probe.py](../src/skuggi/probe.py)
-  / the rendering half of [doctor.py](../src/skuggi/doctor.py) — the recognized-
+- [registry.py](../src/skuggi/tooling/registry.py) / [probe.py](../src/skuggi/tooling/probe.py)
+  / the rendering half of [doctor.py](../src/skuggi/tooling/doctor.py) — the recognized-
   tool data model, host probing + install, and the doctor tables respectively.
-- [logs.py](../src/skuggi/logs.py) — the diagnostic-log setup: `setup_logging`
+- [logs.py](../src/skuggi/common/logs.py) — the diagnostic-log setup: `setup_logging`
   (the rotating file handler every entry point installs once) and `get_logger`.
   Resolves its path under the data home at call time, never at import.
-- [memory.py](../src/skuggi/memory.py) — a `SqliteSaver` wrapper and thread
+- [memory.py](../src/skuggi/persistence/memory.py) — a `SqliteSaver` wrapper and thread
   enumeration through the checkpointer's own `list` API.
-- [preferences.py](../src/skuggi/preferences.py) — the harness-memory store: a
+- [preferences.py](../src/skuggi/persistence/preferences.py) — the harness-memory store: a
   lock-guarded SQLite table of operator preferences, plus the cheap
   `looks_like_directive` gate for automatic capture.
-- [vectorstore.py](../src/skuggi/vectorstore.py) — a lazily-loaded FAISS index;
+- [vectorstore.py](../src/skuggi/persistence/vectorstore.py) — a lazily-loaded FAISS index;
   nothing is embedded until the first `ingest`, so the REPL boots without
   embedding credentials.
-- [codex_chat.py](../src/skuggi/codex_chat.py) — a `CodexTokenStore` (auth.json
+- [codex_chat.py](../src/skuggi/providers/codex_chat.py) — a `CodexTokenStore` (auth.json
   and the OAuth refresh) and a `CodexAuth` (`httpx.Auth`) under a thin
   `ChatOpenAI` subclass. See [codex-auth.md](codex-auth.md).
 
@@ -181,7 +181,7 @@ to the prompt, and defines a shell **function** literally named `/skuggi` (both
 bash and zsh resolve a function by that name before treating the word as a
 path). The function forwards its arguments to the thin `skuggi-client`, which
 talks to a warm in-process agent daemon
-([src/skuggi/daemon.py](../src/skuggi/daemon.py)) over a Unix socket — so a
+([src/skuggi/frontend/daemon.py](../src/skuggi/frontend/daemon.py)) over a Unix socket — so a
 `/skuggi` prompt reaches a graph/ledger/engagement already loaded, with no
 per-call cold start. `/skuggi exit` leaves. bash and zsh get the hook; other
 shells degrade to a plain child with `/skuggi` disabled.
@@ -199,7 +199,7 @@ open — logging never blocks or breaks your real shell.
 ## Dispatch and the attach protocol
 
 Both front-ends are **verb-first**: the first word is the action, the rest is
-its input. One registry ([verbs.py](../src/skuggi/verbs.py)) is the single
+its input. One registry ([verbs.py](../src/skuggi/frontend/verbs.py)) is the single
 source of the known-verb set, argument hints and the `/help` listing, so the
 REPL's `/verb` table and the daemon's socket dispatch can never drift. The
 handlers live in each front-end (Rich tables and colour in the REPL, plain text
@@ -222,8 +222,8 @@ The wire protocol is line-delimited JSON with two shapes:
 Interactive verbs prompt back through an **`{"ask":…}` frame**: the daemon emits
 a question, the client prompts the operator and sends the answer as the next
 `input`, and the whole exchange runs inside one attach reply. This is how the
-`engagement setup` wizard ([wizard.py](../src/skuggi/wizard.py)) and the
-natural-language `config` escalation ([configflow.py](../src/skuggi/configflow.py))
+`engagement setup` wizard ([wizard.py](../src/skuggi/frontend/wizard.py)) and the
+natural-language `config` escalation ([configflow.py](../src/skuggi/frontend/configflow.py))
 work; both are front-end-agnostic (the REPL supplies its `PromptSession`, the
 attach loop supplies the socket round-trip) so one implementation serves both.
 `AgentCore.load_engagement` hot-reloads a rewritten scope into the running

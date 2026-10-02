@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from skuggi.config import Settings
+from skuggi.config.config import Settings
 
 _PER_MILLION = 1_000_000.0
 

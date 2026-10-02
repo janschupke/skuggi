@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from skuggi.core import AgentCore
+from skuggi.agent.core import AgentCore
 from tests.conftest import offline_settings
 
 

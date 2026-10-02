@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from skuggi.preferences import open_preferences
+from skuggi.persistence.preferences import open_preferences
 
 
 def test_add_list_and_render_round_trip(tmp_path: Path) -> None:

@@ -19,7 +19,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel
 
-from skuggi.protocol import CriticResponse, PlannerResponse, WorkerResponse
+from skuggi.agent.protocol import CriticResponse, PlannerResponse, WorkerResponse
 
 EMBED_DIM = 8
 

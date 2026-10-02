@@ -14,7 +14,7 @@ import httpx
 import pytest
 import respx
 
-from skuggi.codex_chat import (
+from skuggi.providers.codex_chat import (
     CodexAuthError,
     CodexTokenStore,
     build_codex_chat_model,

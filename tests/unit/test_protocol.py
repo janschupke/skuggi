@@ -16,8 +16,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
 
-from skuggi import palette
-from skuggi.protocol import (
+from skuggi.agent.protocol import (
     PHASES,
     STANCES,
     CommandBrief,
@@ -34,6 +33,7 @@ from skuggi.protocol import (
     render_response,
     structured_invoke,
 )
+from skuggi.common import palette
 from tests.fakes import ScriptedChatModel
 
 

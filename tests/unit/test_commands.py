@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from skuggi.commands import CommandAlias, CommandRegistry, raw_command, render
-from skuggi.registry import ToolRegistry, ToolSpec
-from skuggi.workspace import WorkspaceLayout
+from skuggi.engagement.workspace import WorkspaceLayout
+from skuggi.frontend.commands import CommandAlias, CommandRegistry, raw_command, render
+from skuggi.tooling.registry import ToolRegistry, ToolSpec
 from tests.support import template
 
 _REG = ToolRegistry(

@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import execution
-from skuggi.execution import MAX_CAPTURE_BYTES, _cap, run
+from skuggi.common import execution
+from skuggi.common.execution import MAX_CAPTURE_BYTES, _cap, run
 
 
 def test_cap_truncates_oversized_output() -> None:

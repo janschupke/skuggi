@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from skuggi import palette
+from skuggi.common import palette
 
 
 def test_status_style_distinguishes_found_from_missing() -> None:

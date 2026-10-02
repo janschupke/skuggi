@@ -10,8 +10,8 @@ from typing import cast
 
 import pytest
 
-from skuggi import client
-from skuggi.client import (
+from skuggi.frontend import client
+from skuggi.frontend.client import (
     _stdin_prompt,
     _stream_turn,
     attach_once_over,

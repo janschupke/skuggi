@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from skuggi import providers
-from skuggi.config import Settings
-from skuggi.configs import ConfigError
+from skuggi.config.config import Settings
+from skuggi.config.configs import ConfigError
+from skuggi.providers import providers
 
 
 def _auth(tmp_path: Path, payload: object) -> Path:

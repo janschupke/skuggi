@@ -19,8 +19,18 @@ from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from skuggi.configs import load_registry
-from skuggi.engagement import EngagementConfig, check_command, parse_command
+from skuggi.agent.protocol import (
+    CriticResponse,
+    FindingDraft,
+    Phase,
+    PlannerResponse,
+    WorkerResponse,
+    clamp_phase,
+)
+from skuggi.common.logs import get_logger
+from skuggi.common.paths import packaged_template
+from skuggi.config.configs import load_registry
+from skuggi.engagement.engagement import EngagementConfig, check_command, parse_command
 from skuggi.eval import DETERMINISTIC
 from skuggi.eval.baseline import DimensionResult
 from skuggi.eval.goldens import (
@@ -39,18 +49,8 @@ from skuggi.eval.scorers import (
     result_compat,
     schema_compat,
 )
-from skuggi.logs import get_logger
-from skuggi.paths import packaged_template
-from skuggi.protocol import (
-    CriticResponse,
-    FindingDraft,
-    Phase,
-    PlannerResponse,
-    WorkerResponse,
-    clamp_phase,
-)
-from skuggi.registry import ToolRegistry
-from skuggi.reports import render_report
+from skuggi.persistence.reports import render_report
+from skuggi.tooling.registry import ToolRegistry
 
 log = get_logger(__name__)
 

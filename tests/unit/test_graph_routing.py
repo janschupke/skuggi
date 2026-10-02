@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from skuggi.graph import (
+from skuggi.agent.graph import (
     GraphDeps,
     _record_findings,
     last_user_text,
@@ -13,8 +13,8 @@ from skuggi.graph import (
     render_history,
     route_after_critic,
 )
-from skuggi.protocol import FindingDraft, WorkerResponse
-from skuggi.state import AgentState
+from skuggi.agent.protocol import FindingDraft, WorkerResponse
+from skuggi.agent.state import AgentState
 
 
 def _state(**kwargs: object) -> AgentState:

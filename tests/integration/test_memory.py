@@ -7,7 +7,7 @@ from pathlib import Path
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.memory import InMemorySaver
 
-from skuggi.memory import list_threads, open_checkpointer
+from skuggi.persistence.memory import list_threads, open_checkpointer
 
 
 def _write(saver: object, thread_id: str, times: int = 1) -> None:

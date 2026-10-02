@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from skuggi.engagement import EngagementConfig
+from skuggi.engagement.engagement import EngagementConfig
 from skuggi.eval.goldens import ComplianceCase, load_cases
 from skuggi.eval.runner import score_compliance_case
-from skuggi.registry import ToolRegistry
+from skuggi.tooling.registry import ToolRegistry
 from tests.eval_det.conftest import EVALS_ROOT
 
 _CASES = [

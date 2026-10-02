@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from skuggi.configflow import Choose, run_config_request
+from skuggi.frontend.configflow import Choose, run_config_request
 
 
 class _Recorder:

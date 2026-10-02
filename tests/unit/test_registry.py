@@ -13,9 +13,14 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from skuggi.doctor import doctor_hints, doctor_table, net_tool_table, runtime_table
-from skuggi.execution import CommandResult
-from skuggi.probe import (
+from skuggi.common.execution import CommandResult
+from skuggi.tooling.doctor import (
+    doctor_hints,
+    doctor_table,
+    net_tool_table,
+    runtime_table,
+)
+from skuggi.tooling.probe import (
     available_installers,
     install_tool,
     managed_bin,
@@ -24,7 +29,7 @@ from skuggi.probe import (
     probe_runtimes,
     select_install,
 )
-from skuggi.registry import ToolRegistry, ToolSpec, ToolStatus
+from skuggi.tooling.registry import ToolRegistry, ToolSpec, ToolStatus
 
 
 class FakeRunner:
@@ -198,7 +203,7 @@ def test_doctor_table_shows_tool_status() -> None:
 def test_available_installers_is_host_verified(monkeypatch: pytest.MonkeyPatch) -> None:
     """Only package managers actually on PATH are reported available."""
     monkeypatch.setattr(
-        "skuggi.probe.shutil.which",
+        "skuggi.tooling.probe.shutil.which",
         lambda name: "/usr/bin/x" if name == "brew" else None,
     )
     assert available_installers() == frozenset({"brew"})
@@ -210,7 +215,7 @@ def test_doctor_hints_filters_to_available_installers(
     """An apt-only hint is not shown on a host without apt (the bug reported)."""
     # brew present, apt and pip absent
     monkeypatch.setattr(
-        "skuggi.probe.shutil.which",
+        "skuggi.tooling.probe.shutil.which",
         lambda name: "/usr/bin/brew" if name == "brew" else None,
     )
     hints = doctor_hints(_missing_ghost())
@@ -221,7 +226,7 @@ def test_doctor_hints_filters_to_available_installers(
 def test_doctor_hints_reports_no_installer_when_none_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("skuggi.probe.shutil.which", lambda _name: None)
+    monkeypatch.setattr("skuggi.tooling.probe.shutil.which", lambda _name: None)
     hints = doctor_hints(_missing_ghost())
     assert "no installer available on this host" in hints
 
@@ -245,7 +250,7 @@ def test_probe_runtimes_reports_found_and_missing(
 ) -> None:
     """Only python3 is on PATH; its version parses, the rest are missing."""
     monkeypatch.setattr(
-        "skuggi.probe.shutil.which",
+        "skuggi.tooling.probe.shutil.which",
         lambda name: "/usr/bin/python3" if name == "python3" else None,
     )
     statuses = probe_runtimes(runner=FakeRunner(stdout="Python 3.14.0"))
@@ -257,7 +262,7 @@ def test_probe_runtimes_reports_found_and_missing(
 
 
 def test_runtime_table_renders_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("skuggi.probe.shutil.which", lambda _name: None)
+    monkeypatch.setattr("skuggi.tooling.probe.shutil.which", lambda _name: None)
     console = Console(force_terminal=True, width=100)
     with console.capture() as cap:
         console.print(runtime_table(probe_runtimes(runner=FakeRunner())))
@@ -270,7 +275,7 @@ def test_runtimes_include_powershell_dotnet_and_perl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The runtime set covers the added interpreters/SDKs."""
-    monkeypatch.setattr("skuggi.probe.shutil.which", lambda _name: None)
+    monkeypatch.setattr("skuggi.tooling.probe.shutil.which", lambda _name: None)
     names = {s.spec.name for s in probe_runtimes(runner=FakeRunner())}
     assert {"powershell", ".net", "perl"} <= names
 
@@ -280,7 +285,7 @@ def test_doctor_hints_lists_missing_runtimes(
 ) -> None:
     """A missing runtime gets a host-filtered install hint in its own block."""
     monkeypatch.setattr(
-        "skuggi.probe.shutil.which",
+        "skuggi.tooling.probe.shutil.which",
         lambda name: "/usr/bin/brew" if name == "brew" else None,
     )
     runtimes = probe_runtimes(runner=FakeRunner())
@@ -295,7 +300,7 @@ def test_probe_net_tools_reports_found_and_missing(
 ) -> None:
     """Only ssh is on PATH; its version parses, the rest are missing."""
     monkeypatch.setattr(
-        "skuggi.probe.shutil.which",
+        "skuggi.tooling.probe.shutil.which",
         lambda name: "/usr/bin/ssh" if name == "ssh" else None,
     )
     statuses = probe_net_tools(runner=FakeRunner(stdout="OpenSSH_9.9p1, LibreSSL"))
@@ -307,7 +312,7 @@ def test_probe_net_tools_reports_found_and_missing(
 
 
 def test_net_tool_table_renders_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("skuggi.probe.shutil.which", lambda _name: None)
+    monkeypatch.setattr("skuggi.tooling.probe.shutil.which", lambda _name: None)
     console = Console(force_terminal=True, width=100)
     with console.capture() as cap:
         console.print(net_tool_table(probe_net_tools(runner=FakeRunner())))
@@ -321,7 +326,7 @@ def test_doctor_hints_lists_missing_net_tools(
 ) -> None:
     """A missing net tool gets its own host-filtered install-hint block."""
     monkeypatch.setattr(
-        "skuggi.probe.shutil.which",
+        "skuggi.tooling.probe.shutil.which",
         lambda name: "/usr/bin/apt" if name in ("apt", "apt-get") else None,
     )
     net_tools = probe_net_tools(runner=FakeRunner())

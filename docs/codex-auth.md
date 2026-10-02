@@ -35,7 +35,7 @@ After the browser-based ChatGPT login (skuggi's own `/login`, or `codex login`):
 These tokens **do not** authenticate against `api.openai.com`. They route to
 `https://chatgpt.com/backend-api/codex/responses` with the codex-specific
 `x-codex-*` headers. Use the `chatgpt` provider — a thin `ChatOpenAI` subclass
-over that endpoint ([src/skuggi/codex_chat.py](../src/skuggi/codex_chat.py))
+over that endpoint ([src/skuggi/providers/codex_chat.py](../src/skuggi/providers/codex_chat.py))
 that:
 
 - reads the tokens from auth.json (`CodexTokenStore`);
@@ -72,7 +72,7 @@ If the `chatgpt` path stops working after an `OAuth refresh failed` error, run
 
 - The two endpoint URLs are configurable via `SKUGGI_CODEX_RESPONSES_BASE` /
   `SKUGGI_CODEX_REFRESH_URL` (rarely needed); their defaults live once in
-  [config.py](../src/skuggi/config.py).
+  [config.py](../src/skuggi/config/config.py).
 - Embeddings default to `text-embedding-3-small` (OpenAI) and need an OpenAI
   key; without one, `get_embeddings` falls back to
   `OllamaEmbeddings("nomic-embed-text")` if Ollama is running.

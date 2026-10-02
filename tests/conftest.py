@@ -22,12 +22,13 @@ from pathlib import Path
 import httpx
 import pytest
 
-from skuggi import codex_chat, home
-from skuggi.config import Settings
-from skuggi.core import AgentCore
-from skuggi.paths import ensure_parent
-from skuggi.protocol import CriticResponse, WorkerResponse
-from skuggi.vectorstore import Store
+from skuggi.agent.core import AgentCore
+from skuggi.agent.protocol import CriticResponse, WorkerResponse
+from skuggi.common import home
+from skuggi.common.paths import ensure_parent
+from skuggi.config.config import Settings
+from skuggi.persistence.vectorstore import Store
+from skuggi.providers import codex_chat
 from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
 
 _VENDOR_ENV = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_BASE_URL")
@@ -204,7 +205,7 @@ def no_subprocess(
         raise RuntimeError(msg)
 
     monkeypatch.setattr(subprocess, "run", _blocked)
-    monkeypatch.setattr("skuggi.execution.run", _blocked)
+    monkeypatch.setattr("skuggi.common.execution.run", _blocked)
 
 
 @pytest.fixture(autouse=True)

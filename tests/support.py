@@ -17,9 +17,9 @@ import json
 from importlib.resources import files
 from pathlib import Path
 
-from skuggi.config import Provider, Settings
-from skuggi.core import AgentCore
-from skuggi.vectorstore import Store
+from skuggi.agent.core import AgentCore
+from skuggi.config.config import Provider, Settings
+from skuggi.persistence.vectorstore import Store
 from tests.fakes import CountingFakeEmbeddings, RoleScriptedChatModel
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

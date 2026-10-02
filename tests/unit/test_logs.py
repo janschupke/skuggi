@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import home, logs
+from skuggi.common import home, logs
 
 
 def test_default_log_path_is_under_the_data_home() -> None:

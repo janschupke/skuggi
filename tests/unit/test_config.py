@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from skuggi import home
-from skuggi.config import Settings, config_path, write_config
+from skuggi.common import home
+from skuggi.config.config import Settings, config_path, write_config
 
 
 def test_defaults() -> None:

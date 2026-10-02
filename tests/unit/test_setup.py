@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from skuggi import setup
+from skuggi.frontend import setup
 
 
 class FakeBackend:

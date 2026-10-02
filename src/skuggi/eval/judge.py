@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING, Protocol
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from skuggi.config import Settings
-from skuggi.configs import ConfigError
+from skuggi.agent.protocol import structured_invoke
+from skuggi.config.config import Settings
+from skuggi.config.configs import ConfigError
 from skuggi.eval.scorers import Score
-from skuggi.protocol import structured_invoke
-from skuggi.providers import get_chat_model
+from skuggi.providers.providers import get_chat_model
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel

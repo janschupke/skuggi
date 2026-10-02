@@ -128,7 +128,7 @@ skuggi-repl            # or: python -m skuggi
 The first word after `/skuggi` (or after `/` in `skuggi-repl`) is the verb; the
 rest is its input. In `skuggi-repl`, bare text with no leading `/` is an
 implicit `ask`. The two front-ends share one registry
-([src/skuggi/verbs.py](src/skuggi/verbs.py)), so `/help` always matches.
+([src/skuggi/frontend/verbs.py](src/skuggi/frontend/verbs.py)), so `/help` always matches.
 
 | Verb | Effect |
 |---|---|
@@ -256,7 +256,7 @@ start and never committed:
 ```
 
 Every command the agent proposes is parsed and checked by a single guard
-(`check_command` in [src/skuggi/engagement.py](src/skuggi/engagement.py)), in
+(`check_command` in [src/skuggi/engagement/engagement.py](src/skuggi/engagement/engagement.py)), in
 order: recognized tool → authorized tool → authorized method → inside the date
 window → inside the daily clock window → every extracted target inside an
 allowed network/host. The rule is conservative: a target-requiring command with
@@ -288,7 +288,7 @@ Blocked, proposed and executed commands are all persisted with timestamps.
 ## Modes
 
 `/mode pentest|redteam|blueteam` swaps the planner/worker/critic prompt set
-([src/skuggi/prompts.py](src/skuggi/prompts.py)); the graph and guard are
+([src/skuggi/agent/prompts.py](src/skuggi/agent/prompts.py)); the graph and guard are
 identical across modes. Set the default with `SKUGGI_MODE`.
 
 ## Tools and `skuggi-doctor`
@@ -307,7 +307,7 @@ the subcommand is the confirmation.
 ## Findings, the ledger and reports
 
 The harness persists to a per-engagement SQLite **ledger**
-([src/skuggi/ledger.py](src/skuggi/ledger.py), `engagements/<name>/ledger.db`),
+([src/skuggi/persistence/ledger.py](src/skuggi/persistence/ledger.py), `engagements/<name>/ledger.db`),
 separate from the checkpointer, with `sessions`, `commands` and `findings`
 tables. A finding links to its session and (by default) to the most recent
 command, so it is always traceable. `/report` writes a Markdown report into the
@@ -327,12 +327,12 @@ make pdf IN=docs/architecture.md
 ```
 
 The pipeline is `Markdown -> HTML -> PDF`
-([src/skuggi/pdf.py](src/skuggi/pdf.py)): markdown-it-py parses the report,
+([src/skuggi/persistence/pdf.py](src/skuggi/persistence/pdf.py)): markdown-it-py parses the report,
 Pygments highlights fenced code, a Jinja2 shell wraps it in the print
 stylesheet ([src/skuggi/templates/report.css](src/skuggi/templates/report.css)),
 and WeasyPrint paints the PDF. Styling is pure CSS — edit `report.css` to
 restyle every report — and the severity/method colours are pulled from
-[src/skuggi/palette.py](src/skuggi/palette.py), the same source the terminal
+[src/skuggi/common/palette.py](src/skuggi/common/palette.py), the same source the terminal
 uses. It needs the optional `pdf` dependency group (installed by `make install`)
 and WeasyPrint's native Pango library:
 
@@ -345,7 +345,7 @@ uv sync --group pdf           # if you skipped `make install`
 ## The per-engagement workspace
 
 Each engagement operates in `engagements/<name>/`
-([src/skuggi/workspace.py](src/skuggi/workspace.py)), created on startup:
+([src/skuggi/engagement/workspace.py](src/skuggi/engagement/workspace.py)), created on startup:
 
 ```
 engagements/<name>/

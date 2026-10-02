@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.engagement import EngagementConfig
+from skuggi.engagement.engagement import EngagementConfig
 from skuggi.eval.goldens import ResultCompatCase, load_cases
 from skuggi.eval.runner import score_result_compat_case
 from tests.eval_det.conftest import EVALS_ROOT

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.config import Settings
-from skuggi.configs import ConfigError
+from skuggi.config.config import Settings
+from skuggi.config.configs import ConfigError
 from skuggi.eval import cli
 from skuggi.eval.baseline import DimensionResult, update_baseline
 from skuggi.eval.divergence import (

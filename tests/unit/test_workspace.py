@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from skuggi.workspace import Workspace, WorkspaceLayout
+from skuggi.engagement.workspace import Workspace, WorkspaceLayout
 
 
 def test_default_layout_lists_every_directory() -> None:

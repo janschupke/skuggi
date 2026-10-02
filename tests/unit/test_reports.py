@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.execution import CommandResult
-from skuggi.ledger import Ledger, open_ledger
-from skuggi.reports import render_report, write_report
+from skuggi.common.execution import CommandResult
+from skuggi.persistence.ledger import Ledger, open_ledger
+from skuggi.persistence.reports import render_report, write_report
 
 
 def _seed(led: Ledger) -> None:

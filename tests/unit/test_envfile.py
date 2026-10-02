@@ -5,7 +5,7 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
-from skuggi import envfile
+from skuggi.install import envfile
 
 
 def test_creates_the_file_owner_only(tmp_path: Path) -> None:

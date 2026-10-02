@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from skuggi import verbs
+from skuggi.frontend import verbs
 
 
 def test_cmd_formats_per_surface() -> None:

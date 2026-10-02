@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.config import Settings
+from skuggi.config.config import Settings
 from skuggi.eval import cli, quality
 from skuggi.eval.baseline import (
     BaselineError,

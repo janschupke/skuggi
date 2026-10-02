@@ -4,10 +4,10 @@ The default ``skuggi`` command is the shell wrapper (``skuggi.shell``); this is
 the pure agent chat, kept for when you want the REPL without a wrapped shell.
 """
 
-from skuggi.boot import guard_boot
-from skuggi.config import Settings
-from skuggi.logs import get_logger, setup_logging
-from skuggi.tui import Tui
+from skuggi.common.logs import get_logger, setup_logging
+from skuggi.config.config import Settings
+from skuggi.frontend.tui import Tui
+from skuggi.install.boot import guard_boot
 
 
 def main() -> None:

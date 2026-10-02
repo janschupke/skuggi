@@ -15,7 +15,8 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from skuggi.config import Provider, Settings
+from skuggi.common.logs import get_logger, setup_logging
+from skuggi.config.config import Provider, Settings
 from skuggi.eval import DETERMINISTIC, QUALITY
 from skuggi.eval.baseline import (
     DEFAULT_BASELINE,
@@ -32,7 +33,6 @@ from skuggi.eval.divergence import (
 from skuggi.eval.models import ModelSpec
 from skuggi.eval.report import render_scorecard
 from skuggi.eval.runner import DEFAULT_REGISTRY, evaluate_deterministic
-from skuggi.logs import get_logger, setup_logging
 
 _TIERS: dict[str, tuple[str, ...]] = {
     "det": DETERMINISTIC,

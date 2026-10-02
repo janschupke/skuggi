@@ -160,7 +160,7 @@ is not loaded at all.
 
 Inside the wrapped shell, `/skuggi` is a shell *function* that shells out to
 `skuggi-client`. It is spelled as an **absolute path**, resolved once before the
-child shell starts ([src/skuggi/shell.py](../src/skuggi/shell.py)).
+child shell starts ([src/skuggi/frontend/shell.py](../src/skuggi/frontend/shell.py)).
 
 It cannot rely on `$PATH`. The generated init file sources your own `~/.zshrc`
 first, by design, and an rc that rebuilds `PATH` — `path=(...)` is idiomatic in

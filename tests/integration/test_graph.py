@@ -20,19 +20,19 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
-from skuggi.engagement import EngagementConfig
-from skuggi.execution import CommandResult
-from skuggi.graph import GraphDeps, build_graph, recursion_limit
-from skuggi.ledger import Ledger, open_ledger
-from skuggi.protocol import (
+from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
+from skuggi.agent.protocol import (
     CriticResponse,
     FindingDraft,
     PlannerResponse,
     WorkerResponse,
 )
-from skuggi.registry import ToolRegistry, ToolSpec
-from skuggi.state import AgentState
-from skuggi.vectorstore import Store
+from skuggi.agent.state import AgentState
+from skuggi.common.execution import CommandResult
+from skuggi.engagement.engagement import EngagementConfig
+from skuggi.persistence.ledger import Ledger, open_ledger
+from skuggi.persistence.vectorstore import Store
+from skuggi.tooling.registry import ToolRegistry, ToolSpec
 from tests.fakes import RoleScriptedChatModel
 
 CompiledGraph = CompiledStateGraph[AgentState]
@@ -228,7 +228,7 @@ def test_autonomous_executes_and_loops_the_result_back(
             finished_at=now,
         )
 
-    monkeypatch.setattr("skuggi.execution.run", fake_run)
+    monkeypatch.setattr("skuggi.common.execution.run", fake_run)
     model = RoleScriptedChatModel(
         worker_replies=[
             WorkerResponse(command="echo scan", summary="probe"),
@@ -263,7 +263,7 @@ def test_autonomous_loop_is_bounded(
             finished_at=now,
         )
 
-    monkeypatch.setattr("skuggi.execution.run", fake_run)
+    monkeypatch.setattr("skuggi.common.execution.run", fake_run)
     model = RoleScriptedChatModel(
         worker_replies=[WorkerResponse(command="echo loop", summary="again")],
         critic_replies=[CriticResponse(approved=True)],

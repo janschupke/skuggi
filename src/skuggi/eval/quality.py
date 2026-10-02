@@ -19,9 +19,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
-from skuggi.config import Settings
-from skuggi.core import AgentCore
-from skuggi.engagement import EngagementConfig
+from skuggi.agent.core import AgentCore
+from skuggi.config.config import Settings
+from skuggi.engagement.engagement import EngagementConfig
 from skuggi.eval.baseline import DimensionResult
 from skuggi.eval.cost import cost_of_usage
 from skuggi.eval.goldens import (

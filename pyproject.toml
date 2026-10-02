@@ -61,14 +61,14 @@ pdf = [
 ]
 
 [project.scripts]
-skuggi = "skuggi.shell:main"
+skuggi = "skuggi.frontend.shell:main"
 skuggi-repl = "skuggi.__main__:main"
-skuggi-init = "skuggi.init:main"
-skuggi-ingest = "skuggi.ingest:main"
-skuggi-doctor = "skuggi.doctor:main"
-skuggi-client = "skuggi.client:main"
-skuggi-login = "skuggi.codex_login:main"
-skuggi-pdf = "skuggi.pdf:main"
+skuggi-init = "skuggi.install.init:main"
+skuggi-ingest = "skuggi.install.ingest:main"
+skuggi-doctor = "skuggi.tooling.doctor:main"
+skuggi-client = "skuggi.frontend.client:main"
+skuggi-login = "skuggi.providers.codex_login:main"
+skuggi-pdf = "skuggi.persistence.pdf:main"
 skuggi-eval = "skuggi.eval.cli:main"
 
 [tool.hatch.version]
@@ -226,16 +226,16 @@ runtime-evaluated-base-classes = [
 [tool.ruff.lint.per-file-ignores]
 "src/skuggi/__init__.py" = ["D104"]
 # The boot guard prints its one actionable line straight to the operator's tty.
-"src/skuggi/boot.py" = ["T201"]
+"src/skuggi/install/boot.py" = ["T201"]
 # skuggi-login (codex_login.main) reports OAuth progress to the operator's tty.
-"src/skuggi/codex_login.py" = ["T201"]
-"src/skuggi/ingest.py" = ["T201"]          # print() is this module's output
+"src/skuggi/providers/codex_login.py" = ["T201"]
+"src/skuggi/install/ingest.py" = ["T201"]          # print() is this module's output
 # skuggi-init reports what it seeded/migrated to the operator's tty.
-"src/skuggi/init.py" = ["T201"]
+"src/skuggi/install/init.py" = ["T201"]
 # The shell launcher and the thin client print directly to the operator's tty.
-"src/skuggi/client.py" = ["T201"]
+"src/skuggi/frontend/client.py" = ["T201"]
 # _get_request_payload's **kwargs: Any is fixed by the ChatOpenAI signature.
-"src/skuggi/codex_chat.py" = ["ANN401"]
+"src/skuggi/providers/codex_chat.py" = ["ANN401"]
 # The offline eval model subclasses BaseChatModel (with_structured_output /
 # _generate carry the base's Any signatures).
 "src/skuggi/eval/offline.py" = ["ANN401", "ARG002"]
@@ -245,13 +245,13 @@ runtime-evaluated-base-classes = [
 # The shell launcher and the daemon's socket server import their heavy/platform
 # plumbing lazily inside the interactive functions, so importing the module for
 # its unit-tested helpers stays cheap. shell.main prints to the operator's tty.
-"src/skuggi/shell.py" = ["PLC0415", "T201"]
-"src/skuggi/daemon.py" = ["PLC0415"]
+"src/skuggi/frontend/shell.py" = ["PLC0415", "T201"]
+"src/skuggi/frontend/daemon.py" = ["PLC0415"]
 # WeasyPrint is imported lazily inside the render function (native dep, kept out
 # of the import graph for the core agent); the CLI prints its result to the tty.
-"src/skuggi/pdf.py" = ["PLC0415", "T201"]
+"src/skuggi/persistence/pdf.py" = ["PLC0415", "T201"]
 # reports.write_report imports skuggi.pdf lazily so the PDF deps stay optional.
-"src/skuggi/reports.py" = ["PLC0415"]
+"src/skuggi/persistence/reports.py" = ["PLC0415"]
 # The lab-range controller renders its tables/prompts straight to the operator's
 # tty, and shells out to `docker compose` with a fixed argv (shell=False).
 "labs/_lib/labctl/cli.py" = ["T201"]

@@ -19,11 +19,15 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 
-from skuggi.config import Provider, Settings
-from skuggi.graph import GraphDeps, build_graph, recursion_limit
-from skuggi.providers import get_chat_model, get_embeddings, resolve_openai_key
-from skuggi.state import AgentState
-from skuggi.vectorstore import Store
+from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
+from skuggi.agent.state import AgentState
+from skuggi.config.config import Provider, Settings
+from skuggi.persistence.vectorstore import Store
+from skuggi.providers.providers import (
+    get_chat_model,
+    get_embeddings,
+    resolve_openai_key,
+)
 
 
 def _ollama_reachable(settings: Settings) -> bool:

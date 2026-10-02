@@ -17,8 +17,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from skuggi.engagement import EngagementConfig
-from skuggi.protocol import Phase
+from skuggi.agent.protocol import Phase
+from skuggi.engagement.engagement import EngagementConfig
 
 DEFAULT_EVALS_DIR = Path("evals")
 

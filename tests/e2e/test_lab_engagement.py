@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.ledger import CommandRow
-from skuggi.protocol import FindingDraft
+from skuggi.agent.protocol import FindingDraft
+from skuggi.persistence.ledger import CommandRow
 from tests.e2e.conftest import LAB_IP, Lab, Runner, ip_routable, require_tool
 
 pytestmark = [

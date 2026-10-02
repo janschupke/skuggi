@@ -9,7 +9,7 @@ from prompt_toolkit.input.base import PipeInput
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from skuggi import menu
+from skuggi.frontend import menu
 
 _DOWN = "\x1b[B"
 _UP = "\x1b[A"

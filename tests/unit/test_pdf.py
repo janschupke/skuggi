@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import pdf
-from skuggi.ledger import Ledger, open_ledger
-from skuggi.reports import write_report
+from skuggi.persistence import pdf
+from skuggi.persistence.ledger import Ledger, open_ledger
+from skuggi.persistence.reports import write_report
 
 _SAMPLE = """# Acme External Assessment
 

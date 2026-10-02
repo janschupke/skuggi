@@ -13,7 +13,7 @@ import pytest
 
 from labctl import LABS_DIR
 from labctl.manifest import LabManifest, discover_labs
-from skuggi.engagement import EngagementConfig
+from skuggi.engagement.engagement import EngagementConfig
 
 LABS = discover_labs(LABS_DIR)
 LAB_IDS = [m.id for m in LABS]

@@ -6,7 +6,7 @@ import json
 import stat
 from pathlib import Path
 
-from skuggi.codex_chat import CodexTokenStore
+from skuggi.providers.codex_chat import CodexTokenStore
 
 
 def _auth_file(tmp_path: Path, mode: int = 0o600) -> Path:

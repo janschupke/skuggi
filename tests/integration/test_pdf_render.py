@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import pdf
+from skuggi.persistence import pdf
 
 
 def _weasyprint_available() -> bool:

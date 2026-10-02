@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from skuggi import verbs
-from skuggi.tui import Tui
+from skuggi.frontend import verbs
+from skuggi.frontend.tui import Tui
 from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import FakePromptSession
 

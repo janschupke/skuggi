@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from skuggi.engagement import GuardVerdict
+from skuggi.agent.protocol import Phase
+from skuggi.engagement.engagement import GuardVerdict
 from skuggi.eval.goldens import ComplianceCase, MethodologyCase, SchemaCase
-from skuggi.protocol import Phase
 
 
 @dataclass(frozen=True, slots=True)

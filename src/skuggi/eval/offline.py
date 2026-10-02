@@ -20,12 +20,12 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel
 
-from skuggi.config import Settings
-from skuggi.core import AgentCore
-from skuggi.engagement import EngagementConfig
-from skuggi.paths import packaged_template
-from skuggi.protocol import CriticResponse, PlannerResponse, WorkerResponse
-from skuggi.vectorstore import Store
+from skuggi.agent.core import AgentCore
+from skuggi.agent.protocol import CriticResponse, PlannerResponse, WorkerResponse
+from skuggi.common.paths import packaged_template
+from skuggi.config.config import Settings
+from skuggi.engagement.engagement import EngagementConfig
+from skuggi.persistence.vectorstore import Store
 
 # The shipped tool registry: the same tool set the operator runs with.
 _REGISTRY = packaged_template("tools.example.json")

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import home
+from skuggi.common import home
 
 
 @pytest.fixture(autouse=True)

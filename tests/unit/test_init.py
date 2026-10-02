@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import home
-from skuggi.config import Settings
-from skuggi.init import SCOPE_TEMPLATE, SEEDED, checkout_root, initialise
+from skuggi.common import home
+from skuggi.config.config import Settings
+from skuggi.install.init import SCOPE_TEMPLATE, SEEDED, checkout_root, initialise
 
 
 def _homes(tmp_path: Path) -> tuple[Path, Path]:
@@ -154,4 +154,4 @@ def test_checkout_root_finds_this_repo() -> None:
     root = checkout_root()
     assert root is not None
     assert (root / "pyproject.toml").is_file()
-    assert (root / "src" / "skuggi" / "init.py").is_file()
+    assert (root / "src" / "skuggi" / "install" / "init.py").is_file()

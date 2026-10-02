@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from skuggi.preferences import looks_like_directive
+from skuggi.persistence.preferences import looks_like_directive
 
 
 @pytest.mark.parametrize(

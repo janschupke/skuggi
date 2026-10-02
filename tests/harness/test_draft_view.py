@@ -17,9 +17,9 @@ import pytest
 from rich.console import Console
 from rich.live import Live
 
-from skuggi.core import AgentCore, TurnEvent
-from skuggi.protocol import CommandBrief
-from skuggi.tui import DraftView
+from skuggi.agent.core import AgentCore, TurnEvent
+from skuggi.agent.protocol import CommandBrief
+from skuggi.frontend.tui import DraftView
 from tests.conftest import offline_settings, wire_offline_core
 
 

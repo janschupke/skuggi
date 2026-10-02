@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.execution import CommandResult
-from skuggi.ledger import open_ledger
+from skuggi.common.execution import CommandResult
+from skuggi.persistence.ledger import open_ledger
 
 
 def test_command_and_finding_round_trip(tmp_path: Path) -> None:

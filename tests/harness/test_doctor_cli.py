@@ -8,9 +8,10 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from skuggi import doctor, home
-from skuggi import probe as probe_mod
-from skuggi.config import Settings
+from skuggi.common import home
+from skuggi.config.config import Settings
+from skuggi.tooling import doctor
+from skuggi.tooling import probe as probe_mod
 
 
 def test_probe_statuses_reads_the_registry(

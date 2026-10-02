@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from skuggi.boot import guard_boot
-from skuggi.configs import ConfigError
+from skuggi.config.configs import ConfigError
+from skuggi.install.boot import guard_boot
 
 
 def test_returns_the_built_value_on_success() -> None:

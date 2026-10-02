@@ -7,9 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import home
-from skuggi.commands import CommandAlias, CommandRegistry
-from skuggi.configs import (
+from skuggi.common import home
+from skuggi.config.configs import (
     ConfigError,
     load_commands,
     load_layout,
@@ -17,6 +16,7 @@ from skuggi.configs import (
     load_scope,
     write_commands,
 )
+from skuggi.frontend.commands import CommandAlias, CommandRegistry
 from tests.support import template
 
 

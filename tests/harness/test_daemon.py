@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import pdf as pdf_mod
-from skuggi import probe as probe_mod
-from skuggi.commands import CommandAlias, CommandRegistry
-from skuggi.core import AgentCore
-from skuggi.daemon import Daemon
-from skuggi.registry import ToolSpec, ToolStatus
+from skuggi.agent.core import AgentCore
+from skuggi.frontend.commands import CommandAlias, CommandRegistry
+from skuggi.frontend.daemon import Daemon
+from skuggi.persistence import pdf as pdf_mod
+from skuggi.tooling import probe as probe_mod
+from skuggi.tooling.registry import ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
 
 

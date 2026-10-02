@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.configs import load_registry
-from skuggi.engagement import EngagementConfig
+from skuggi.common.paths import packaged_template
+from skuggi.config.configs import load_registry
+from skuggi.engagement.engagement import EngagementConfig
 from skuggi.eval.goldens import load_scopes
-from skuggi.paths import packaged_template
-from skuggi.registry import ToolRegistry
+from skuggi.tooling.registry import ToolRegistry
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVALS_ROOT = REPO_ROOT / "evals"

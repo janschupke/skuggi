@@ -14,9 +14,9 @@ from typing import Any, cast
 
 import pytest
 
-from skuggi.core import AgentCore
-from skuggi.preferences import PreferenceRow
-from skuggi.protocol import MemoryExtraction
+from skuggi.agent.core import AgentCore
+from skuggi.agent.protocol import MemoryExtraction
+from skuggi.persistence.preferences import PreferenceRow
 from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import StructuredChatModel
 

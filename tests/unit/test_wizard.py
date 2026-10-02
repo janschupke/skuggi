@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from skuggi.configs import ConfigError
-from skuggi.engagement import EngagementConfig
-from skuggi.wizard import collect_scope, run_wizard
+from skuggi.config.configs import ConfigError
+from skuggi.engagement.engagement import EngagementConfig
+from skuggi.frontend.wizard import collect_scope, run_wizard
 
 _VALID = EngagementConfig(
     name="x",

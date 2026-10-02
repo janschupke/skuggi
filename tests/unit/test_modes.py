@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from skuggi.modes import MODES, prompt_set
+from skuggi.agent.modes import MODES, prompt_set
 
 
 def test_modes_are_exactly_the_three() -> None:

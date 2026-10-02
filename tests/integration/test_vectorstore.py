@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from skuggi.vectorstore import Store, format_hits
+from skuggi.persistence.vectorstore import Store, format_hits
 from tests.fakes import CountingFakeEmbeddings
 
 

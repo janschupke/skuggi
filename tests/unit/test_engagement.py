@@ -11,13 +11,13 @@ from datetime import UTC, datetime, time
 
 import pytest
 
-from skuggi.engagement import (
+from skuggi.engagement.engagement import (
     EngagementConfig,
     TimeWindow,
     check_command,
     parse_command,
 )
-from skuggi.registry import ToolRegistry, ToolSpec
+from skuggi.tooling.registry import ToolRegistry, ToolSpec
 
 REGISTRY = ToolRegistry(
     tools=(

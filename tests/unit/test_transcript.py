@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from skuggi.execution import CommandResult
-from skuggi.ledger import (
+from skuggi.common.execution import CommandResult
+from skuggi.persistence.ledger import (
     CommandRow,
     EventRow,
     FindingRow,
@@ -14,7 +14,7 @@ from skuggi.ledger import (
     SessionRow,
     open_ledger,
 )
-from skuggi.transcript import render_transcript
+from skuggi.persistence.transcript import render_transcript
 
 _Views = tuple[
     "SessionRow | None", list[EventRow], dict[int, CommandRow], dict[int, FindingRow]

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from labctl import LABS_DIR, compose, loot
 from labctl.manifest import LabManifest, discover_labs, resolve_lab
-from skuggi.engagement import EngagementConfig
+from skuggi.engagement.engagement import EngagementConfig
 
 Ask = Callable[[str], str]
 

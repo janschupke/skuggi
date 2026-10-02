@@ -13,8 +13,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 
-from skuggi import codex_login
-from skuggi.codex_chat import CodexAuthError
+from skuggi.providers import codex_login
+from skuggi.providers.codex_chat import CodexAuthError
 
 
 def _b64url(raw: bytes) -> str:

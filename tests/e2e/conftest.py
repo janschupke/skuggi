@@ -27,9 +27,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from skuggi.core import AgentCore
-from skuggi.ledger import CommandRow
-from skuggi.protocol import CriticResponse, FindingDraft, WorkerResponse
+from skuggi.agent.core import AgentCore
+from skuggi.agent.protocol import CriticResponse, FindingDraft, WorkerResponse
+from skuggi.persistence.ledger import CommandRow
 from tests.fakes import RoleScriptedChatModel
 from tests.support import REPO_ROOT, engaged_core, wire_offline_llm
 

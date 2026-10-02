@@ -13,10 +13,10 @@ from typing import Any, cast
 
 import pytest
 
-from skuggi import providers
-from skuggi.commands import CommandAlias, CommandRegistry
-from skuggi.core import AgentCore
-from skuggi.protocol import CriticResponse, WorkerResponse
+from skuggi.agent.core import AgentCore
+from skuggi.agent.protocol import CriticResponse, WorkerResponse
+from skuggi.frontend.commands import CommandAlias, CommandRegistry
+from skuggi.providers import providers
 from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import RoleScriptedChatModel, ScriptedChatModel
 

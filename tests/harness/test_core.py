@@ -15,15 +15,15 @@ from typing import Any, cast
 import pytest
 from pydantic import SecretStr
 
-from skuggi import core as core_mod
-from skuggi import probe as probe_mod
-from skuggi.commands import CommandAlias, CommandRegistry
-from skuggi.config import config_path
-from skuggi.configs import ConfigError, load_commands
-from skuggi.core import AgentCore
-from skuggi.execution import CommandResult
-from skuggi.protocol import ConfigEdit, ConfigProposal
-from skuggi.registry import ToolSpec, ToolStatus
+from skuggi.agent import core as core_mod
+from skuggi.agent.core import AgentCore
+from skuggi.agent.protocol import ConfigEdit, ConfigProposal
+from skuggi.common.execution import CommandResult
+from skuggi.config.config import config_path
+from skuggi.config.configs import ConfigError, load_commands
+from skuggi.frontend.commands import CommandAlias, CommandRegistry
+from skuggi.tooling import probe as probe_mod
+from skuggi.tooling.registry import ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import StructuredChatModel
 

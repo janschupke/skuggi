@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import ingest, providers
+from skuggi.install import ingest
+from skuggi.providers import providers
 from tests.fakes import CountingFakeEmbeddings
 
 

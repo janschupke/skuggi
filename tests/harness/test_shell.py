@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from skuggi import shell
-from skuggi.shell import (
+from skuggi.frontend import shell
+from skuggi.frontend.shell import (
     CLIENT_NAME,
     SHIELD,
     build_shell_invocation,

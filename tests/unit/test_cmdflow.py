@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from skuggi.cmdflow import collect_alias, run_cmd_editor
-from skuggi.commands import CommandAlias
-from skuggi.configs import ConfigError
+from skuggi.config.configs import ConfigError
+from skuggi.frontend.cmdflow import collect_alias, run_cmd_editor
+from skuggi.frontend.commands import CommandAlias
 
 _VALID = CommandAlias(name="nmap-host", argv=("nmap", "-sV", "-sC"))
 

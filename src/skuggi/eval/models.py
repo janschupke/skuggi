@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from skuggi.config import Provider, Settings
+from skuggi.config.config import Provider, Settings
 
 DEFAULT_EVALS_DIR = Path("evals")
 _VALID_PROVIDERS: frozenset[str] = frozenset(
