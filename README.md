@@ -99,7 +99,7 @@ reaches the agent:
 ```
 🐐 ~ %  ls                              # your real shell, native colours
 🐐 ~ %  /skuggi ask scan the web host   # → agent proposes an in-scope command
-🐐 ~ %  /skuggi run nmap-host 10.0.0.5  # → resolve an alias, check scope, advise
+🐐 ~ %  /skuggi cmd nmap               # → search the cheatsheet; `cmd nmap-host` resolves one
 🐐 ~ %  /skuggi findings                # → harness control
 🐐 ~ %  /skuggi                         # → open the chat loop (blank line leaves)
 🐐 ~ %  /skuggi exit                    # → leave the harness
@@ -128,7 +128,7 @@ implicit `ask`. The two front-ends share one registry
 | Verb | Effect |
 |---|---|
 | `ask <prompt>` | Send a prompt to the agent |
-| `run <alias> [args]` | Resolve a command alias, check scope, advise (never runs it) |
+| `cmd [list \| <query> \| <name> \| add \| edit <name> \| rm <name>]` | Search the command cheatsheet; resolve an exact name to render, scope-check & advise (never runs it); `add`/`edit`/`rm` manage it |
 | `findings` | List findings recorded this session |
 | `report [pdf]` | Write a Markdown engagement report (add `pdf` for a styled PDF too) |
 | `replay [list \| <session>]` | Reconstruct & view a session transcript (`list` enumerates sessions) |
@@ -155,22 +155,49 @@ implicit `ask`. The two front-ends share one registry
 the wrapped shell's chat loop (a bare `/skuggi`). Invoked one-shot as
 `/skuggi engagement setup`, they point you at the loop rather than half-running.
 
-## run: command aliases (transparent, suggest-style)
+## cmd: the command cheatsheet (transparent, suggest-style)
 
-`run <alias> [args]` maps a short name to a CLI invocation
-([src/skuggi/templates/commands.example.json](src/skuggi/templates/commands.example.json)), resolves it,
-**prints the fully-resolved raw command**, checks it against the engagement
-scope, records it (`proposed` in scope, `blocked` out of scope), and has the
-agent advise — it never executes. `run` / `run list` lists the aliases. Copy the
-example to `<config home>/commands.json` and extend it. Shipped defaults:
+`cmd` is a searchable cheatsheet of real CLI invocations
+([src/skuggi/templates/commands.example.json](src/skuggi/templates/commands.example.json)) — main
+use-cases for every non-interactive tool skuggi knows (nmap, nikto, gobuster,
+ffuf, sqlmap, ldapsearch, enum4linux-ng, nxc, hydra, john, hashcat, cewl,
+msfvenom, …). It works in two steps:
 
-| Alias | Command | Purpose |
+- **`cmd <query>`** lists every entry whose name, tool or description contains
+  the substring — `cmd nmap` shows all the nmap shorthands. `cmd` / `cmd list`
+  shows the whole sheet.
+- **`cmd <exact-name>`** *renders* that one entry, **prints the full command**,
+  checks it against the engagement scope, records it (`proposed` in scope,
+  `blocked` out of scope) and has the agent advise — it never executes.
+
+**Automatic, timestamped output.** Each tool declares an output flag and a
+destination folder (`nmap → recon/nmap`, `gobuster`/`ffuf → recon/dirs`,
+`sqlmap → recon/web`, crackers → `loot`, …). A rendered command therefore
+carries a consistent output path:
+
+```
+cmd nmap-host
+  $ nmap -sV -sC ${target} -oA recon/nmap/$(date +%Y-%m-%d_%H%M%S)_${target}_host
+```
+
+`$(date …)` and `${target}` are left **literal** so your shell expands them at
+run time — the wrapped shell exports `target` from the engagement's primary
+host (a sole allowed host/network, or an explicit `primary_target` in
+`scope.json`). Set it yourself (`export target=…`) when the scope has several.
+
+**Editing.** The cheatsheet is just `<config home>/commands.json` — edit it by
+hand, or use the guided editor: `cmd add`, `cmd edit <name>`, `cmd rm <name>`
+(the interactive add/edit run inside the `/skuggi` chat loop). A few shipped
+entries:
+
+| Alias | Rendered (abridged) | Purpose |
 |---|---|---|
-| `nmap-network` | `nmap -sn` | host discovery (ping sweep) |
-| `nmap-host` | `nmap -sV -sC` | service/version + default scripts |
-| `nmap-full` | `nmap -p- -sV` | all TCP ports with service detection |
-| `web-fetch` | `curl -sSIL` | response headers, following redirects |
-| `web-dir` | `gobuster dir -u` | directory brute-force (append `-w <wordlist>`) |
+| `nmap-host` | `nmap -sV -sC ${target} -oA recon/nmap/…_host` | service/version + default scripts |
+| `nmap-full` | `nmap -p- -sV ${target} -oA recon/nmap/…_full` | all TCP ports with service detection |
+| `gobuster-dir` | `gobuster dir -u ${target} -o recon/dirs/…_dir.txt` | directory brute-force (append `-w`) |
+| `ffuf-dir` | `ffuf -u ${target} -of json -o recon/dirs/…_dir.json` | URL fuzzing (FUZZ keyword, append `-w`) |
+| `sqlmap-url` | `sqlmap --batch -u ${target} --output-dir recon/web/…_url` | test a URL for SQL injection |
+| `hashcat-ntlm` | `hashcat -m 1000 -a 0 -o loot/…_ntlm.txt` | crack NTLM with a wordlist |
 
 ## memory: standing operator preferences
 
@@ -319,7 +346,8 @@ Each engagement operates in `engagements/<name>/`
 engagements/<name>/
   scope.json            # the engagement boundary (the engagement setup)
   findings/  notes/
-  recon/nmap/  recon/web/
+  recon/nmap/  recon/dirs/  recon/domains/  recon/web/   # cmd output lands here
+  loot/                 # cracked hashes, captured creds, payloads
   reports/              # /report output
   scripts/  tests/
   ledger.db             # this engagement's ledger
@@ -360,7 +388,7 @@ So a one-off `SKUGGI_PROVIDER=anthropic` still wins for a single run. Config tie
   directly or with the `config` verb.
 - **Harness config** (shared, same home): the recognized-tool registry
   `tools.json`, the optional workspace-layout override `layout.json`, and the
-  optional `run`-alias file `commands.json`.
+  optional `cmd` cheatsheet `commands.json`.
 - **Engagement setup** (per-case, in `./engagements/<name>/scope.json`): the
   boundary above.
 
@@ -389,7 +417,7 @@ Harness config, in the **config home** (`~/.config/skuggi`):
 
 - `config.json` — app config (the `config` verb edits this)
 - `tools.json` — the recognized-tool registry
-- `layout.json`, `commands.json` — optional workspace layout and `run` aliases
+- `layout.json`, `commands.json` — optional workspace layout and `cmd` cheatsheet
 - `env` — optional secrets file (`chmod 600`)
 - `scope.example.json` — the template to copy for a new engagement
 

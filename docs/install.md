@@ -69,7 +69,7 @@ Two homes, plus one deliberate exception.
   config.json           # app config; the `config` verb edits this
   tools.json            # the recognized-tool registry
   layout.json           # optional workspace-layout override
-  commands.json         # optional `run` aliases
+  commands.json         # optional `cmd` cheatsheet
   env                   # optional secrets file (chmod 600)
   scope.example.json    # template to copy for a new engagement
 
