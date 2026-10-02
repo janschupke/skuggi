@@ -40,6 +40,11 @@ class ToolSpec(BaseModel):
     # Argv flags whose following value is a target (e.g. curl's implicit
     # positional URL is covered by requires_target + the positional scan).
     target_flags: tuple[str, ...] = ()
+    # Argv flags whose value is a *file* of targets (nmap ``-iL``, masscan
+    # ``-iL``, hydra ``-M``). The file's contents cannot be scope-checked
+    # statically, so the guard denies any command carrying one -- the operator
+    # must enumerate hosts explicitly. See ``engagement.check_command``.
+    target_file_flags: tuple[str, ...] = ()
     requires_target: bool = True
     install: dict[str, str] = Field(default_factory=dict)
     # Output convention (optional). When ``output_flag`` is set, the cheatsheet

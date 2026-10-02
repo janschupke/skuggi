@@ -21,7 +21,7 @@ from skuggi.tooling.registry import ToolRegistry, ToolSpec
 
 REGISTRY = ToolRegistry(
     tools=(
-        ToolSpec(name="nmap", binary="nmap", method="scan"),
+        ToolSpec(name="nmap", binary="nmap", method="scan", target_file_flags=("-iL",)),
         ToolSpec(name="curl", binary="curl", method="recon"),
         ToolSpec(name="nikto", binary="nikto", method="scan", target_flags=("-h",)),
         ToolSpec(
@@ -282,3 +282,67 @@ def test_resolve_target_is_none_when_ambiguous() -> None:
         target_networks=("10.0.0.0/8", "192.168.0.0/16"),
     )
     assert eng.resolve_target() is None
+
+
+# --- S1: multi-host target expressions must not ride along unchecked --------
+#
+# The guard's contract is that anything it cannot prove in scope is denied. A
+# target *expression* (an nmap range/list or a `-iL` file) used to classify as
+# nothing and be silently dropped, so a command rode in-scope on one good host
+# while touching others. These assert the expansion-or-deny behaviour.
+
+_TIGHT = {"target_networks": ("10.0.0.5/32",), "allowed_hosts": frozenset()}
+
+
+def test_range_rides_along_on_a_single_in_scope_host_is_blocked() -> None:
+    """`nmap 10.0.0.5 10.0.0.1-254` scanned the /24 while passing on .5."""
+    verdict = check_command(
+        parse_command("nmap 10.0.0.5 10.0.0.1-254", REGISTRY),
+        _engagement(**_TIGHT),
+        now=NOW,
+    )
+    assert not verdict.allowed
+    assert "10.0.0.1" in verdict.reason  # an expanded host, scope-checked
+
+
+def test_comma_list_with_an_out_of_scope_member_is_blocked() -> None:
+    verdict = check_command(
+        parse_command("nmap 10.0.0.1,10.0.0.2,8.8.8.8", REGISTRY),
+        _engagement(),
+        now=NOW,
+    )
+    assert not verdict.allowed
+    assert "8.8.8.8" in verdict.reason
+
+
+def test_unenumerable_octet_shorthand_list_is_denied_fail_closed() -> None:
+    verdict = check_command(
+        parse_command("nmap 10.0.0.1,2,3", REGISTRY), _engagement(**_TIGHT), now=NOW
+    )
+    assert not verdict.allowed
+    assert "resolve" in verdict.reason
+
+
+def test_target_list_file_is_denied() -> None:
+    verdict = check_command(
+        parse_command("nmap -iL hosts.txt 10.0.0.5", REGISTRY),
+        _engagement(**_TIGHT),
+        now=NOW,
+    )
+    assert not verdict.allowed
+    assert "target-list file" in verdict.reason
+
+
+def test_a_range_fully_inside_scope_is_allowed() -> None:
+    """No false positive: an enumerable, wholly in-scope range still passes."""
+    verdict = check_command(
+        parse_command("nmap 10.0.0.1-10", REGISTRY), _engagement(), now=NOW
+    )
+    assert verdict.allowed
+
+
+def test_a_port_range_is_not_treated_as_a_target() -> None:
+    """`-p 1-1000` has no dot: it is a port range, not host material."""
+    cmd = parse_command("nmap -p 1-1000 10.0.0.5", REGISTRY)
+    assert cmd.targets == ("10.0.0.5",)
+    assert not cmd.unresolved

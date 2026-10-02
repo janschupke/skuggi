@@ -40,6 +40,14 @@ log = get_logger(__name__)
 # no dot ("localhost", "80") is not a target unless a target_flag forces it.
 _HOSTNAME = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9_](-?[A-Za-z0-9_])*\.)+[A-Za-z]{2,}$")
 
+# An IPv4 address with a final-octet range, e.g. ``10.0.0.1-254`` (nmap). The
+# base three octets plus a ``lo-hi`` span that this module expands and checks
+# host-by-host.
+_FINAL_OCTET_RANGE = re.compile(
+    r"^(?P<base>\d{1,3}(?:\.\d{1,3}){2})\.(?P<lo>\d{1,3})-(?P<hi>\d{1,3})$"
+)
+_MAX_OCTET = 255
+
 
 class TimeWindow(BaseModel):
     """A daily allowed clock range, interpreted in the engagement timezone."""
@@ -153,6 +161,13 @@ class ParsedCommand:
     targets: tuple[str, ...]
     method: str | None
     requires_target: bool
+    # A target expression (range/list) that could not be enumerated for scope
+    # checking -- the guard denies it (a target it cannot enumerate is one it
+    # cannot prove in scope).
+    unresolved: bool = False
+    # The command names a target-list *file* (nmap ``-iL`` …) whose contents
+    # cannot be scope-checked statically -- the guard denies it.
+    target_file: bool = False
 
 
 class GuardVerdict(NamedTuple):
@@ -173,11 +188,81 @@ def _as_target(token: str) -> str | None:
     return token
 
 
-def _extract_targets(
-    argv: tuple[str, ...], target_flags: tuple[str, ...]
-) -> tuple[str, ...]:
-    """Pull target hosts out of the argument vector, order-preserving, unique."""
+def _is_ipv4(host: str) -> bool:
+    """Whether `host` is a literal IP address (not a hostname or garbage)."""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def _expand_comma_list(token: str) -> list[str] | None:
+    """A comma list expanded iff *every* member classifies as a host/IP.
+
+    ``10.0.0.1,10.0.0.2`` expands; nmap octet-shorthand (``10.0.0.1,2,3``) does
+    not and yields ``None`` (deny), since the bare octets cannot be enumerated.
+    """
+    parts = [p for p in token.split(",") if p]
+    hosts = [_as_target(p) for p in parts]
+    if parts and all(h is not None for h in hosts):
+        return [h for h in hosts if h is not None]
+    return None
+
+
+def _expand_octet_range(token: str) -> list[str] | None:
+    """A final-octet range (``10.0.0.1-254``) expanded to each concrete IP.
+
+    ``None`` for anything that is not a simple ``A.B.C.lo-hi`` with a valid
+    ``0 <= lo <= hi <= 255`` span (a multi-octet range such as ``10.0-5.0.1``).
+    """
+    match = _FINAL_OCTET_RANGE.match(token)
+    if match is None:
+        return None
+    lo, hi = int(match["lo"]), int(match["hi"])
+    if not 0 <= lo <= hi <= _MAX_OCTET:
+        return None
+    hosts = [f"{match['base']}.{octet}" for octet in range(lo, hi + 1)]
+    return hosts if all(_is_ipv4(host) for host in hosts) else None
+
+
+def _expand_target_expr(token: str) -> list[str] | None:
+    """Expand a multi-host target *expression* to its concrete hosts, or ``None``.
+
+    Handles the two common shapes a scan tool accepts in place of one host: a
+    final-octet range (``10.0.0.1-254``) and a comma list whose every member
+    classifies (``10.0.0.1,10.0.0.2``); each expanded host is scope-checked
+    individually by the guard.
+
+    Returns ``None`` when the token *looks* like host material (dotted, with a
+    ``-`` or ``,``) but cannot be expanded confidently. The guard treats
+    ``None`` as unresolved and **denies** it: a target the harness cannot
+    enumerate is a target it cannot prove in scope.
+    """
+    if "." not in token or not ("-" in token or "," in token):
+        return None  # not a target expression; the normal classifier handles it
+    if "," in token:
+        return _expand_comma_list(token)
+    return _expand_octet_range(token)
+
+
+class _Targets(NamedTuple):
+    """Targets pulled from an argv, plus whether any defied enumeration."""
+
+    hosts: tuple[str, ...]
+    unresolved: bool
+
+
+def _extract_targets(argv: tuple[str, ...], target_flags: tuple[str, ...]) -> _Targets:
+    """Pull target hosts out of the argument vector, order-preserving, unique.
+
+    A token that is a host/IP/URL classifies directly; a multi-host *expression*
+    (range/list) is expanded and every host added; a dotted ``-``/``,`` token
+    that cannot be expanded sets ``unresolved`` so the guard denies the command
+    rather than letting an un-checkable target ride along.
+    """
     found: list[str] = []
+    unresolved = False
     force_next = False
     for token in argv[1:]:
         if force_next:
@@ -194,7 +279,13 @@ def _extract_targets(
         target = _as_target(token)
         if target is not None:
             found.append(target)
-    return tuple(dict.fromkeys(found))
+            continue
+        expanded = _expand_target_expr(token)
+        if expanded is not None:
+            found.extend(expanded)
+        elif "." in token and ("-" in token or "," in token):
+            unresolved = True
+    return _Targets(tuple(dict.fromkeys(found)), unresolved)
 
 
 def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
@@ -215,13 +306,17 @@ def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
     binary = Path(argv[0]).name
     spec = registry.spec_for(binary)
     target_flags = spec.target_flags if spec else ()
+    target_file_flags = spec.target_file_flags if spec else ()
+    targets = _extract_targets(argv, target_flags)
     return ParsedCommand(
         raw=raw,
         argv=argv,
         binary=binary,
-        targets=_extract_targets(argv, target_flags),
+        targets=targets.hosts,
         method=spec.method if spec else None,
         requires_target=spec.requires_target if spec else True,
+        unresolved=targets.unresolved,
+        target_file=any(flag in argv for flag in target_file_flags),
     )
 
 
@@ -267,6 +362,15 @@ def check_command(  # noqa: PLR0911 -- a guard is a linear sequence of denials; 
         local = now.astimezone(engagement.tzinfo()).timetz().replace(tzinfo=None)
         if not any(window.contains(local) for window in engagement.daily_windows):
             return GuardVerdict(False, "outside the allowed daily time window")
+    if cmd.target_file:
+        return GuardVerdict(
+            False,
+            "target-list files cannot be scope-checked; enumerate hosts explicitly",
+        )
+    if cmd.unresolved:
+        return GuardVerdict(
+            False, "target expression could not be resolved for scope checking"
+        )
     if cmd.requires_target and not cmd.targets:
         return GuardVerdict(
             False, "no in-scope target could be identified in the command"

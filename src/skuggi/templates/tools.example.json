@@ -9,6 +9,9 @@
       ],
       "version_regex": "Nmap version ([0-9.]+)",
       "requires_target": true,
+      "target_file_flags": [
+        "-iL"
+      ],
       "install": {
         "brew": "brew install nmap",
         "apt": "apt-get install -y nmap"
@@ -178,6 +181,9 @@
       ],
       "version_regex": "[Hh]ydra v([0-9.]+)",
       "requires_target": true,
+      "target_file_flags": [
+        "-M"
+      ],
       "install": {
         "brew": "brew install hydra",
         "apt": "apt-get install -y hydra"
