@@ -254,6 +254,24 @@ def test_plan_cmd_out_of_scope_is_blocked(core: AgentCore) -> None:
     assert core.ledger.commands_for(core.session_id)[-1].status == "blocked"
 
 
+def test_plan_cmd_literal_argv_host_is_checked_even_without_a_target(
+    core: AgentCore,
+) -> None:
+    """S7: a literal argv host is scope-checked even with no single ${target}.
+
+    A multi-host engagement resolves no single target, but a host baked into the
+    alias argv must still be checked, not waved through.
+    """
+    core.commands = CommandRegistry(
+        commands=(CommandAlias(name="nmap-badhost", argv=("nmap", "-sV", "8.8.8.8")),)
+    )
+    plan = core.cmds.plan("nmap-badhost")
+    assert plan.verdict is not None
+    assert not plan.verdict.allowed  # was allowed before: targets were zeroed
+    assert "8.8.8.8" in plan.verdict.reason
+    assert core.ledger.commands_for(core.session_id)[-1].status == "blocked"
+
+
 def test_plan_cmd_unknown_alias(core: AgentCore) -> None:
     core.commands = _ALIASES
     plan = core.cmds.plan("bogus")

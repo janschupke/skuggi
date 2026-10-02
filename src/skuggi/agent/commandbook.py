@@ -95,8 +95,11 @@ class CommandBook:
         check_argv = [*alias.argv, *([resolved] if resolved else [])]
         parsed = parse_command(raw_command(check_argv), core.registry)
         if resolved is None:
-            # No concrete target to check; validate tool/method/time only.
-            parsed = replace(parsed, requires_target=False, targets=())
+            # No single ${target} to substitute, so don't *demand* one -- but
+            # still scope-check any literal host in the alias's own argv (and
+            # keep the unresolved/target-file denials). Only the requirement is
+            # relaxed, not the checks.
+            parsed = replace(parsed, requires_target=False)
         verdict = check_command(
             parsed, core.engagement, now=datetime.now(core.engagement.tzinfo())
         )
