@@ -11,8 +11,11 @@ def test_default_layout_lists_every_directory() -> None:
     dirs = WorkspaceLayout().dirs()
     assert "recon" in dirs
     assert "recon/nmap" in dirs
+    assert "recon/dirs" in dirs
+    assert "recon/domains" in dirs
     assert "recon/web" in dirs
     assert "reports" in dirs
+    assert "loot" in dirs
 
 
 def test_derives_paths_from_the_engagement_name(tmp_path: Path) -> None:
@@ -30,8 +33,11 @@ def test_ensure_creates_the_tree(tmp_path: Path) -> None:
     assert ws.root.is_dir()
     assert ws.reports_dir.is_dir()
     assert (ws.recon_dir / "nmap").is_dir()
+    assert (ws.recon_dir / "dirs").is_dir()
+    assert (ws.recon_dir / "domains").is_dir()
     assert (ws.recon_dir / "web").is_dir()
     assert ws.findings_dir.is_dir()
+    assert ws.loot_dir.is_dir()
 
 
 def test_ensure_is_idempotent(tmp_path: Path) -> None:

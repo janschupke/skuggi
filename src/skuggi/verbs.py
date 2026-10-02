@@ -40,7 +40,7 @@ class Verb:
     """One dispatchable action: its name, a one-line summary, and an arg hint.
 
     ``category`` separates the two logs the harness keeps: ``engagement`` verbs
-    (``ask``, ``run``) direct the engagement and land on the session timeline;
+    (``ask``, ``cmd``) direct the engagement and land on the session timeline;
     ``control`` verbs are harness chatter and are recorded to the separate audit
     log instead (see ``AgentCore.note_interaction``).
     """
@@ -55,9 +55,9 @@ class Verb:
 VERBS: tuple[Verb, ...] = (
     Verb("ask", "send a prompt to the agent", "<prompt>", category="engagement"),
     Verb(
-        "run",
-        "resolve a command alias, check scope, advise",
-        "<alias> [args]",
+        "cmd",
+        "search the command cheatsheet; resolve one to scope-check & advise",
+        "[list | <query> | <name> | add | edit <name> | rm <name>]",
         category="engagement",
     ),
     Verb("findings", "list findings recorded this session"),

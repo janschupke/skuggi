@@ -43,8 +43,12 @@ import shlex
 import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from skuggi import palette, verbs
+
+if TYPE_CHECKING:
+    from skuggi.engagement import EngagementConfig
 
 SHIELD = palette.SHIELD
 
@@ -154,6 +158,20 @@ def supports_hook(shell_path: str) -> bool:
     return Path(shell_path).name in ("bash", "zsh")
 
 
+def shell_env_target(engagement: EngagementConfig | None) -> dict[str, str]:
+    """``{"target": <host>}`` to export into the wrapped shell, or ``{}``.
+
+    The cheatsheet renders ``${target}`` literally so the operator's shell
+    expands it; exporting the engagement's resolved primary target here makes a
+    pasted ``cmd`` output just work. Returns ``{}`` when there is no engagement
+    or no unambiguous target, leaving ``target`` for the operator to set.
+    """
+    if engagement is None:
+        return {}
+    target = engagement.resolve_target()
+    return {"target": target} if target else {}
+
+
 def main() -> None:  # pragma: no cover -- launches a child shell + daemon
     """Console entry point: warm agent daemon + the operator's real shell."""
     import signal
@@ -188,7 +206,12 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
         sock_path = str(tmp / "skuggi.sock")
         handle = daemon_mod.serve(core, sock_path)
         argv, env_overrides = build_shell_invocation(shell_path, tmp, home=Path.home())
-        env = {**os.environ, **env_overrides, "SKUGGI_SOCK": sock_path}
+        env = {
+            **os.environ,
+            **env_overrides,
+            "SKUGGI_SOCK": sock_path,
+            **shell_env_target(core.engagement),
+        }
         print(
             f"{SHIELD} skuggi shell -- '/skuggi' opens a chat loop, "
             "'/skuggi ask <prompt>' asks once, '/skuggi help' lists verbs, "

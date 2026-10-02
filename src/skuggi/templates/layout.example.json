@@ -4,8 +4,9 @@
   "findings": "findings",
   "notes": "notes",
   "recon": "recon",
-  "recon_subdirs": ["nmap", "web"],
+  "recon_subdirs": ["nmap", "dirs", "domains", "web"],
   "reports": "reports",
   "scripts": "scripts",
-  "tests": "tests"
+  "tests": "tests",
+  "loot": "loot"
 }

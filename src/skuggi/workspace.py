@@ -2,8 +2,9 @@
 
 Each engagement is a directory under ``engagements/<name>/`` with a fixed but
 *configurable* layout -- ``scope.json`` (the engagement setup), plus ``findings``,
-``notes``, ``recon`` (with ``nmap``/``web`` subdirs), ``reports``, ``scripts`` and
-``tests``. Keeping outputs inside the workspace is what makes a session
+``notes``, ``recon`` (with ``nmap``/``dirs``/``domains``/``web`` subdirs),
+``reports``, ``scripts``, ``tests`` and ``loot``. Keeping outputs inside the
+workspace is what makes a session
 self-contained and traceable: the ledger, the Markdown reports and any tool
 output all land next to the scope that authorized them.
 
@@ -34,10 +35,11 @@ class WorkspaceLayout(BaseModel):
     findings: str = "findings"
     notes: str = "notes"
     recon: str = "recon"
-    recon_subdirs: tuple[str, ...] = ("nmap", "web")
+    recon_subdirs: tuple[str, ...] = ("nmap", "dirs", "domains", "web")
     reports: str = "reports"
     scripts: str = "scripts"
     tests: str = "tests"
+    loot: str = "loot"
 
     def dirs(self) -> tuple[str, ...]:
         """Every directory (relative to the workspace root) ``ensure`` creates."""
@@ -50,6 +52,7 @@ class WorkspaceLayout(BaseModel):
             self.reports,
             self.scripts,
             self.tests,
+            self.loot,
         )
 
 
@@ -109,6 +112,11 @@ class Workspace:
     def tests_dir(self) -> Path:
         """Engagement-specific proof-of-concept tests."""
         return self.root / self.layout.tests
+
+    @property
+    def loot_dir(self) -> Path:
+        """Harvested credentials, cracked hashes and other captured artefacts."""
+        return self.root / self.layout.loot
 
     def ensure(self) -> None:
         """Create the workspace tree if it does not already exist (idempotent)."""

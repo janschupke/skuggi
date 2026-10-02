@@ -194,27 +194,41 @@ def test_doctor_install(daemon: Daemon, monkeypatch: pytest.MonkeyPatch) -> None
     )
 
 
-def test_run_alias_in_scope(daemon: Daemon) -> None:
+def test_cmd_resolve_in_scope(daemon: Daemon) -> None:
     daemon.core.commands = CommandRegistry(
         commands=(CommandAlias(name="nmap-network", argv=("nmap", "-sn")),)
     )
-    out = _chunks(daemon, {"op": "input", "text": "run nmap-network 10.0.0.5"})
-    assert "$ nmap -sn 10.0.0.5" in out  # transparent raw command
-    assert "in scope" in out
+    out = _chunks(daemon, {"op": "input", "text": "cmd nmap-network"})
+    assert "$ nmap -sn ${target}" in out  # rendered command, literal placeholder
+    assert "scope" in out
 
 
-def test_run_alias_out_of_scope(daemon: Daemon) -> None:
+def test_cmd_resolve_out_of_scope(daemon: Daemon) -> None:
     daemon.core.commands = CommandRegistry(
         commands=(CommandAlias(name="nmap-host", argv=("nmap", "-sV", "-sC")),)
     )
-    out = _chunks(daemon, {"op": "input", "text": "run nmap-host 8.8.8.8"})
-    assert "$ nmap -sV -sC 8.8.8.8" in out
+    assert daemon.core.engagement is not None
+    daemon.core.engagement = daemon.core.engagement.model_copy(
+        update={
+            "primary_target": "8.8.8.8",  # explicit target outside scope
+            "allowed_hosts": frozenset(),
+            "target_networks": (),
+        }
+    )
+    out = _chunks(daemon, {"op": "input", "text": "cmd nmap-host"})
+    assert "$ nmap -sV -sC ${target}" in out
     assert "OUT OF SCOPE" in out
 
 
-def test_run_list_and_unknown(daemon: Daemon) -> None:
-    assert "no command aliases" in _chunks(daemon, {"op": "input", "text": "run"})
-    assert "unknown alias" in _chunks(daemon, {"op": "input", "text": "run bogus"})
+def test_cmd_list_search_and_miss(daemon: Daemon) -> None:
+    assert "no command aliases" in _chunks(daemon, {"op": "input", "text": "cmd"})
+    daemon.core.commands = CommandRegistry(
+        commands=(CommandAlias(name="nmap-host", argv=("nmap", "-sV")),)
+    )
+    assert "nmap-host" in _chunks(daemon, {"op": "input", "text": "cmd nmap"})
+    assert "no cheatsheet entry matches" in _chunks(
+        daemon, {"op": "input", "text": "cmd bogus"}
+    )
 
 
 # --- persistent interactive attach ------------------------------------------
@@ -251,6 +265,37 @@ def test_attach_continues_after_a_non_exit_turn(daemon: Daemon) -> None:
 def test_engagement_setup_one_shot_guides_to_the_loop(daemon: Daemon) -> None:
     out = _chunks(daemon, {"op": "input", "text": "engagement setup"})
     assert "interactive" in out  # one-shot cannot prompt; points at the loop
+
+
+def test_cmd_add_one_shot_guides_to_the_loop(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "cmd add"})
+    assert "interactive" in out  # the editor needs the attach loop
+
+
+def test_attach_cmd_editor_adds_an_alias(daemon: Daemon) -> None:
+    answers = iter(
+        [
+            "cmd add",
+            "scan-sweep",  # name
+            "nmap -sn",  # command template
+            "",  # description
+            "",  # tool -> argv[0]
+            "",  # label -> name sans prefix
+            "",  # output_dir -> tool default
+            "",  # output_flag -> tool default
+            "",  # output -> keep default (True)
+        ]
+    )
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(answers, None), emitted.append)
+    asks = [f["ask"] for f in emitted if "ask" in f]
+    assert len(asks) == 8  # one prompt per alias field over the socket
+    alias = daemon.core.commands.alias_for("scan-sweep")
+    assert alias is not None  # hot-loaded into the warm core
+    assert alias.argv == ("nmap", "-sn")
+    assert "saved alias 'scan-sweep'" in "".join(
+        str(f.get("chunk", "")) for f in emitted
+    )
 
 
 def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:

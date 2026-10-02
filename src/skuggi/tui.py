@@ -20,8 +20,18 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi import configflow, menu, palette, prompts, reports, setup, verbs, wizard
-from skuggi.commands import raw_command
+from skuggi import (
+    cmdflow,
+    configflow,
+    menu,
+    palette,
+    prompts,
+    reports,
+    setup,
+    verbs,
+    wizard,
+)
+from skuggi.commands import CommandAlias, render
 from skuggi.config import PROVIDERS, Settings
 from skuggi.configs import ConfigError
 from skuggi.core import AgentCore, parse_toggle
@@ -104,7 +114,7 @@ class Tui:
             "config": self._cmd_config,
             "setup": self._cmd_setup,
             "login": self._cmd_login,
-            "run": self._cmd_run,
+            "cmd": self._cmd_cmd,
             "doctor": self._cmd_doctor,
             "findings": self._cmd_findings,
             "report": self._cmd_report,
@@ -406,16 +416,49 @@ class Tui:
         else:
             self.console.print(f"[red]install failed or unavailable[/red] for {binary}")
 
-    def _cmd_run(self, arg: str) -> None:
-        name, _, rest = arg.partition(" ")
-        if not name or name == "list":
-            self._run_list()
+    def _cmd_cmd(self, arg: str) -> None:
+        """Search the cheatsheet, resolve an exact alias, or edit the registry."""
+        sub, _, rest = arg.partition(" ")
+        sub, rest = sub.strip(), rest.strip()
+        if not sub or sub == "list":
+            self._cheatsheet(self.core.commands.commands)
             return
-        plan = self.core.plan_run(name, rest.split())
+        if sub in cmdflow.ADD_ARGS:
+            self._cmd_alias_add()
+            return
+        if sub in cmdflow.EDIT_ARGS:
+            self._cmd_alias_edit(rest)
+            return
+        if sub in cmdflow.REMOVE_ARGS:
+            self._cmd_alias_remove(rest)
+            return
+        if self.core.commands.alias_for(sub) is not None:  # exact name -> resolve
+            self._resolve_cmd(sub)
+            return
+        matches = self.core.search_commands(arg.strip())  # otherwise substring search
+        if not matches:
+            self.console.print(
+                f"[yellow]no cheatsheet entry matches[/yellow] {arg.strip()!r} "
+                f"-- try {verbs.cmd('cmd list', 'repl')}"
+            )
+            return
+        self._cheatsheet(matches)
+
+    def _cheatsheet(self, aliases: tuple[CommandAlias, ...]) -> None:
+        if not aliases:
+            self.console.print("[dim]no command aliases configured[/dim]")
+            return
+        for a in aliases:
+            self.console.print(f"[cyan]{a.name}[/cyan]  {render(a, self.registry)}")
+            if a.description:
+                self.console.print(f"    [dim]{a.description}[/dim]")
+
+    def _resolve_cmd(self, name: str) -> None:
+        plan = self.core.plan_cmd(name)
         if not plan.known:
             self.console.print(f"[yellow]{plan.note}[/yellow]")
             return
-        self.console.print(f"[bold]$ {plan.raw}[/bold]")  # the resolved raw command
+        self.console.print(f"[bold]$ {plan.raw}[/bold]")  # the rendered raw command
         if plan.verdict is not None and not plan.verdict.allowed:
             self.console.print(
                 palette.paint(f"OUT OF SCOPE: {plan.note}", palette.DANGER)
@@ -425,20 +468,40 @@ class Tui:
             self.console.print(f"[yellow]{plan.note}[/yellow]")
         else:
             self.console.print(
-                f"[green]in scope[/green] -- recorded proposed "
+                f"[green]{plan.note}[/green] -- recorded proposed "
                 f"(cmd:{plan.command_id}); submit it yourself"
             )
         self.turn(prompts.EVALUATE_RUN.format(command=plan.raw))
 
-    def _run_list(self) -> None:
-        aliases = self.core.commands.commands
-        if not aliases:
-            self.console.print("[dim]no command aliases configured[/dim]")
+    def _cmd_alias_add(self) -> None:
+        cmdflow.run_cmd_editor(
+            self._ask,
+            self.core.add_command,
+            lambda text: self.console.print(f"[dim]{text}[/dim]"),
+        )
+
+    def _cmd_alias_edit(self, name: str) -> None:
+        existing = self.core.commands.alias_for(name)
+        if existing is None:
+            self.console.print(f"[yellow]unknown alias[/yellow] {name!r}")
             return
-        for a in aliases:
+        cmdflow.run_cmd_editor(
+            self._ask,
+            lambda raw: self.core.update_command(name, raw),
+            lambda text: self.console.print(f"[dim]{text}[/dim]"),
+            existing=existing,
+        )
+
+    def _cmd_alias_remove(self, name: str) -> None:
+        if not name:
             self.console.print(
-                f"[cyan]{a.name}[/cyan] {raw_command(list(a.argv))} -- {a.description}"
+                f"[yellow]usage:[/yellow] {verbs.cmd('cmd rm <name>', 'repl')}"
             )
+            return
+        if self.core.remove_command(name):
+            self.console.print(f"[dim]removed alias '{name}'[/dim]")
+        else:
+            self.console.print(f"[yellow]unknown alias[/yellow] {name!r}")
 
     def _cmd_findings(self, _arg: str) -> None:
         rows = self.core.findings()

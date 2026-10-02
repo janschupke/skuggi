@@ -71,6 +71,10 @@ class EngagementConfig(BaseModel):
     # The engagement posture. Advisory only: it calibrates what the agent
     # proposes (see skuggi.prompts), never what the guard allows.
     stance: Stance = "cautious"
+    # The host the cheatsheet's ``${target}`` defaults to, exported into the
+    # wrapped shell. Optional: when blank it is derived from a sole allowed host
+    # or sole target network (see ``primary_target``).
+    primary_target: str | None = None
 
     @field_validator("timezone")
     @classmethod
@@ -93,6 +97,21 @@ class EngagementConfig(BaseModel):
     def tzinfo(self) -> ZoneInfo:
         """The engagement's timezone as a ``ZoneInfo``."""
         return ZoneInfo(self.timezone)
+
+    def resolve_target(self) -> str | None:
+        """The ``${target}`` default for this engagement, or None if ambiguous.
+
+        Precedence: the explicit ``primary_target`` field, else the sole allowed
+        host, else the sole target network. With several hosts/networks (or none)
+        there is no safe default and the operator sets ``target`` themselves.
+        """
+        if self.primary_target:
+            return self.primary_target
+        if len(self.allowed_hosts) == 1:
+            return next(iter(self.allowed_hosts))
+        if len(self.target_networks) == 1:
+            return str(self.target_networks[0])
+        return None
 
     def describe(self, *, method_paint: Callable[[str], str] | None = None) -> str:
         """A one-block human summary for the REPL.

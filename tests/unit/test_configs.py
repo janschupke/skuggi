@@ -8,12 +8,14 @@ from pathlib import Path
 import pytest
 
 from skuggi import home
+from skuggi.commands import CommandAlias, CommandRegistry
 from skuggi.configs import (
     ConfigError,
     load_commands,
     load_layout,
     load_registry,
     load_scope,
+    write_commands,
 )
 from tests.support import template
 
@@ -53,7 +55,8 @@ def test_invalid_registry_raises_config_error(tmp_path: Path) -> None:
 def test_missing_layout_returns_defaults(tmp_path: Path) -> None:
     layout = load_layout(tmp_path / "absent.json")
     assert layout.scope_file == "scope.json"
-    assert layout.recon_subdirs == ("nmap", "web")
+    assert layout.recon_subdirs == ("nmap", "dirs", "domains", "web")
+    assert layout.loot == "loot"
 
 
 def test_layout_override_is_loaded(tmp_path: Path) -> None:
@@ -116,3 +119,31 @@ def test_invalid_commands_raises_config_error(tmp_path: Path) -> None:
     cfg.write_text('{"commands": [{"argv": 5}]}', encoding="utf-8")
     with pytest.raises(ConfigError):
         load_commands(cfg)
+
+
+def test_write_commands_round_trips(tmp_path: Path) -> None:
+    cfg = tmp_path / "nested" / "commands.json"  # parent is created
+    reg = CommandRegistry(
+        commands=(
+            CommandAlias(name="a", argv=("nmap", "-sn"), description="d"),
+            CommandAlias(name="b", argv=("ffuf", "-u"), label="fuzz"),
+        )
+    )
+    write_commands(cfg, reg)
+    assert load_commands(cfg) == reg  # load(write(x)) == x
+    assert cfg.read_text(encoding="utf-8").endswith("\n")  # trailing newline
+
+
+def test_example_tools_carry_the_output_convention() -> None:
+    """The shipped tools.example.json gives the non-interactive tools an output."""
+    registry = load_registry(template("tools.example.json"))
+    nmap = registry.spec_for("nmap")
+    ffuf = registry.spec_for("ffuf")
+    burp = registry.spec_for("burpsuite")
+    assert nmap is not None
+    assert ffuf is not None
+    assert burp is not None
+    assert nmap.output_flag == "-oA"
+    assert nmap.output_dir == "recon/nmap"
+    assert ffuf.output_extra == ("-of", "json")
+    assert burp.output_flag is None  # GUI tool, no auto-output

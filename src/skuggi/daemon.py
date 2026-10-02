@@ -25,8 +25,8 @@ import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
-from skuggi import configflow, prompts, reports, setup, verbs, wizard
-from skuggi.commands import raw_command
+from skuggi import cmdflow, configflow, prompts, reports, setup, verbs, wizard
+from skuggi.commands import CommandAlias, render
 from skuggi.config import PROVIDERS
 from skuggi.configs import ConfigError
 from skuggi.core import AgentCore, parse_toggle
@@ -88,6 +88,9 @@ class Daemon:
             if self._is_setup(line):
                 self._attach_setup(read_line, emit)
                 continue
+            if self._is_cmd_editor(line):
+                self._attach_cmd_editor(line, read_line, emit)
+                continue
             if self._is_config_request(line):
                 self._attach_config(verbs.split_verb(line)[1], read_line, emit)
                 continue
@@ -130,6 +133,52 @@ class Daemon:
                 lambda text: emit({"chunk": text + "\n"}),
                 existing=self.core.engagement,
             )
+        emit({"end": True, "exit": False})
+
+    @staticmethod
+    def _is_cmd_editor(line: str) -> bool:
+        """Whether `line` opens the interactive cheatsheet editor (cmd add/edit)."""
+        verb, rest = verbs.split_verb(line)
+        parts = rest.split()
+        return (
+            verb == "cmd"
+            and bool(parts)
+            and parts[0] in (cmdflow.ADD_ARGS | cmdflow.EDIT_ARGS)
+        )
+
+    def _attach_cmd_editor(
+        self,
+        line: str,
+        read_line: Callable[[], str | None],
+        emit: Callable[[dict[str, object]], None],
+    ) -> None:
+        """Run the cheatsheet editor over the attach connection (like the wizard)."""
+
+        def ask(prompt: str) -> str | None:
+            emit({"ask": prompt})
+            return read_line()
+
+        def notify(text: str) -> None:
+            emit({"chunk": text + "\n"})
+
+        _, rest = verbs.split_verb(line)
+        parts = rest.split()
+        sub, name = parts[0], (parts[1] if len(parts) > 1 else "")
+        self.core.note_interaction("cmd", rest)
+        with self._lock:
+            if sub in cmdflow.EDIT_ARGS:
+                existing = self.core.commands.alias_for(name)
+                if existing is None:
+                    notify(f"unknown alias {name!r}")
+                else:
+                    cmdflow.run_cmd_editor(
+                        ask,
+                        lambda raw: self.core.update_command(name, raw),
+                        notify,
+                        existing=existing,
+                    )
+            else:
+                cmdflow.run_cmd_editor(ask, self.core.add_command, notify)
         emit({"end": True, "exit": False})
 
     @staticmethod
@@ -237,7 +286,7 @@ class Daemon:
 
     def _control(self, verb: str, arg: str) -> Iterator[str]:
         handler = {
-            "run": self._run,
+            "cmd": self._cheat,
             "findings": self._findings,
             "report": self._report,
             "replay": self._replay,
@@ -266,16 +315,39 @@ class Daemon:
 
     # ----- control handlers (plain text over the socket) --------------------
 
-    def _run(self, arg: str) -> Iterator[str]:
-        name, _, rest = arg.partition(" ")
-        if not name or name == "list":
-            yield from self._run_list()
+    def _cheat(self, arg: str) -> Iterator[str]:
+        """The ``cmd`` verb over the socket: search / resolve / list / rm.
+
+        ``add``/``edit`` are interactive and reached through the attach loop
+        (``_attach_cmd_editor``); a raw one-shot points there.
+        """
+        sub, _, rest = arg.partition(" ")
+        sub, rest = sub.strip(), rest.strip()
+        if not sub or sub == "list":
+            yield from self._cheat_list(self.core.commands.commands)
             return
-        plan = self.core.plan_run(name, rest.split())
+        if sub in cmdflow.REMOVE_ARGS:
+            yield from self._cheat_remove(rest)
+            return
+        if sub in cmdflow.ADD_ARGS or sub in cmdflow.EDIT_ARGS:
+            hint = self._cmd("cmd " + sub + (f" {rest}" if rest else ""))
+            yield f"cmd {sub} is interactive -- run {hint}\n"
+            return
+        if self.core.commands.alias_for(sub) is not None:  # exact name -> resolve
+            yield from self._cheat_resolve(sub)
+            return
+        matches = self.core.search_commands(arg.strip())  # otherwise substring search
+        if not matches:
+            yield f"no cheatsheet entry matches {arg.strip()!r}\n"
+            return
+        yield from self._cheat_list(matches)
+
+    def _cheat_resolve(self, name: str) -> Iterator[str]:
+        plan = self.core.plan_cmd(name)
         if not plan.known:
             yield plan.note + "\n"
             return
-        yield f"$ {plan.raw}\n"  # the resolved raw command, always shown
+        yield f"$ {plan.raw}\n"  # the rendered raw command, always shown
         if plan.verdict is not None and not plan.verdict.allowed:
             yield f"OUT OF SCOPE: {plan.note}\n"
             return
@@ -283,18 +355,27 @@ class Daemon:
             yield plan.note + "\n"
         else:
             yield (
-                f"in scope -- recorded proposed (cmd:{plan.command_id}); "
+                f"{plan.note} -- recorded proposed (cmd:{plan.command_id}); "
                 "submit it yourself\n"
             )
         yield from self._agent(prompts.EVALUATE_RUN.format(command=plan.raw))
 
-    def _run_list(self) -> Iterator[str]:
-        aliases = self.core.commands.commands
+    def _cheat_list(self, aliases: tuple[CommandAlias, ...]) -> Iterator[str]:
         if not aliases:
             yield "no command aliases configured\n"
             return
         for a in aliases:
-            yield f"  {a.name:<16} {raw_command(list(a.argv))}  -- {a.description}\n"
+            rendered = render(a, self.core.registry)
+            yield f"  {a.name:<16} {rendered}  -- {a.description}\n"
+
+    def _cheat_remove(self, name: str) -> Iterator[str]:
+        if not name:
+            yield f"usage: {self._cmd('cmd rm <name>')}\n"
+            return
+        if self.core.remove_command(name):
+            yield f"removed alias '{name}'\n"
+        else:
+            yield f"unknown alias {name!r}\n"
 
     def _report(self, arg: str) -> Iterator[str]:
         result = self.core.write_report(pdf=arg.strip().lower() == "pdf")

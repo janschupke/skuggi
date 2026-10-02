@@ -15,6 +15,7 @@ from pathlib import Path
 
 from skuggi.commands import CommandRegistry
 from skuggi.engagement import EngagementConfig
+from skuggi.paths import ensure_parent
 from skuggi.registry import ToolRegistry
 from skuggi.workspace import WorkspaceLayout
 
@@ -64,6 +65,18 @@ def load_commands(path: Path) -> CommandRegistry:
     except ValueError as exc:
         msg = f"invalid command registry at {path}: {exc}"
         raise ConfigError(msg) from exc
+
+
+def write_commands(path: Path, registry: CommandRegistry) -> None:
+    """Persist the command-alias registry to `path` as pretty JSON.
+
+    The write-side counterpart to ``load_commands`` (round-trips through it),
+    used by the guided ``cmd`` editor. Mirrors ``config.write_config``'s
+    parent-dir discipline and trailing newline so a hand-edit and a guided edit
+    produce byte-identical files.
+    """
+    resolved = ensure_parent(path)
+    resolved.write_text(registry.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
 
 def load_layout(path: Path) -> WorkspaceLayout:

@@ -12,7 +12,10 @@
       "install": {
         "brew": "brew install nmap",
         "apt": "apt-get install -y nmap"
-      }
+      },
+      "output_flag": "-oA",
+      "output_dir": "recon/nmap",
+      "output_kind": "prefix"
     },
     {
       "name": "nikto",
@@ -28,7 +31,11 @@
       "install": {
         "brew": "brew install nikto",
         "apt": "apt-get install -y nikto"
-      }
+      },
+      "output_flag": "-o",
+      "output_dir": "recon/web",
+      "output_kind": "file",
+      "output_ext": ".txt"
     },
     {
       "name": "curl",
@@ -58,7 +65,11 @@
       "install": {
         "brew": "brew install gobuster",
         "apt": "apt-get install -y gobuster"
-      }
+      },
+      "output_flag": "-o",
+      "output_dir": "recon/dirs",
+      "output_kind": "file",
+      "output_ext": ".txt"
     },
     {
       "name": "ffuf",
@@ -75,7 +86,15 @@
       "install": {
         "brew": "brew install ffuf",
         "apt": "apt-get install -y ffuf"
-      }
+      },
+      "output_flag": "-o",
+      "output_dir": "recon/dirs",
+      "output_extra": [
+        "-of",
+        "json"
+      ],
+      "output_kind": "file",
+      "output_ext": ".json"
     },
     {
       "name": "sqlmap",
@@ -91,7 +110,10 @@
       "requires_target": true,
       "install": {
         "pip": "pip install sqlmap"
-      }
+      },
+      "output_flag": "--output-dir",
+      "output_dir": "recon/web",
+      "output_kind": "dir"
     },
     {
       "name": "whatweb",
@@ -129,7 +151,10 @@
       "requires_target": true,
       "install": {
         "pip": "pip install enum4linux-ng"
-      }
+      },
+      "output_flag": "-oA",
+      "output_dir": "recon/domains",
+      "output_kind": "prefix"
     },
     {
       "name": "nxc",
@@ -156,7 +181,11 @@
       "install": {
         "brew": "brew install hydra",
         "apt": "apt-get install -y hydra"
-      }
+      },
+      "output_flag": "-o",
+      "output_dir": "loot",
+      "output_kind": "file",
+      "output_ext": ".txt"
     },
     {
       "name": "john",
@@ -210,7 +239,11 @@
       "install": {
         "brew": "brew install hashcat",
         "apt": "apt-get install -y hashcat"
-      }
+      },
+      "output_flag": "-o",
+      "output_dir": "loot",
+      "output_kind": "file",
+      "output_ext": ".txt"
     },
     {
       "name": "metasploit",
@@ -234,7 +267,10 @@
       "install": {
         "brew": "brew install metasploit",
         "apt": "apt-get install -y metasploit-framework"
-      }
+      },
+      "output_flag": "-o",
+      "output_dir": "loot",
+      "output_kind": "file"
     },
     {
       "name": "nc",
@@ -272,7 +308,11 @@
       "install": {
         "brew": "brew install cewl",
         "apt": "apt-get install -y cewl"
-      }
+      },
+      "output_flag": "-w",
+      "output_dir": "recon/web",
+      "output_kind": "file",
+      "output_ext": ".txt"
     },
     {
       "name": "burpsuite",

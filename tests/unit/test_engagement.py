@@ -256,3 +256,29 @@ def test_stance_loads_from_scope_and_shows_in_describe() -> None:
     eng = _engagement(stance="aggressive")
     assert eng.stance == "aggressive"
     assert "stance: aggressive" in eng.describe()
+
+
+# --- primary target resolution (cheatsheet ${target} default) ---------------
+
+
+def test_resolve_target_prefers_the_explicit_field() -> None:
+    eng = _engagement(primary_target="10.1.2.3")
+    assert eng.resolve_target() == "10.1.2.3"
+
+
+def test_resolve_target_falls_back_to_a_sole_host() -> None:
+    # The default helper has exactly one allowed host and no explicit target.
+    assert _engagement().resolve_target() == "scanme.example.com"
+
+
+def test_resolve_target_uses_a_sole_network_when_no_host() -> None:
+    eng = _engagement(allowed_hosts=frozenset(), target_networks=("192.0.2.0/24",))
+    assert eng.resolve_target() == "192.0.2.0/24"
+
+
+def test_resolve_target_is_none_when_ambiguous() -> None:
+    eng = _engagement(
+        allowed_hosts=frozenset({"a.example.com", "b.example.com"}),
+        target_networks=("10.0.0.0/8", "192.168.0.0/16"),
+    )
+    assert eng.resolve_target() is None

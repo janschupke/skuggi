@@ -17,9 +17,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# How a tool's output flag wants its path shaped: a basename *prefix* (nmap
+# ``-oA scan`` writes ``scan.nmap``/``.gnmap``/``.xml``), a single *file*
+# (``-o out.json``), or an output *directory* (``--output-dir dir``).
+OutputKind = Literal["prefix", "file", "dir"]
 
 
 class ToolSpec(BaseModel):
@@ -37,6 +42,18 @@ class ToolSpec(BaseModel):
     target_flags: tuple[str, ...] = ()
     requires_target: bool = True
     install: dict[str, str] = Field(default_factory=dict)
+    # Output convention (optional). When ``output_flag`` is set, the cheatsheet
+    # renderer injects ``<output_flag> <workspace-dir>/<stamp>_${target}_<label>``
+    # so every invocation of this tool lands a timestamped artefact in the right
+    # engagement folder. ``output_dir`` is a workspace-relative folder that the
+    # ``WorkspaceLayout`` must create; ``output_extra`` are flags that always
+    # accompany output (e.g. ffuf's ``-of json``); ``output_kind``/``output_ext``
+    # shape the path. Interactive/GUI tools leave ``output_flag`` unset.
+    output_flag: str | None = None
+    output_dir: str | None = None
+    output_extra: tuple[str, ...] = ()
+    output_kind: OutputKind = "prefix"
+    output_ext: str | None = None
 
 
 class ToolRegistry(BaseModel):

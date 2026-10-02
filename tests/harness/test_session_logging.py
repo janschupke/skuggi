@@ -67,7 +67,7 @@ def test_run_proposal_outside_a_turn_is_unlinked(core: AgentCore) -> None:
     core.commands = CommandRegistry(
         commands=(CommandAlias(name="nmap-network", argv=("nmap", "-sn")),)
     )
-    core.plan_run("nmap-network", ["10.0.0.5"])
+    core.plan_cmd("nmap-network")
     assert core.ledger.commands_for(core.session_id)[-1].turn_event_id is None
 
 

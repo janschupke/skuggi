@@ -19,7 +19,7 @@ import re
 import sys
 import uuid
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
@@ -45,7 +45,7 @@ from skuggi import ledger as ledger_mod
 from skuggi import (
     transcript as transcript_mod,
 )
-from skuggi.commands import CommandRegistry, raw_command
+from skuggi.commands import CommandAlias, CommandRegistry, raw_command, render
 from skuggi.config import (
     _SECRET_FIELDS,
     Provider,
@@ -59,6 +59,7 @@ from skuggi.configs import (
     load_layout,
     load_registry,
     load_scope,
+    write_commands,
 )
 from skuggi.engagement import (
     EngagementConfig,
@@ -165,10 +166,10 @@ class TurnEvent:
 
 @dataclass(frozen=True, slots=True)
 class RunPlan:
-    """The result of resolving a ``run`` alias: the raw command + scope verdict.
+    """The result of resolving a ``cmd`` alias: the raw command + scope verdict.
 
-    ``raw`` is the fully-resolved command string shown to the operator (the
-    transparency invariant). ``run`` never executes -- an in-scope command is
+    ``raw`` is the fully-rendered command string shown to the operator (the
+    transparency invariant). ``cmd`` never executes -- an in-scope command is
     recorded ``proposed`` for the operator to submit; an out-of-scope one is
     recorded ``blocked``.
     """
@@ -887,12 +888,23 @@ class AgentCore:
             managed_dir=self.settings.managed_tools_dir,
         )
 
-    def plan_run(self, name: str, extra: list[str]) -> RunPlan:
-        """Resolve a ``run`` alias, check it against scope, and record it.
+    def search_commands(self, query: str) -> tuple[CommandAlias, ...]:
+        """Cheatsheet aliases matching `query` by substring (blank = all)."""
+        return self.commands.search(query)
 
-        Returns a plan carrying the resolved raw command and the guard verdict.
-        Never executes: an in-scope command is recorded ``proposed`` (for the
-        operator to submit), an out-of-scope one ``blocked``.
+    def plan_cmd(self, name: str) -> RunPlan:
+        """Render a cheatsheet alias, check it against scope, and record it.
+
+        Returns a plan carrying the rendered raw command (base argv + a literal
+        ``${target}`` + the tool's timestamped output flag) and the guard
+        verdict. Never executes: an in-scope command is recorded ``proposed``,
+        an out-of-scope one ``blocked``.
+
+        The displayed/recorded command keeps ``${target}`` literal, so the scope
+        check is run against a *clean* parse of the base argv plus the
+        engagement's resolved target. When no single target resolves, the target
+        rule is skipped (tool/method/time are still enforced) and the note says
+        so -- the operator must confirm the host is in scope themselves.
         """
         alias = self.commands.alias_for(name)
         if alias is None:
@@ -905,7 +917,7 @@ class AgentCore:
                 command_id=None,
                 note=f"unknown alias {name!r}. available: {avail}",
             )
-        raw = raw_command(alias.resolve(extra))
+        raw = render(alias, self.registry)
         if self.engagement is None:
             return RunPlan(
                 alias=name,
@@ -915,7 +927,12 @@ class AgentCore:
                 command_id=None,
                 note="no engagement loaded -- scope not checked; review before running",
             )
-        parsed = parse_command(raw, self.registry)
+        resolved = self.engagement.resolve_target()
+        check_argv = [*alias.argv, *([resolved] if resolved else [])]
+        parsed = parse_command(raw_command(check_argv), self.registry)
+        if resolved is None:
+            # No concrete target to check; validate tool/method/time only.
+            parsed = replace(parsed, requires_target=False, targets=())
         verdict = check_command(
             parsed, self.engagement, now=datetime.now(self.engagement.tzinfo())
         )
@@ -930,14 +947,76 @@ class AgentCore:
             reason="" if verdict.allowed else verdict.reason,
             turn_event_id=self._current_turn_event_id,
         )
+        if not verdict.allowed:
+            note = verdict.reason
+        elif resolved is not None:
+            note = f"in scope (target {resolved})"
+        else:
+            note = (
+                "tool/method/time in scope -- set 'target' to an in-scope host "
+                "before running (${target} is a placeholder)"
+            )
         return RunPlan(
             alias=name,
             raw=raw,
             known=True,
             verdict=verdict,
             command_id=command_id,
-            note="in scope" if verdict.allowed else verdict.reason,
+            note=note,
         )
+
+    def _validate_alias(self, raw: dict[str, object]) -> CommandAlias:
+        try:
+            return CommandAlias.model_validate(raw)
+        except ValidationError as exc:
+            msg = f"invalid command alias: {exc}"
+            raise ConfigError(msg) from exc
+
+    def _save_commands(self, registry: CommandRegistry) -> None:
+        write_commands(self.settings.commands_path, registry)
+        self.commands = registry
+
+    def add_command(self, raw: dict[str, object]) -> CommandAlias:
+        """Validate and append a new cheatsheet alias, persisting the registry.
+
+        Raises ``ConfigError`` if the alias does not validate or its name is
+        already taken (the editor shows the reason and re-asks).
+        """
+        alias = self._validate_alias(raw)
+        if self.commands.alias_for(alias.name) is not None:
+            msg = f"command alias {alias.name!r} already exists (use edit)"
+            raise ConfigError(msg)
+        self._save_commands(CommandRegistry(commands=(*self.commands.commands, alias)))
+        return alias
+
+    def update_command(self, name: str, raw: dict[str, object]) -> CommandAlias:
+        """Replace the alias named `name`, persisting the registry.
+
+        Raises ``ConfigError`` if `name` is unknown or the new alias is invalid.
+        """
+        if self.commands.alias_for(name) is None:
+            msg = f"unknown command alias {name!r}"
+            raise ConfigError(msg)
+        alias = self._validate_alias(raw)
+        self._save_commands(
+            CommandRegistry(
+                commands=tuple(
+                    alias if a.name == name else a for a in self.commands.commands
+                )
+            )
+        )
+        return alias
+
+    def remove_command(self, name: str) -> bool:
+        """Drop the alias named `name`; ``True`` if it existed. Persists the change."""
+        if self.commands.alias_for(name) is None:
+            return False
+        self._save_commands(
+            CommandRegistry(
+                commands=tuple(a for a in self.commands.commands if a.name != name)
+            )
+        )
+        return True
 
     # ----- the agent turn ----------------------------------------------------
 
