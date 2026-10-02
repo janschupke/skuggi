@@ -1,0 +1,26 @@
+---
+description: skuggi project rules — single source of truth in .ai/
+alwaysApply: true
+---
+
+# skuggi — Cursor Instructions
+
+All rules and commands live in [`.ai/`](../../.ai/) — the single source of truth. This file mirrors [`CLAUDE.md`](../../CLAUDE.md); keep them in sync.
+
+skuggi is a locally-hosted LangGraph **pentesting agent harness** (Python ≥3.12,
+uv, `src/` layout): a planner→worker→critic loop with a headless `AgentCore` and
+two front-ends. Source is grouped into eight packages under `src/skuggi/`
+(`agent`, `frontend`, `config`, `engagement`, `persistence`, `providers`,
+`tooling`, `common`, `install`).
+
+## Rules
+
+- [Architecture](../../.ai/rules/architecture.md) · [Gates](../../.ai/rules/gates.md) · [Storage](../../.ai/rules/storage.md) · [Protocol](../../.ai/rules/protocol.md) · [Providers](../../.ai/rules/providers.md) · [Testing](../../.ai/rules/testing.md) · [Labs](../../.ai/rules/labs.md)
+
+## Critical rules (excerpt)
+
+- **`make check` before done** (ruff format --check · ruff · mypy strict · pytest 90% branch); fix at the root, don't widen an ignore.
+- **A green gate is not proof of isolation** — tests redirect `SKUGGI_CONFIG_HOME`/`SKUGGI_DATA_HOME`; verify the real homes are unchanged after a run.
+- **Never automate the harness against real homes or a live engagement.**
+- **Never resolve a storage path at import time**; keep the lazy imports lazy.
+- **Prompts live in `agent/prompts.py`; the verb set in `frontend/verbs.py`.**
