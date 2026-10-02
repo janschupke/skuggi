@@ -66,6 +66,7 @@ def test_both_console_scripts_resolve() -> None:
         "skuggi-ingest",
         "skuggi-doctor",
         "skuggi-client",
+        "skuggi-login",
         "skuggi-pdf",
         "skuggi-eval",
     }

@@ -39,12 +39,8 @@ _STANDARD_PROVIDERS: dict[Provider, str] = {
 }
 
 _NO_OPENAI_KEY = (
-    "No OpenAI API key found. Options:\n"
-    "  1. run `codex login --with-api-key` "
-    "(writes OPENAI_API_KEY to ~/.codex/auth.json)\n"
-    "  2. export OPENAI_API_KEY=sk-...\n"
-    "  3. switch with `/provider chatgpt` (uses ChatGPT-account tokens)\n"
-    "  4. switch with `/provider anthropic` or `/provider ollama`"
+    "No OpenAI API key configured. Run `/setup` to add one (skuggi stores it in "
+    "its own config, not your shell), or `/provider ollama` to use a local model."
 )
 
 # Shown at boot (as a warning) when no provider is credentialed, and anywhere a
@@ -106,7 +102,10 @@ def get_chat_model(settings: Settings, *, model: str | None = None) -> BaseChatM
         kwargs = {"api_key": key, "streaming": True}
     elif provider == "anthropic":
         if settings.anthropic_api_key is None:
-            msg = "ANTHROPIC_API_KEY is not set."
+            msg = (
+                "No Anthropic API key configured. Run `/setup` to add one, or "
+                "`/provider ollama` to use a local model."
+            )
             raise ConfigError(msg)
         kwargs = {
             "api_key": settings.anthropic_api_key.get_secret_value(),

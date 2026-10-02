@@ -86,7 +86,10 @@ class CodexTokenStore:
 
     def _load(self) -> dict[str, Any]:
         if not self.auth_path.is_file():
-            msg = f"{self.auth_path} not found. Run `codex login` (ChatGPT mode) first."
+            msg = (
+                f"{self.auth_path} not found. "
+                "Run `/login` (or `skuggi-login`) to sign in."
+            )
             raise CodexAuthError(msg)
         data: object = json.loads(self.auth_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -124,7 +127,7 @@ class CodexTokenStore:
         if not isinstance(tokens, dict) or not tokens.get("access_token"):
             msg = (
                 f"{self.auth_path} has no ChatGPT tokens. "
-                "Run `codex login` (browser flow) and retry."
+                "Run `/login` (or `skuggi-login`) to sign in."
             )
             raise CodexAuthError(msg)
         return auth, tokens
@@ -134,6 +137,14 @@ class CodexTokenStore:
         _, tokens = self._tokens()
         value = tokens.get("account_id")
         return value if isinstance(value, str) else None
+
+    def is_logged_in(self) -> bool:
+        """Whether auth.json holds usable ChatGPT tokens (no network, no refresh)."""
+        try:
+            self._tokens()
+        except CodexAuthError:
+            return False
+        return True
 
     def access_token(self) -> str:
         """Return a usable access token, refreshing ahead of expiry."""
@@ -150,7 +161,10 @@ class CodexTokenStore:
         auth, tokens = self._tokens()
         refresh_token = tokens.get("refresh_token")
         if not refresh_token:
-            msg = "auth.json has no refresh_token; run `codex login` again."
+            msg = (
+                "auth.json has no refresh_token; "
+                "run `/login` (or `skuggi-login`) again."
+            )
             raise CodexAuthError(msg)
         response = httpx.post(
             self.refresh_url,
@@ -164,7 +178,7 @@ class CodexTokenStore:
         if response.status_code != httpx.codes.OK:
             msg = (
                 f"OAuth refresh failed ({response.status_code}). "
-                "Run `codex login` again."
+                "Run `/login` (or `skuggi-login`) again."
             )
             raise CodexAuthError(msg)
         body = response.json()

@@ -83,18 +83,25 @@ def test_unreadable_auth_json_falls_back(tmp_path: Path) -> None:
 # --- chat model construction ------------------------------------------------
 
 
-def test_openai_without_a_key_names_every_remedy(tmp_path: Path) -> None:
-    """This message is the project's main onboarding surface, so it is pinned."""
+def test_openai_without_a_key_points_at_reachable_remedies(tmp_path: Path) -> None:
+    """The onboarding message must name only remedies a stuck operator can reach.
+
+    Pinned because it is the main first-run surface: no `codex login` (that CLI
+    is not installed) and no `export` (the app owns credentials now) -- just
+    `/setup` and a local `/provider ollama`.
+    """
     with pytest.raises(ConfigError) as excinfo:
         providers.get_chat_model(_settings(tmp_path, provider="openai"))
 
     message = str(excinfo.value)
-    for remedy in ("codex login", "OPENAI_API_KEY", "/provider chatgpt", "ollama"):
+    for remedy in ("/setup", "ollama"):
         assert remedy in message
+    for dead_end in ("codex login", "export"):
+        assert dead_end not in message
 
 
 def test_anthropic_without_a_key_is_explicit(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY"):
+    with pytest.raises(ConfigError, match="/setup"):
         providers.get_chat_model(_settings(tmp_path, provider="anthropic"))
 
 

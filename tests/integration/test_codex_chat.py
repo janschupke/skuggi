@@ -177,13 +177,13 @@ def test_refresh_failure_is_actionable(tmp_path: Path) -> None:
     respx.post(REFRESH_URL).mock(return_value=httpx.Response(400, json={}))
     store = CodexTokenStore(_auth_json(tmp_path), refresh_url=REFRESH_URL)
 
-    with pytest.raises(CodexAuthError, match="codex login"):
+    with pytest.raises(CodexAuthError, match="login"):
         store.refresh()
 
 
 def test_missing_auth_json_is_actionable(tmp_path: Path) -> None:
     store = CodexTokenStore(tmp_path / "nope.json")
-    with pytest.raises(CodexAuthError, match="codex login"):
+    with pytest.raises(CodexAuthError, match="login"):
         store.access_token()
 
 

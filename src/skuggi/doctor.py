@@ -16,7 +16,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from skuggi import home, palette, probe, shell
+from skuggi import home, palette, probe, providers, shell
+from skuggi.codex_chat import CodexTokenStore
 from skuggi.config import Settings, config_path
 from skuggi.configs import ConfigError, load_registry
 from skuggi.registry import RuntimeStatus, ToolStatus
@@ -212,6 +213,47 @@ def install_table(settings: Settings) -> Table:
     return table
 
 
+def providers_table(settings: Settings) -> Table:
+    """Per-provider credential status, marking the active one.
+
+    The single answer to "is my model actually configured?" -- a story that used
+    to be split across env vars, the env secrets file and auth.json. ``not
+    configured`` on the active provider is the cue to run ``/setup``.
+    """
+    table = Table(title="skuggi providers")
+    for column in ("provider", "status", "credential"):
+        table.add_column(column)
+
+    active = settings.provider
+
+    def add(name: str, ok: bool, detail: str) -> None:
+        label = f"{name} (active)" if name == active else name
+        status = (
+            palette.paint("ready", palette.SUCCESS)
+            if ok
+            else palette.paint("not configured -- /setup", palette.WARNING)
+        )
+        table.add_row(label, status, detail)
+
+    add(
+        "openai",
+        providers.resolve_openai_key(settings) is not None,
+        "API key in skuggi's config, env, or auth.json",
+    )
+    add(
+        "anthropic",
+        settings.anthropic_api_key is not None,
+        "API key in skuggi's config or env",
+    )
+    add(
+        "chatgpt",
+        CodexTokenStore(settings.auth_json()).is_logged_in(),
+        f"OAuth tokens in {settings.auth_json()} (run /login)",
+    )
+    add("ollama", True, f"local, no key ({settings.ollama_base_url})")
+    return table
+
+
 def render_doctor(
     console: Console,
     statuses: list[ToolStatus],
@@ -231,6 +273,7 @@ def render_doctor(
     """
     if settings is not None:
         console.print(install_table(settings))
+        console.print(providers_table(settings))
     console.print(doctor_table(statuses))
     if runtimes:
         console.print(runtime_table(runtimes))

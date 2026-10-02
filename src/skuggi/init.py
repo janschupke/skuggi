@@ -145,9 +145,9 @@ def initialise(
         lines.append("harness config already present; nothing seeded.")
 
     lines.append("")
-    lines.append(f"Put API keys in {config_dir / home.ENV_FILENAME} (chmod 600),")
-    lines.append("or export them, or run `codex login` for ~/.codex/auth.json.")
-    lines.append("Then run `skuggi-doctor` to check the install.")
+    lines.append("Next: run `skuggi` and `/setup` to configure a model provider")
+    lines.append("(skuggi stores credentials in its own config, not your shell).")
+    lines.append("Then `skuggi-doctor` checks the install.")
     return lines
 
 
