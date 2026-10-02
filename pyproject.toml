@@ -219,6 +219,8 @@ runtime-evaluated-base-classes = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/skuggi/__init__.py" = ["D104"]
+# The boot guard prints its one actionable line straight to the operator's tty.
+"src/skuggi/boot.py" = ["T201"]
 "src/skuggi/ingest.py" = ["T201"]          # print() is this module's output
 # skuggi-init reports what it seeded/migrated to the operator's tty.
 "src/skuggi/init.py" = ["T201"]

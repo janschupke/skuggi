@@ -10,6 +10,7 @@ from pydantic import SecretStr
 
 from skuggi import providers
 from skuggi.config import Settings
+from skuggi.configs import ConfigError
 
 
 def _auth(tmp_path: Path, payload: object) -> Path:
@@ -84,7 +85,7 @@ def test_unreadable_auth_json_falls_back(tmp_path: Path) -> None:
 
 def test_openai_without_a_key_names_every_remedy(tmp_path: Path) -> None:
     """This message is the project's main onboarding surface, so it is pinned."""
-    with pytest.raises(RuntimeError) as excinfo:
+    with pytest.raises(ConfigError) as excinfo:
         providers.get_chat_model(_settings(tmp_path, provider="openai"))
 
     message = str(excinfo.value)
@@ -93,7 +94,7 @@ def test_openai_without_a_key_names_every_remedy(tmp_path: Path) -> None:
 
 
 def test_anthropic_without_a_key_is_explicit(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+    with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY"):
         providers.get_chat_model(_settings(tmp_path, provider="anthropic"))
 
 

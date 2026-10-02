@@ -161,10 +161,11 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
     import tempfile
 
     from skuggi import daemon as daemon_mod
+    from skuggi.boot import guard_boot
     from skuggi.config import Settings
     from skuggi.core import AgentCore
 
-    core = AgentCore(Settings())
+    core = guard_boot(lambda: AgentCore(Settings()))
     for warning in core.warnings:
         print(f"skuggi: {warning}")
 

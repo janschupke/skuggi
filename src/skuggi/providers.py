@@ -28,6 +28,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 
 from skuggi.config import Provider, Settings
+from skuggi.configs import ConfigError
 
 # init_chat_model has no extension hook for a custom provider, so `chatgpt`
 # stays a separate branch rather than joining this table.
@@ -93,12 +94,12 @@ def get_chat_model(settings: Settings, *, model: str | None = None) -> BaseChatM
     if provider == "openai":
         key = resolve_openai_key(settings)
         if not key:
-            raise RuntimeError(_NO_OPENAI_KEY)
+            raise ConfigError(_NO_OPENAI_KEY)
         kwargs = {"api_key": key, "streaming": True}
     elif provider == "anthropic":
         if settings.anthropic_api_key is None:
             msg = "ANTHROPIC_API_KEY is not set."
-            raise RuntimeError(msg)
+            raise ConfigError(msg)
         kwargs = {
             "api_key": settings.anthropic_api_key.get_secret_value(),
             "streaming": True,
