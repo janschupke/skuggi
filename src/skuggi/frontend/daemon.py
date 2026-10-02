@@ -177,12 +177,12 @@ class Daemon:
                 else:
                     cmdflow.run_cmd_editor(
                         ask,
-                        lambda raw: self.core.update_command(name, raw),
+                        lambda raw: self.core.cmds.update(name, raw),
                         notify,
                         existing=existing,
                     )
             else:
-                cmdflow.run_cmd_editor(ask, self.core.add_command, notify)
+                cmdflow.run_cmd_editor(ask, self.core.cmds.add, notify)
         emit({"end": True, "exit": False})
 
     @staticmethod
@@ -344,14 +344,14 @@ class Daemon:
         if self.core.commands.alias_for(sub) is not None:  # exact name -> resolve
             yield from self._cheat_resolve(sub)
             return
-        matches = self.core.search_commands(arg.strip())  # otherwise substring search
+        matches = self.core.cmds.search(arg.strip())  # otherwise substring search
         if not matches:
             yield f"no cheatsheet entry matches {arg.strip()!r}\n"
             return
         yield from self._cheat_list(matches)
 
     def _cheat_resolve(self, name: str) -> Iterator[str]:
-        plan = self.core.plan_cmd(name)
+        plan = self.core.cmds.plan(name)
         if not plan.known:
             yield plan.note + "\n"
             return
@@ -380,7 +380,7 @@ class Daemon:
         if not name:
             yield f"usage: {self._cmd('cmd rm <name>')}\n"
             return
-        if self.core.remove_command(name):
+        if self.core.cmds.remove(name):
             yield f"removed alias '{name}'\n"
         else:
             yield f"unknown alias {name!r}\n"

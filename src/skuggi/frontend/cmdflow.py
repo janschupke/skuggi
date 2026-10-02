@@ -2,7 +2,7 @@
 
 The front-end-agnostic twin of ``wizard`` (engagement scope) and ``configflow``
 (app settings): it knows the ``CommandAlias`` fields and shapes free-text answers
-into the dict ``AgentCore.add_command``/``update_command`` validates, driving
+into the dict ``core.cmds.add``/``update`` validates, driving
 everything through an ``ask(prompt) -> str | None`` callable (``None`` aborts) so
 one editor serves both the REPL prompt and the wrapped-shell socket round-trip.
 Validation and persistence stay in ``AgentCore``; this module only collects

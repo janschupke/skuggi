@@ -6,7 +6,7 @@ the one ``AgentCore`` method, map the same exceptions to the same outcomes) must
 not drift between them, which it has before (``daemon._CONTROL_HELP`` vs
 ``tui.HELP``). Each ``run_*`` here returns a typed outcome and the front-end
 matches it and renders in its own style, the same split the ``run`` verb already
-uses with ``AgentCore.plan_cmd`` -> ``RunPlan``. No ``AgentCore`` method changes;
+uses with ``core.cmds.plan`` -> ``RunPlan``. No ``AgentCore`` method changes;
 this only wraps the existing calls.
 """
 

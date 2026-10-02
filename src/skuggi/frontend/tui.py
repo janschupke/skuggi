@@ -426,7 +426,7 @@ class Tui:
         if self.core.commands.alias_for(sub) is not None:  # exact name -> resolve
             self._resolve_cmd(sub)
             return
-        matches = self.core.search_commands(arg.strip())  # otherwise substring search
+        matches = self.core.cmds.search(arg.strip())  # otherwise substring search
         if not matches:
             self.console.print(
                 f"[yellow]no cheatsheet entry matches[/yellow] {arg.strip()!r} "
@@ -445,7 +445,7 @@ class Tui:
                 self.console.print(f"    [dim]{a.description}[/dim]")
 
     def _resolve_cmd(self, name: str) -> None:
-        plan = self.core.plan_cmd(name)
+        plan = self.core.cmds.plan(name)
         if not plan.known:
             self.console.print(f"[yellow]{plan.note}[/yellow]")
             return
@@ -467,7 +467,7 @@ class Tui:
     def _cmd_alias_add(self) -> None:
         cmdflow.run_cmd_editor(
             self._ask,
-            self.core.add_command,
+            self.core.cmds.add,
             lambda text: self.console.print(f"[dim]{text}[/dim]"),
         )
 
@@ -478,7 +478,7 @@ class Tui:
             return
         cmdflow.run_cmd_editor(
             self._ask,
-            lambda raw: self.core.update_command(name, raw),
+            lambda raw: self.core.cmds.update(name, raw),
             lambda text: self.console.print(f"[dim]{text}[/dim]"),
             existing=existing,
         )
@@ -489,7 +489,7 @@ class Tui:
                 f"[yellow]usage:[/yellow] {verbs.cmd('cmd rm <name>', 'repl')}"
             )
             return
-        if self.core.remove_command(name):
+        if self.core.cmds.remove(name):
             self.console.print(f"[dim]removed alias '{name}'[/dim]")
         else:
             self.console.print(f"[yellow]unknown alias[/yellow] {name!r}")

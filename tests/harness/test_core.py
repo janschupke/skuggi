@@ -224,7 +224,7 @@ def test_plan_cmd_placeholder_target_records_proposed(core: AgentCore) -> None:
     # Two scope hosts -> no single ${target}; the command stays a template and
     # the tool/method/time are still enforced (so nmap/scan is in scope).
     core.commands = _ALIASES
-    plan = core.plan_cmd("nmap-network")
+    plan = core.cmds.plan("nmap-network")
     assert plan.known
     assert plan.raw == "nmap -sn ${target}"  # literal placeholder, no concrete host
     assert plan.verdict is not None
@@ -238,7 +238,7 @@ def test_plan_cmd_placeholder_target_records_proposed(core: AgentCore) -> None:
 def test_plan_cmd_resolved_target_is_scope_checked(core: AgentCore) -> None:
     core.commands = _ALIASES
     _pin_target(core, "10.0.0.5")  # inside the fixture's 10.0.0.0/8 network
-    plan = core.plan_cmd("nmap-network")
+    plan = core.cmds.plan("nmap-network")
     assert plan.verdict is not None
     assert plan.verdict.allowed
     assert "10.0.0.5" in plan.note
@@ -247,7 +247,7 @@ def test_plan_cmd_resolved_target_is_scope_checked(core: AgentCore) -> None:
 def test_plan_cmd_out_of_scope_is_blocked(core: AgentCore) -> None:
     core.commands = _ALIASES
     _pin_target(core, "8.8.8.8")  # explicit target outside every network/host
-    plan = core.plan_cmd("nmap-host")
+    plan = core.cmds.plan("nmap-host")
     assert plan.known
     assert plan.verdict is not None
     assert not plan.verdict.allowed
@@ -256,25 +256,25 @@ def test_plan_cmd_out_of_scope_is_blocked(core: AgentCore) -> None:
 
 def test_plan_cmd_unknown_alias(core: AgentCore) -> None:
     core.commands = _ALIASES
-    plan = core.plan_cmd("bogus")
+    plan = core.cmds.plan("bogus")
     assert not plan.known
     assert "unknown alias" in plan.note
 
 
 def test_search_commands_matches_by_substring(core: AgentCore) -> None:
     core.commands = _ALIASES
-    assert {a.name for a in core.search_commands("nmap")} == {
+    assert {a.name for a in core.cmds.search("nmap")} == {
         "nmap-network",
         "nmap-host",
     }
-    assert [a.name for a in core.search_commands("host")] == ["nmap-host"]
+    assert [a.name for a in core.cmds.search("host")] == ["nmap-host"]
 
 
 def test_plan_cmd_without_engagement_skips_scope(tmp_path: Path) -> None:
     core = _build_core(tmp_path, engagement=None)
     try:
         core.commands = _ALIASES
-        plan = core.plan_cmd("nmap-host")
+        plan = core.cmds.plan("nmap-host")
         assert plan.known
         assert plan.verdict is None
         assert "no engagement" in plan.note
@@ -285,22 +285,22 @@ def test_plan_cmd_without_engagement_skips_scope(tmp_path: Path) -> None:
 
 def test_add_update_remove_command_round_trips(core: AgentCore) -> None:
     core.commands = CommandRegistry()
-    added = core.add_command({"name": "ping-sweep", "argv": ["nmap", "-sn"]})
+    added = core.cmds.add({"name": "ping-sweep", "argv": ["nmap", "-sn"]})
     assert added.name == "ping-sweep"
     assert core.commands.alias_for("ping-sweep") is not None
     # Persisted to disk (hand-editable too): reloads with the alias present.
     on_disk = load_commands(core.settings.commands_path)
     assert on_disk.alias_for("ping-sweep") is not None
     with pytest.raises(ConfigError):  # a duplicate name is rejected
-        core.add_command({"name": "ping-sweep", "argv": ["nmap", "-sn"]})
-    core.update_command(
+        core.cmds.add({"name": "ping-sweep", "argv": ["nmap", "-sn"]})
+    core.cmds.update(
         "ping-sweep", {"name": "ping-sweep", "argv": ["nmap", "-sn", "-T4"]}
     )
     updated = core.commands.alias_for("ping-sweep")
     assert updated is not None
     assert updated.argv == ("nmap", "-sn", "-T4")
-    assert core.remove_command("ping-sweep") is True
-    assert core.remove_command("ping-sweep") is False
+    assert core.cmds.remove("ping-sweep") is True
+    assert core.cmds.remove("ping-sweep") is False
 
 
 # --- engagement wizard: create + hot-reload ---------------------------------

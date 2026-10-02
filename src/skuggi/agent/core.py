@@ -17,8 +17,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, replace
-from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
 
@@ -29,6 +28,7 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import SecretStr, ValidationError
 
 from skuggi.agent import prompts
+from skuggi.agent.commandbook import CommandBook
 from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.protocol import (
@@ -54,17 +54,14 @@ from skuggi.config.configs import (
     load_layout,
     load_registry,
     load_scope,
-    write_commands,
 )
 from skuggi.engagement import journal
 from skuggi.engagement.engagement import (
     EngagementConfig,
-    GuardVerdict,
-    check_command,
     parse_command,
 )
 from skuggi.engagement.workspace import Workspace, WorkspaceLayout
-from skuggi.frontend.commands import CommandAlias, CommandRegistry, raw_command, render
+from skuggi.frontend.commands import CommandRegistry
 from skuggi.install import envfile
 from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
@@ -113,24 +110,6 @@ class TurnEvent:
     node: str = ""
 
 
-@dataclass(frozen=True, slots=True)
-class RunPlan:
-    """The result of resolving a ``cmd`` alias: the raw command + scope verdict.
-
-    ``raw`` is the fully-rendered command string shown to the operator (the
-    transparency invariant). ``cmd`` never executes -- an in-scope command is
-    recorded ``proposed`` for the operator to submit; an out-of-scope one is
-    recorded ``blocked``.
-    """
-
-    alias: str
-    raw: str
-    known: bool
-    verdict: GuardVerdict | None
-    command_id: int | None
-    note: str
-
-
 class AgentCore:
     """Owns the agent session; front-ends render its output."""
 
@@ -174,6 +153,7 @@ class AgentCore:
         # ----- sub-components (public; hold a back-ref and read live state) -
         self.doctor = ToolDoctor(self)
         self.archive = SessionArchive(self)
+        self.cmds = CommandBook(self)
 
     # ----- config + workspace ------------------------------------------------
 
@@ -770,136 +750,6 @@ class AgentCore:
         if captured:
             self.graph = self._build()
         return captured
-
-    def search_commands(self, query: str) -> tuple[CommandAlias, ...]:
-        """Cheatsheet aliases matching `query` by substring (blank = all)."""
-        return self.commands.search(query)
-
-    def plan_cmd(self, name: str) -> RunPlan:
-        """Render a cheatsheet alias, check it against scope, and record it.
-
-        Returns a plan carrying the rendered raw command (base argv + a literal
-        ``${target}`` + the tool's timestamped output flag) and the guard
-        verdict. Never executes: an in-scope command is recorded ``proposed``,
-        an out-of-scope one ``blocked``.
-
-        The displayed/recorded command keeps ``${target}`` literal, so the scope
-        check is run against a *clean* parse of the base argv plus the
-        engagement's resolved target. When no single target resolves, the target
-        rule is skipped (tool/method/time are still enforced) and the note says
-        so -- the operator must confirm the host is in scope themselves.
-        """
-        alias = self.commands.alias_for(name)
-        if alias is None:
-            avail = ", ".join(self.commands.names()) or "(none configured)"
-            return RunPlan(
-                alias=name,
-                raw="",
-                known=False,
-                verdict=None,
-                command_id=None,
-                note=f"unknown alias {name!r}. available: {avail}",
-            )
-        raw = render(alias, self.registry)
-        if self.engagement is None:
-            return RunPlan(
-                alias=name,
-                raw=raw,
-                known=True,
-                verdict=None,
-                command_id=None,
-                note="no engagement loaded -- scope not checked; review before running",
-            )
-        resolved = self.engagement.resolve_target()
-        check_argv = [*alias.argv, *([resolved] if resolved else [])]
-        parsed = parse_command(raw_command(check_argv), self.registry)
-        if resolved is None:
-            # No concrete target to check; validate tool/method/time only.
-            parsed = replace(parsed, requires_target=False, targets=())
-        verdict = check_command(
-            parsed, self.engagement, now=datetime.now(self.engagement.tzinfo())
-        )
-        status = "proposed" if verdict.allowed else "blocked"
-        command_id = self.ledger.record_command(
-            session_id=self.session_id,
-            thread_id=self.thread_id,
-            command=raw,
-            binary=parsed.binary,
-            method=parsed.method,
-            status=status,
-            reason="" if verdict.allowed else verdict.reason,
-            turn_event_id=self._current_turn_event_id,
-        )
-        if not verdict.allowed:
-            note = verdict.reason
-        elif resolved is not None:
-            note = f"in scope (target {resolved})"
-        else:
-            note = (
-                "tool/method/time in scope -- set 'target' to an in-scope host "
-                "before running (${target} is a placeholder)"
-            )
-        return RunPlan(
-            alias=name,
-            raw=raw,
-            known=True,
-            verdict=verdict,
-            command_id=command_id,
-            note=note,
-        )
-
-    def _validate_alias(self, raw: dict[str, object]) -> CommandAlias:
-        try:
-            return CommandAlias.model_validate(raw)
-        except ValidationError as exc:
-            msg = f"invalid command alias: {exc}"
-            raise ConfigError(msg) from exc
-
-    def _save_commands(self, registry: CommandRegistry) -> None:
-        write_commands(self.settings.commands_path, registry)
-        self.commands = registry
-
-    def add_command(self, raw: dict[str, object]) -> CommandAlias:
-        """Validate and append a new cheatsheet alias, persisting the registry.
-
-        Raises ``ConfigError`` if the alias does not validate or its name is
-        already taken (the editor shows the reason and re-asks).
-        """
-        alias = self._validate_alias(raw)
-        if self.commands.alias_for(alias.name) is not None:
-            msg = f"command alias {alias.name!r} already exists (use edit)"
-            raise ConfigError(msg)
-        self._save_commands(CommandRegistry(commands=(*self.commands.commands, alias)))
-        return alias
-
-    def update_command(self, name: str, raw: dict[str, object]) -> CommandAlias:
-        """Replace the alias named `name`, persisting the registry.
-
-        Raises ``ConfigError`` if `name` is unknown or the new alias is invalid.
-        """
-        if self.commands.alias_for(name) is None:
-            msg = f"unknown command alias {name!r}"
-            raise ConfigError(msg)
-        alias = self._validate_alias(raw)
-        self._save_commands(
-            CommandRegistry(
-                commands=tuple(
-                    alias if a.name == name else a for a in self.commands.commands
-                )
-            )
-        )
-        return alias
-
-    def remove_command(self, name: str) -> bool:
-        """Drop the alias named `name`; ``True`` if it existed. Persists the change."""
-        if self.commands.alias_for(name) is None:
-            return False
-        self._save_commands(
-            CommandRegistry(
-                commands=tuple(a for a in self.commands.commands if a.name != name)
-            )
-        )
-        return True
 
     # ----- the agent turn ----------------------------------------------------
 
