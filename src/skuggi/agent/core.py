@@ -26,7 +26,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import SecretStr, TypeAdapter, ValidationError
+from pydantic import SecretStr, ValidationError
 
 from skuggi.agent import prompts
 from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
@@ -35,8 +35,8 @@ from skuggi.agent.protocol import ConfigProposal, MemoryExtraction, structured_i
 from skuggi.agent.state import AgentState
 from skuggi.common import logs
 from skuggi.common.text import join_blocks, labeled
+from skuggi.config import editing
 from skuggi.config.config import (
-    _SECRET_FIELDS,
     Provider,
     Settings,
     config_path,
@@ -477,16 +477,11 @@ class AgentCore:
     @staticmethod
     def settable_config_keys() -> frozenset[str]:
         """Config keys the operator may edit -- every setting except secrets."""
-        return frozenset(Settings.model_fields) - _SECRET_FIELDS
+        return editing.settable_keys()
 
     def config_summary(self) -> str:
         """Every setting, one per line, with credentials redacted."""
-        data = self.settings.model_dump(mode="json")
-        lines = []
-        for key in sorted(data):
-            value = "***" if key in _SECRET_FIELDS and data[key] else data[key]
-            lines.append(f"{key} = {value}")
-        return "\n".join(lines)
+        return editing.render_summary(self.settings)
 
     def config_line(self, arg: str) -> str | None:
         """Handle the mechanical `config` forms; None means "escalate to the LLM".
@@ -512,28 +507,20 @@ class AgentCore:
         (never a secret), and applies ``provider``/``mode`` to the live session;
         other keys persist and take effect on restart.
         """
-        if key in _SECRET_FIELDS:
-            return f"config: {key} is a secret -- set it in the environment"
-        if key not in Settings.model_fields:
-            return f"config: unknown setting {key!r}"
-        adapter: TypeAdapter[object] = TypeAdapter(
-            Settings.model_fields[key].annotation
-        )
-        try:
-            coerced = adapter.validate_python(value)
-        except ValidationError:
-            return f"config: invalid value for {key}: {value!r}"
-        json_value = adapter.dump_python(coerced, mode="json")
+        result = editing.coerce_value(key, value)
+        if isinstance(result, str):
+            return result
+        json_value = result.json_value
         write_config(config_path(), {key: json_value})
         try:
             if key == "provider":
-                self.set_provider(str(coerced))
+                self.set_provider(str(result.value))
                 applied = True
             elif key == "mode":
-                self.set_mode(str(coerced))
+                self.set_mode(str(result.value))
                 applied = True
             else:
-                self.settings = self.settings.model_copy(update={key: coerced})
+                self.settings = self.settings.model_copy(update={key: result.value})
                 applied = False
         except (ValueError, RuntimeError, ImportError) as exc:
             return f"config: {key} written, but the live switch failed: {exc}"
