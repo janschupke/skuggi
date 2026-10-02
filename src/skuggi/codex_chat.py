@@ -35,7 +35,10 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_openai import ChatOpenAI
 
 from skuggi.config import CODEX_REFRESH_URL, CODEX_RESPONSES_BASE
+from skuggi.logs import get_logger
 from skuggi.prompts import CODEX_DEFAULT_INSTRUCTIONS
+
+log = get_logger(__name__)
 
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_OPENAI_BETA = "responses=experimental"
@@ -56,7 +59,8 @@ def jwt_expiry(token: str) -> int | None:
         payload = token.split(".")[1]
         payload += "=" * (-len(payload) % 4)
         claims = json.loads(base64.urlsafe_b64decode(payload))
-    except (IndexError, ValueError, binascii.Error):
+    except (IndexError, ValueError, binascii.Error) as exc:
+        log.debug("could not parse JWT expiry: %s", exc)
         return None
     exp = claims.get("exp") if isinstance(claims, dict) else None
     return (
@@ -142,7 +146,8 @@ class CodexTokenStore:
         """Whether auth.json holds usable ChatGPT tokens (no network, no refresh)."""
         try:
             self._tokens()
-        except CodexAuthError:
+        except CodexAuthError as exc:
+            log.debug("not logged in to ChatGPT: %s", exc)
             return False
         return True
 

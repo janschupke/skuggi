@@ -86,6 +86,7 @@ reason for the split — not a bespoke scheme. Plus one deliberate exception.
 ~/.local/share/skuggi/
   sessions.db  preferences.db  faiss_index/  toolbox/  .repl_history
   ledger.db  reports/          # agent-only fallback, no engagement selected
+  logs/skuggi.log              # diagnostic log (rotating); SKUGGI_LOG_LEVEL
 
 ./engagements/<name>/   # RELATIVE to your working directory
 ```

@@ -41,6 +41,9 @@ from skuggi.codex_chat import (
     CodexTokenStore,
 )
 from skuggi.config import CODEX_AUTHORIZE_URL, CODEX_REFRESH_URL, Settings
+from skuggi.logs import get_logger, setup_logging
+
+log = get_logger(__name__)
 
 # codex listens on 1455 and falls back to 1457; the redirect must match exactly.
 _CALLBACK_PORTS = (1455, 1457)
@@ -108,7 +111,8 @@ def jwt_claims(token: str) -> dict[str, object]:
         payload = token.split(".")[1]
         payload += "=" * (-len(payload) % 4)
         claims = json.loads(base64.urlsafe_b64decode(payload))
-    except (IndexError, ValueError, json.JSONDecodeError):
+    except (IndexError, ValueError, json.JSONDecodeError) as exc:
+        log.warning("could not decode JWT claims: %s", exc)
         return {}
     return claims if isinstance(claims, dict) else {}
 
@@ -246,7 +250,8 @@ def login(  # noqa: PLR0913 -- keyword-only, each an injection point for tests
     notify("opening your browser to sign in...")
     try:
         opened = open_browser(url)
-    except webbrowser.Error:
+    except webbrowser.Error as exc:
+        log.warning("could not open a browser: %s", exc)
         opened = False
     if not opened:
         notify(f"could not open a browser; visit this URL to sign in:\n{url}")
@@ -320,11 +325,14 @@ def _exchange_code(  # noqa: PLR0913 -- keyword-only OAuth token-exchange fields
 
 def main() -> None:  # pragma: no cover -- opens a real browser + OAuth
     """Console entry (``skuggi-login``): log in to ChatGPT before starting skuggi."""
+    setup_logging()
+    log.info("skuggi-login starting")
     try:
         login(
             auth_path=Settings().auth_json(),
             notify=lambda message: print(f"skuggi: {message}"),
         )
     except CodexAuthError as exc:
+        log.exception("login failed")
         print(f"skuggi: login failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

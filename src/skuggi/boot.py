@@ -13,6 +13,9 @@ import sys
 from collections.abc import Callable
 
 from skuggi.configs import ConfigError
+from skuggi.logs import get_logger
+
+log = get_logger(__name__)
 
 
 def _is_setup_error(exc: BaseException) -> bool:
@@ -40,6 +43,9 @@ def guard_boot[T](build: Callable[[], T]) -> T:
     try:
         return build()
     except Exception as exc:
+        # A full traceback goes to the file log either way; the operator sees a
+        # traceback only under SKUGGI_DEBUG, a clean one-liner otherwise.
+        log.exception("boot failed")
         if os.environ.get("SKUGGI_DEBUG") or not _is_setup_error(exc):
             raise
         print(f"skuggi: {exc}", file=sys.stderr)

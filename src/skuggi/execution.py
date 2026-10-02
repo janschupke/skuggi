@@ -22,6 +22,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from skuggi.logs import get_logger
+
+log = get_logger(__name__)
+
 # A scan can emit megabytes; the ledger and any prompt that echoes a result
 # both need this bounded. Shared with tools.file_read (same 256 KiB ceiling).
 MAX_CAPTURE_BYTES = 262_144
@@ -85,6 +89,7 @@ def run(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
+        log.warning("command timed out after %ss: %s", timeout, command)
         return CommandResult(
             command=command,
             exit_code=_TIMEOUT_EXIT,
@@ -94,7 +99,9 @@ def run(
             finished_at=datetime.now(UTC),
         )
     except (OSError, ValueError) as exc:
-        # A missing binary or a bad argv is a failed command, not a crash.
+        # A missing binary or a bad argv is a failed command, not a crash. Log it
+        # so "tool not installed" is distinguishable from "tool ran and failed".
+        log.warning("could not spawn command %r: %s", command, exc)
         return CommandResult(
             command=command,
             exit_code=_SPAWN_ERROR_EXIT,

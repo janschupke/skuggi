@@ -12,11 +12,14 @@ from pathlib import Path
 
 from skuggi import providers
 from skuggi.config import Settings
+from skuggi.logs import get_logger, setup_logging
 from skuggi.vectorstore import Store
 
 
 def main() -> int:
     """Embed the given files or directories into the local FAISS index."""
+    setup_logging()
+    get_logger(__name__).info("skuggi-ingest starting")
     ap = argparse.ArgumentParser(description="Ingest markdown/text into FAISS.")
     ap.add_argument("paths", nargs="+", help="files or directories to ingest")
     args = ap.parse_args()

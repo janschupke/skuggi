@@ -20,6 +20,7 @@ from skuggi import home, palette, probe, providers, shell
 from skuggi.codex_chat import CodexTokenStore
 from skuggi.config import Settings, config_path
 from skuggi.configs import ConfigError, load_registry
+from skuggi.logs import get_logger, setup_logging
 from skuggi.registry import RuntimeStatus, ToolStatus
 
 # Emitted before a probe runs so the operator sees progress, not a silent wait.
@@ -173,6 +174,8 @@ def install_table(settings: Settings) -> Table:
 
     table.add_row("config home", "", str(home.config_home()))
     table.add_row("data home", "", str(home.data_home()))
+    # The diagnostic log; absent on a fresh install until something first writes.
+    row("log file", settings.log_path, required=False)
     # The registry is the one file whose absence breaks the harness outright
     # (`load_registry` raises), so it is the only "MISSING" rather than "absent".
     row("config.json", config_path(), required=False)
@@ -319,6 +322,8 @@ def main() -> int:
     install, and the table is what says where the file was expected and that
     ``skuggi-init`` would seed it.
     """
+    setup_logging()
+    get_logger(__name__).info("skuggi-doctor starting")
     console = Console()
     settings = Settings()
     try:

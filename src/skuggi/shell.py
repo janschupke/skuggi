@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from skuggi import palette, verbs
+from skuggi.logs import get_logger, setup_logging
 
 if TYPE_CHECKING:
     from skuggi.engagement import EngagementConfig
@@ -183,6 +184,8 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
     from skuggi.config import Settings
     from skuggi.core import AgentCore
 
+    setup_logging()
+    get_logger(__name__).info("skuggi shell starting")
     core = guard_boot(lambda: AgentCore(Settings()))
     for warning in core.warnings:
         print(f"skuggi: {warning}")

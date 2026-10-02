@@ -61,6 +61,30 @@ def test_turn_errors_are_yielded_not_raised(core: AgentCore) -> None:
     assert any(e.node == "error" and "boom" in e.text for e in events)
 
 
+def test_turn_survives_a_failed_closing_ledger_write(
+    core: AgentCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A storage failure on the turn-closing event must not crash the loop.
+
+    ``record_event(kind="response")`` runs in ``turn``'s ``finally``, outside the
+    try that guards the turn body. If it raised, it would escape ``turn`` and kill
+    the front-end loop with the answer already delivered; instead it degrades to a
+    logged warning and the turn completes normally.
+    """
+    real = core.ledger.record_event
+
+    def flaky(**kwargs: object) -> int:
+        if kwargs.get("kind") == "response":
+            msg = "db gone"
+            raise RuntimeError(msg)
+        return real(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(core.ledger, "record_event", flaky)
+    # Must not raise despite the closing write failing.
+    events = list(core.turn("what is exposed?"))
+    assert any(e.kind == "final" for e in events)
+
+
 def test_set_mode_switches_and_validates(core: AgentCore) -> None:
     assert core.set_mode("blueteam") == "blueteam"
     assert core.mode == "blueteam"

@@ -32,6 +32,7 @@ from skuggi.eval.divergence import (
 from skuggi.eval.models import ModelSpec
 from skuggi.eval.report import render_scorecard
 from skuggi.eval.runner import DEFAULT_REGISTRY, evaluate_deterministic
+from skuggi.logs import get_logger, setup_logging
 
 _TIERS: dict[str, tuple[str, ...]] = {
     "det": DETERMINISTIC,
@@ -102,6 +103,8 @@ def _run_quality(  # pragma: no cover -- needs a real provider; opt-in only
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the requested tier, gate against the baseline, write the scorecard."""
+    setup_logging()
+    get_logger(__name__).info("skuggi-eval starting")
     args = _parse_args(argv)
     dims = _TIERS[args.tier]
     det_dims = [d for d in dims if d in DETERMINISTIC]

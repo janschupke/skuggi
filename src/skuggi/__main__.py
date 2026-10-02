@@ -6,11 +6,14 @@ the pure agent chat, kept for when you want the REPL without a wrapped shell.
 
 from skuggi.boot import guard_boot
 from skuggi.config import Settings
+from skuggi.logs import get_logger, setup_logging
 from skuggi.tui import Tui
 
 
 def main() -> None:
     """Launch the REPL."""
+    setup_logging()
+    get_logger(__name__).info("skuggi-repl starting")
     # Only the construction is guarded -- a mid-session error must not be
     # swallowed as a setup failure.
     app = guard_boot(lambda: Tui(Settings()))

@@ -24,6 +24,10 @@ import threading
 from collections.abc import Callable, Iterator
 from typing import TextIO
 
+from skuggi.logs import get_logger, setup_logging
+
+log = get_logger(__name__)
+
 _EXIT_SHELL = 42
 
 
@@ -95,7 +99,10 @@ def record(sock_path: str, text: str) -> int:  # pragma: no cover -- real socket
             conn.settimeout(2.0)
             conn.connect(sock_path)
             record_over(conn, text)
-    except OSError:
+    except OSError as exc:
+        # Fail-open by design (a dead daemon must not disrupt the shell), but the
+        # dropped passthrough record is worth a trace.
+        log.debug("passthrough record not delivered: %s", exc)
         return 0
     return 0
 
@@ -135,6 +142,7 @@ def run_over(conn: socket.socket, text: str, out: TextIO) -> int:
             try:
                 resp = json.loads(line)
             except json.JSONDecodeError:
+                log.warning("dropping malformed daemon frame: %r", line)
                 continue
             chunk = resp.get("chunk")
             if chunk:
@@ -158,6 +166,7 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
         out.write("\n")
         return 0
     except OSError as e:
+        log.exception("cannot reach the harness over %s", sock_path)
         print(f"skuggi: cannot reach the harness: {e}", file=sys.stderr)
         return 1
 
@@ -208,6 +217,7 @@ def _stream_turn(
         try:
             resp = json.loads(line)
         except json.JSONDecodeError:
+            log.warning("dropping malformed daemon frame: %r", line)
             continue
         if "ask" in resp and conn is not None and ask is not None:
             answer = ask(str(resp["ask"]))
@@ -271,6 +281,7 @@ def attach(  # pragma: no cover -- interactive loop over a real socket
             conn.connect(sock_path)
             return attach_over(conn, prompt_in, out)
     except OSError as e:
+        log.exception("cannot reach the harness over %s", sock_path)
         print(f"skuggi: cannot reach the harness: {e}", file=sys.stderr)
         return 1
 
@@ -311,6 +322,7 @@ def attach_once(  # pragma: no cover -- opens a real socket
         out.write("\n")
         return 0
     except OSError as e:
+        log.exception("cannot reach the harness over %s", sock_path)
         print(f"skuggi: cannot reach the harness: {e}", file=sys.stderr)
         return 1
 
@@ -331,6 +343,7 @@ def _stdin_prompt(prompt: str) -> str | None:  # pragma: no cover -- real termin
 
 def main() -> int:  # pragma: no cover -- console entry point
     """Console entry point invoked by the shell's ``/skuggi`` hook."""
+    setup_logging()
     sock_path = os.environ.get("SKUGGI_SOCK")
     if not sock_path:
         print("skuggi: not running inside a skuggi shell", file=sys.stderr)

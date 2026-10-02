@@ -29,7 +29,10 @@ from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 
 from skuggi import palette
+from skuggi.logs import get_logger, setup_logging
 from skuggi.paths import ensure_parent
+
+log = get_logger(__name__)
 
 _TEMPLATE_NAME = "report.html.j2"
 _STYLESHEET_NAME = "report.css"
@@ -61,6 +64,7 @@ def _highlight(code: str, lang: str, _attrs: str) -> str:
     try:
         lexer = get_lexer_by_name(lang)
     except ClassNotFound:
+        log.debug("no pygments lexer for %r; emitting code unhighlighted", lang)
         return ""
     inner = _pygments_highlight(code, lexer, HtmlFormatter(nowrap=True))
     # Leading "<pre" tells markdown-it to use this verbatim instead of re-wrapping.
@@ -171,6 +175,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for ``skuggi-pdf``."""
+    setup_logging()
+    log.info("skuggi-pdf starting")
     args = _build_arg_parser().parse_args(argv)
     input_path: Path = args.input
     md_text = input_path.read_text(encoding="utf-8")

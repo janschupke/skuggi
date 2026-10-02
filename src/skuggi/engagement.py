@@ -30,8 +30,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, IPvAnyNetwork, field_validator
 
+from skuggi.logs import get_logger
 from skuggi.protocol import Stance
 from skuggi.registry import ToolRegistry
+
+log = get_logger(__name__)
 
 # A dotted name with an alphabetic TLD. Deliberately strict: a bare word with
 # no dot ("localhost", "80") is not a target unless a target_flag forces it.
@@ -202,7 +205,8 @@ def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
     """
     try:
         argv = tuple(shlex.split(raw))
-    except ValueError:
+    except ValueError as exc:
+        log.debug("command did not tokenize (%s); guard will deny: %r", exc, raw)
         argv = ()
     if not argv:
         return ParsedCommand(

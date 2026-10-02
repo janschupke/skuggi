@@ -42,6 +42,7 @@ from langgraph.graph.state import CompiledStateGraph
 from skuggi import execution
 from skuggi.engagement import EngagementConfig, check_command, parse_command
 from skuggi.ledger import Ledger
+from skuggi.logs import get_logger
 from skuggi.prompts import PromptSet, prompt_set
 from skuggi.protocol import (
     CommandBrief,
@@ -68,6 +69,8 @@ from skuggi.state import (
     WorkerUpdate,
 )
 from skuggi.vectorstore import Store, format_hits
+
+log = get_logger(__name__)
 
 # How much captured command output the executor hands back to the worker as the
 # command's summary -- enough to decide the next step without dumping a whole scan.
@@ -413,16 +416,26 @@ def _run_or_propose(
         )
         return cid, brief, False
     result = execution.run(parsed.argv, timeout=deps.command_timeout_s, cwd=work_dir)
-    cid = deps.ledger.record_command(
-        session_id=deps.session_id,
-        thread_id=deps.thread_id(),
-        command=command,
-        binary=parsed.binary,
-        method=parsed.method,
-        status="executed",
-        result=result,
-        turn_event_id=deps.turn_id(),
-    )
+    try:
+        cid = deps.ledger.record_command(
+            session_id=deps.session_id,
+            thread_id=deps.thread_id(),
+            command=command,
+            binary=parsed.binary,
+            method=parsed.method,
+            status="executed",
+            result=result,
+            turn_event_id=deps.turn_id(),
+        )
+    except Exception:
+        # Evidence loss: the command ran but its result did not persist. Make it
+        # unmistakable in the log, then let it surface (a bad turn is not silent).
+        # error, not exception: the full traceback is logged once where the turn
+        # catches it; here we want the one-line evidence-loss marker.
+        log.error(  # noqa: TRY400 -- traceback logged at the turn boundary
+            "evidence loss: failed to record executed command %r", command
+        )
+        raise
     brief = CommandBrief(
         id=cid,
         status="executed",
@@ -445,14 +458,23 @@ def _record_findings(
         else deps.ledger.latest_command_id(deps.session_id)
     )
     for finding in resp.findings:
-        deps.ledger.record_finding(
-            session_id=deps.session_id,
-            title=finding.title,
-            severity=finding.severity,
-            description=finding.description,
-            evidence=finding.evidence,
-            command_id=link,
-        )
+        try:
+            deps.ledger.record_finding(
+                session_id=deps.session_id,
+                title=finding.title,
+                severity=finding.severity,
+                description=finding.description,
+                evidence=finding.evidence,
+                command_id=link,
+            )
+        except Exception:
+            # Evidence loss: a finding the agent produced did not persist. This is
+            # the worst case for an engagement, so name it explicitly, then raise.
+            # error, not exception: the traceback is logged once at the turn boundary.
+            log.error(  # noqa: TRY400 -- traceback logged at the turn boundary
+                "evidence loss: failed to record finding %r", finding.title
+            )
+            raise
 
 
 def recursion_limit(*, max_revisions: int, max_command_rounds: int) -> int:

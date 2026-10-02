@@ -28,7 +28,6 @@ effect and a test override is one constructor arg.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 from pathlib import Path
@@ -43,7 +42,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from skuggi import home
+from skuggi import home, logs
 from skuggi.modes import Mode
 from skuggi.paths import ensure_parent
 
@@ -71,6 +70,8 @@ CONFIG_PATH_ENV = "SKUGGI_CONFIG_PATH"
 # credentials belong in the environment only.
 _SECRET_FIELDS = frozenset({"openai_api_key", "anthropic_api_key"})
 
+log = logs.get_logger(__name__)
+
 
 def config_path() -> Path:
     """The active config.json path (``SKUGGI_CONFIG_PATH`` or under the config home).
@@ -89,8 +90,14 @@ def write_config(path: Path, updates: dict[str, object]) -> None:
     """Merge `updates` into the JSON config at `path` (read-modify-write).
 
     Credentials are refused -- they live only in the environment, never in the
-    JSON (mirrors ``_NonSecretJsonSource`` on the read side). A missing or
-    unreadable file starts from an empty object; the parent directory is created.
+    JSON (mirrors ``_NonSecretJsonSource`` on the read side). A missing file starts
+    from an empty object; the parent directory is created.
+
+    An *unreadable* existing file is NOT silently treated as empty: doing so would
+    merge only the new keys over ``{}`` and write that back, clobbering every prior
+    setting the operator could no longer read. Instead the corrupt file is logged
+    and preserved, and the write is refused -- a failed edit must never destroy a
+    config we merely failed to parse.
     """
     secret = {k for k in updates if k.lower() in _SECRET_FIELDS}
     if secret:
@@ -99,10 +106,14 @@ def write_config(path: Path, updates: dict[str, object]) -> None:
     resolved = ensure_parent(path)
     current: dict[str, object] = {}
     if resolved.is_file():
-        with contextlib.suppress(OSError, json.JSONDecodeError):
+        try:
             loaded = json.loads(resolved.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                current = loaded
+        except (OSError, json.JSONDecodeError) as exc:
+            log.exception("refusing to overwrite unreadable config %s", resolved)
+            msg = f"existing config at {resolved} is unreadable; not overwriting"
+            raise ValueError(msg) from exc
+        if isinstance(loaded, dict):
+            current = loaded
     current.update(updates)
     resolved.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
 
@@ -199,6 +210,13 @@ class Settings(BaseSettings):
     history_path: Path = Field(
         default_factory=lambda: home.data_home() / ".repl_history"
     )
+    # The diagnostic file log (skuggi.logs), distinct from the SQLite ledger/audit
+    # logs. `log_level` is here for discoverability and the doctor table; the level
+    # actually applied at startup is resolved from the environment by
+    # `logs.setup_logging` (SKUGGI_LOG_LEVEL > SKUGGI_DEBUG > INFO), since logging
+    # must initialise before (and even if) Settings construction fails.
+    log_path: Path = Field(default_factory=logs.default_log_path)
+    log_level: str = "INFO"
 
     chunk_size: int = 800
     chunk_overlap: int = 120

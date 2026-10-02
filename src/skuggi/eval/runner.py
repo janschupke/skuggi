@@ -39,6 +39,7 @@ from skuggi.eval.scorers import (
     result_compat,
     schema_compat,
 )
+from skuggi.logs import get_logger
 from skuggi.paths import packaged_template
 from skuggi.protocol import (
     CriticResponse,
@@ -50,6 +51,8 @@ from skuggi.protocol import (
 )
 from skuggi.registry import ToolRegistry
 from skuggi.reports import render_report
+
+log = get_logger(__name__)
 
 DEFAULT_REGISTRY = packaged_template("tools.example.json")
 
@@ -89,7 +92,8 @@ def score_schema_case(case: SchemaCase) -> Score:
     try:
         schema.model_validate(case.raw)
         is_valid = True
-    except ValidationError:
+    except ValidationError as exc:
+        log.info("schema case %s failed validation: %s", case.schema_name, exc)
         is_valid = False
     return schema_compat(is_valid, case)
 

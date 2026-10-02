@@ -303,8 +303,15 @@ def test_write_config_creates_parent(tmp_path: Path) -> None:
     assert path.is_file()
 
 
-def test_write_config_survives_a_malformed_file(tmp_path: Path) -> None:
+def test_write_config_refuses_to_clobber_a_malformed_file(tmp_path: Path) -> None:
+    """A write must never destroy a config we merely failed to parse.
+
+    Silently treating an unreadable file as empty would merge only the new keys
+    over ``{}`` and write that back, clobbering every prior setting the operator
+    could no longer read. Instead the write is refused and the file is preserved.
+    """
     path = tmp_path / "config.json"
     path.write_text("{ not json", encoding="utf-8")
-    write_config(path, {"provider": "ollama"})
-    assert json.loads(path.read_text(encoding="utf-8")) == {"provider": "ollama"}
+    with pytest.raises(ValueError, match="unreadable"):
+        write_config(path, {"provider": "ollama"})
+    assert path.read_text(encoding="utf-8") == "{ not json"

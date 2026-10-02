@@ -19,7 +19,6 @@ Those tokens do not work against api.openai.com; use provider=chatgpt.
 from __future__ import annotations
 
 import json
-from contextlib import suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,6 +28,9 @@ from langchain_core.language_models import BaseChatModel
 
 from skuggi.config import Provider, Settings
 from skuggi.configs import ConfigError
+from skuggi.logs import get_logger
+
+log = get_logger(__name__)
 
 # init_chat_model has no extension hook for a custom provider, so `chatgpt`
 # stays a separate branch rather than joining this table.
@@ -53,10 +55,15 @@ def _key_from_auth_json(path: Path) -> str | None:
     """Read a usable top-level OPENAI_API_KEY out of a codex auth.json."""
     if not path.is_file():
         return None
-    with suppress(OSError, json.JSONDecodeError):
+    try:
         key = json.loads(path.read_text(encoding="utf-8")).get("OPENAI_API_KEY")
-        if isinstance(key, str) and key.startswith("sk-"):
-            return key
+    except (OSError, json.JSONDecodeError) as exc:
+        # A corrupt auth.json must not look identical to a missing key -- that is
+        # the hardest credential problem to diagnose without a trace.
+        log.warning("could not read a key from %s: %s", path, exc)
+        return None
+    if isinstance(key, str) and key.startswith("sk-"):
+        return key
     return None
 
 

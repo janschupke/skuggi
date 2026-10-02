@@ -32,6 +32,9 @@ from skuggi.configs import ConfigError
 from skuggi.core import AgentCore, parse_toggle
 from skuggi.doctor import PROBING_MSG, doctor_ansi
 from skuggi.ledger import finding_line
+from skuggi.logs import get_logger
+
+log = get_logger(__name__)
 
 
 class Daemon:
@@ -638,6 +641,7 @@ def serve(core: AgentCore, sock_path: str) -> ServerHandle:  # pragma: no cover
             try:
                 msg = json.loads(line)
             except json.JSONDecodeError:
+                log.warning("dropping malformed client request frame: %r", line)
                 msg = {}
             if msg.get("op") == "attach":
                 self._attach(str(msg.get("mode", "loop")))
@@ -655,6 +659,7 @@ def serve(core: AgentCore, sock_path: str) -> ServerHandle:  # pragma: no cover
                 try:
                     return str(json.loads(raw).get("text", ""))
                 except json.JSONDecodeError:
+                    log.warning("dropping malformed client attach frame: %r", raw)
                     return ""
 
             daemon.run_attached(read_line, self._emit, mode=mode)

@@ -13,9 +13,10 @@ are the shared builders the L3 harness tests use instead of hand-rolling a core.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import httpx
@@ -204,6 +205,34 @@ def no_subprocess(
 
     monkeypatch.setattr(subprocess, "run", _blocked)
     monkeypatch.setattr("skuggi.execution.run", _blocked)
+
+
+@pytest.fixture(autouse=True)
+def reset_logging() -> Iterator[None]:
+    """Snapshot and restore the root logger around every test.
+
+    ``logs.setup_logging`` configures the *root* logger -- global, process-wide
+    state. A test (or any entry-point ``main`` a test drives) that calls it would
+    otherwise leave a ``RotatingFileHandler`` open on that test's ``tmp_path``,
+    which is then deleted: later tests inherit a handler pointing at a vanished
+    directory, and the leak is exactly the kind the ``isolate_credentials`` note
+    warns about -- nothing fails, the wrong files are touched. Restoring the
+    handler list and level after each test keeps logging setup isolated.
+    """
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    try:
+        yield
+    finally:
+        for handler in root.handlers[:]:
+            if handler not in saved_handlers:
+                handler.close()
+                root.removeHandler(handler)
+        for handler in saved_handlers:
+            if handler not in root.handlers:
+                root.addHandler(handler)
+        root.setLevel(saved_level)
 
 
 @pytest.fixture

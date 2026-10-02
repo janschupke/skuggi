@@ -35,6 +35,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from skuggi import home
+from skuggi.logs import get_logger, setup_logging
 from skuggi.paths import ensure_dir
 
 # Harness config seeded into the config home, as (template, installed name).
@@ -117,6 +118,9 @@ def initialise(
     """
     config_dir = ensure_dir(config_dir or home.config_home())
     data_dir = ensure_dir(data_dir or home.data_home())
+    # The diagnostic log lives under the data home; create its directory now so
+    # the very first run (including this one) has somewhere to write.
+    ensure_dir(data_dir / "logs")
     lines = [f"config home: {config_dir}", f"data home:   {data_dir}"]
 
     root = checkout_root() if migrate_from is _AUTO else migrate_from
@@ -153,6 +157,8 @@ def initialise(
 
 def main() -> int:
     """Console entry point: initialise both homes and report what happened."""
+    setup_logging()
+    get_logger(__name__).info("skuggi-init starting")
     for line in initialise():
         print(line)
     return 0

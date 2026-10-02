@@ -5,7 +5,15 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from skuggi.graph import last_user_text, prior_turns, render_history, route_after_critic
+from skuggi.graph import (
+    GraphDeps,
+    _record_findings,
+    last_user_text,
+    prior_turns,
+    render_history,
+    route_after_critic,
+)
+from skuggi.protocol import FindingDraft, WorkerResponse
 from skuggi.state import AgentState
 
 
@@ -95,3 +103,31 @@ def test_render_history_keeps_one_message_even_if_oversized() -> None:
 
 def test_render_history_empty() -> None:
     assert render_history([], max_messages=5, max_chars=100) == ""
+
+
+class _ExplodingLedger:
+    """A ledger whose finding write always fails, to exercise evidence loss."""
+
+    def record_finding(self, **_kwargs: object) -> int:
+        msg = "disk full"
+        raise RuntimeError(msg)
+
+
+def test_record_findings_logs_evidence_loss_and_reraises(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A finding that fails to persist must not vanish silently.
+
+    Losing a finding is the worst case for an engagement: it is named explicitly
+    in the log as evidence loss, then re-raised so the turn is not reported as
+    clean.
+    """
+    deps = GraphDeps(ledger=_ExplodingLedger(), session_id="s")  # type: ignore[arg-type]
+    resp = WorkerResponse(
+        findings=(
+            FindingDraft(title="open port", severity="high", description="22/tcp"),
+        )
+    )
+    with caplog.at_level("ERROR", logger="skuggi.graph"), pytest.raises(RuntimeError):
+        _record_findings(deps, resp, command_id=1)
+    assert any("evidence loss" in r.message for r in caplog.records)

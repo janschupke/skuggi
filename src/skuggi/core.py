@@ -34,6 +34,7 @@ from skuggi import (
     __version__,
     envfile,
     execution,
+    logs,
     memory,
     preferences,
     probe,
@@ -77,6 +78,8 @@ from skuggi.state import AgentState
 from skuggi.text import join_blocks, labeled
 from skuggi.vectorstore import Store
 from skuggi.workspace import Workspace, WorkspaceLayout
+
+log = logs.get_logger(__name__)
 
 _PROVIDERS = get_args(Provider)
 
@@ -135,7 +138,8 @@ def _installed_version(root: Path) -> str:
     """Read ``__version__`` from the on-disk source (post-pull), or ``?``."""
     try:
         text = (root / "src" / "skuggi" / "__init__.py").read_text(encoding="utf-8")
-    except OSError:
+    except OSError as exc:
+        log.debug("could not read installed version from %s: %s", root, exc)
         return "?"
     match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
     return match.group(1) if match else "?"
@@ -228,6 +232,7 @@ class AgentCore:
         try:
             return load_layout(self.settings.layout_path)
         except ConfigError as exc:
+            log.warning("invalid workspace layout, using defaults: %s", exc)
             self.warnings.append(f"invalid workspace layout, using defaults: {exc}")
             return WorkspaceLayout()
 
@@ -235,6 +240,7 @@ class AgentCore:
         if not self.settings.engagement:
             # Descriptive only; the front-end appends a grammar-correct hint to
             # create one (an env var is not the operator-facing answer).
+            log.info("no engagement selected; running agent-only")
             self.warnings.append("no engagement selected; running agent-only")
             return None
         ws = Workspace.for_engagement(
@@ -249,6 +255,7 @@ class AgentCore:
         try:
             return load_scope(self.workspace.scope_path)
         except ConfigError as exc:
+            log.warning("no engagement loaded: %s", exc)
             self.warnings.append(f"no engagement loaded: {exc}")
             return None
 
@@ -256,6 +263,7 @@ class AgentCore:
         try:
             return load_registry(self.settings.registry_path)
         except ConfigError as exc:
+            log.warning("no tool registry loaded: %s", exc)
             self.warnings.append(f"no tool registry loaded: {exc}")
             return ToolRegistry()
 
@@ -263,6 +271,7 @@ class AgentCore:
         try:
             return load_commands(self.settings.commands_path)
         except ConfigError as exc:
+            log.warning("no command aliases loaded: %s", exc)
             self.warnings.append(f"no command aliases loaded: {exc}")
             return CommandRegistry()
 
@@ -409,7 +418,8 @@ class AgentCore:
         """
         try:
             return providers.get_chat_model(self.settings, model=self.model)
-        except (RuntimeError, ImportError):
+        except (RuntimeError, ImportError) as exc:
+            log.warning("no chat model configured: %s", exc)
             self.warnings.append(providers.NO_MODEL_CONFIGURED)
             return None
 
@@ -847,7 +857,8 @@ class AgentCore:
                 ],
                 native=self.settings.supports_structured_output(),
             )
-        except Exception:  # noqa: BLE001 -- best-effort; a failure is not fatal
+        except Exception:  # best-effort; a failure is not fatal
+            log.exception("preference extraction failed; capturing nothing this turn")
             return []
         captured: list[preferences.PreferenceRow] = []
         for directive in extraction.directives:
@@ -1083,20 +1094,28 @@ class AgentCore:
             # A config/credential problem is already a full, actionable sentence
             # (e.g. "No OpenAI API key configured. Run /setup..."); show it as-is
             # rather than prefixing it with the exception class name.
+            log.warning("turn aborted on config error: %s", e)
             final_text = f"[error] {e}"
             yield TurnEvent("status", str(e), node="error")
-        except Exception as e:  # noqa: BLE001 -- a bad turn must not kill the loop
+        except Exception as e:  # a bad turn must not kill the loop
+            log.exception("turn failed")
             final_text = f"[error] {type(e).__name__}: {e}"
             yield TurnEvent("status", f"{type(e).__name__}: {e}", node="error")
         finally:
             # Close the turn on the timeline and stop tagging commands with it,
             # so a later /run proposal is recorded unlinked rather than misattributed.
-            self.ledger.record_event(
-                session_id=self.session_id,
-                thread_id=self.thread_id,
-                kind="response",
-                text=final_text,
-            )
+            # This runs OUTSIDE the try above: a storage failure here must degrade
+            # to a logged warning, never raise out of `turn` and kill the
+            # front-end loop with the response already delivered.
+            try:
+                self.ledger.record_event(
+                    session_id=self.session_id,
+                    thread_id=self.thread_id,
+                    kind="response",
+                    text=final_text,
+                )
+            except Exception:  # closing the timeline must not crash the loop
+                log.exception("failed to record turn-closing response event")
             self._current_turn_event_id = None
 
     def _turn_updates(self, payload: dict[str, object]) -> Iterator[TurnEvent]:

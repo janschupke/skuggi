@@ -131,6 +131,18 @@ the message on a cheap heuristic (`looks_like_directive`) and, if it passes,
 asks the LLM (one-shot) to extract any durable directive, saving it and emitting
 a `remembered: …` status. `settings.memory_auto` switches the automatic path off.
 
+**The diagnostic log** ([logs.py](../src/skuggi/logs.py), `logs/skuggi.log` in the
+data home) is a different thing again, and orthogonal to all of the above: the
+ledger records what the operator and agent *did*; the diagnostic log records what
+*failed* — swallowed exceptions, degraded config loads, provider/network errors —
+so a silent failure leaves a durable trace instead of vanishing into a
+backgrounded daemon's dead stderr. It is a rotating text file (5 MB × 5), written
+by a root-logger handler that every entry point installs once at startup via
+`setup_logging`; modules only ever `get_logger(__name__)`. There is no console
+handler — a stream handler would corrupt the Rich TUI — so these records go to the
+file alone. The level is `SKUGGI_LOG_LEVEL` (or `DEBUG` under `SKUGGI_DEBUG`, else
+`INFO`), and noisy third-party loggers are capped at `WARNING`.
+
 ## Standalone modules
 
 Files that can be read top-to-bottom in one sitting:
@@ -144,6 +156,9 @@ Files that can be read top-to-bottom in one sitting:
 - [registry.py](../src/skuggi/registry.py) / [probe.py](../src/skuggi/probe.py)
   / the rendering half of [doctor.py](../src/skuggi/doctor.py) — the recognized-
   tool data model, host probing + install, and the doctor tables respectively.
+- [logs.py](../src/skuggi/logs.py) — the diagnostic-log setup: `setup_logging`
+  (the rotating file handler every entry point installs once) and `get_logger`.
+  Resolves its path under the data home at call time, never at import.
 - [memory.py](../src/skuggi/memory.py) — a `SqliteSaver` wrapper and thread
   enumeration through the checkpointer's own `list` API.
 - [preferences.py](../src/skuggi/preferences.py) — the harness-memory store: a
