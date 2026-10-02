@@ -65,7 +65,9 @@ class ConfigController:
         if isinstance(result, str):
             return result
         json_value = result.json_value
-        write_config(config_path(), {key: json_value})
+        # Apply the live switch *before* persisting: a failed provider/mode change
+        # must not leave the new value in config.json, where it would re-apply
+        # (and perhaps fail to boot) on the next restart.
         try:
             if key == "provider":
                 core.set_provider(str(result.value))
@@ -77,7 +79,8 @@ class ConfigController:
                 core.settings = core.settings.model_copy(update={key: result.value})
                 applied = False
         except (ValueError, RuntimeError, ImportError) as exc:
-            return f"config: {key} written, but the live switch failed: {exc}"
+            return f"config: {key} not changed; the live switch failed: {exc}"
+        write_config(config_path(), {key: json_value})
         tail = "applied live" if applied else "written; restart to apply"
         return f"config: {key} = {json_value} ({tail})"
 

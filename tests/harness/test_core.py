@@ -404,6 +404,26 @@ def test_apply_config_unknown_key(core: AgentCore) -> None:
     assert "unknown" in core.config.apply("nope", "x")
 
 
+def test_apply_config_failed_live_switch_does_not_persist(
+    core: AgentCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F4: a failed provider switch must not persist the value.
+
+    If it did, config.json would re-apply (and maybe fail to boot) on restart.
+    """
+
+    def boom(_name: str) -> None:
+        msg = "no credentials"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(core, "set_provider", boom)
+    msg = core.config.apply("provider", "openai")
+    assert "live switch failed" in msg
+    path = config_path()
+    persisted = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    assert persisted.get("provider") != "openai"  # never persisted on failure
+
+
 def test_propose_config_returns_structured_edits(core: AgentCore) -> None:
     core.llm = cast(
         Any,
