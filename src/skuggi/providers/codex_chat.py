@@ -35,6 +35,7 @@ from langchain_openai import ChatOpenAI
 from skuggi.agent.prompts import CODEX_DEFAULT_INSTRUCTIONS
 from skuggi.common.jwt import decode_claims
 from skuggi.common.logs import get_logger
+from skuggi.common.paths import ensure_dir
 from skuggi.config.config import CODEX_REFRESH_URL, CODEX_RESPONSES_BASE
 
 log = get_logger(__name__)
@@ -117,7 +118,7 @@ class CodexTokenStore:
         crash between write and rename cannot leave a truncated credential file.
         """
         directory = self.auth_path.parent
-        directory.mkdir(parents=True, exist_ok=True)
+        ensure_dir(directory)
         fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=".auth-", suffix=".tmp")
         tmp = Path(tmp_name)
         try:

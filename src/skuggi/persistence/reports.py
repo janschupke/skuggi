@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from skuggi.common import palette
+from skuggi.common.clock import file_stamp, now_iso
 from skuggi.common.paths import ensure_dir
 from skuggi.common.text import join_blocks, labeled
 from skuggi.engagement.engagement import EngagementConfig
@@ -95,7 +96,7 @@ def render_report(
     omitted it is computed here (standalone/direct callers).
     """
     if generated_label is None:
-        generated_label = _local_stamp(datetime.now(UTC).isoformat(), engagement)
+        generated_label = _local_stamp(now_iso(), engagement)
     zone = engagement.timezone if engagement is not None else "UTC"
     header = (
         f"# Engagement report: {session.engagement_name}\n\n"
@@ -148,7 +149,7 @@ def write_report(
     findings = ledger.findings_for(session_id)
     # One generated-at stamp, shared by the Markdown body and the PDF footer, so a
     # later PDF re-render cannot disagree with the document it renders.
-    generated_label = _local_stamp(datetime.now(UTC).isoformat(), engagement)
+    generated_label = _local_stamp(now_iso(), engagement)
     body = render_report(
         session,
         commands,
@@ -158,7 +159,7 @@ def write_report(
     )
 
     reports_dir = ensure_dir(reports_dir)
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    stamp = file_stamp()
     base = reports_dir / f"{_slug(session.engagement_name)}-{session_id[:8]}-{stamp}"
     md_path = base.with_suffix(".md")
     md_path.write_text(body, encoding="utf-8")

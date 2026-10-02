@@ -24,6 +24,7 @@ from skuggi.agent import prompts
 from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.agent.state import AgentState
 from skuggi.common import palette
+from skuggi.common.paths import ensure_parent
 from skuggi.config.config import PROVIDERS, Settings
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.frontend import cmdflow, configflow, dispatch, menu, setup, verbs, wizard
@@ -71,7 +72,7 @@ class Tui:
         self.core = AgentCore(settings)
 
         history_file = self.core.settings.history_path
-        history_file.parent.mkdir(parents=True, exist_ok=True)
+        ensure_parent(history_file)
         self.session: PromptSession[str] = session or PromptSession(
             history=FileHistory(str(history_file))
         )

@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from skuggi.agent.core import AgentCore
 from skuggi.agent.protocol import CriticResponse, PlannerResponse, WorkerResponse
-from skuggi.common.paths import packaged_template
+from skuggi.common.paths import ensure_dir, packaged_template
 from skuggi.config.config import Settings
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.persistence.vectorstore import Store
@@ -98,7 +98,7 @@ def build_offline_core(
     ``registry_path``.
     """
     workspace = tmp / "engagements" / scope.name
-    workspace.mkdir(parents=True, exist_ok=True)
+    ensure_dir(workspace)
     (workspace / "scope.json").write_text(scope.model_dump_json(), encoding="utf-8")
     settings = Settings(
         provider="ollama",

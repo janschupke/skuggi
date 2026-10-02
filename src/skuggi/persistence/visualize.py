@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from skuggi.common import palette
+from skuggi.common.clock import file_stamp, now_iso
 from skuggi.common.paths import ensure_dir, packaged_template
 from skuggi.common.text import redact_secrets
 
@@ -312,7 +313,7 @@ def collect_engagement(  # noqa: PLR0913 -- one keyword arg per already-read sou
     window_end = max(instants) if instants else None
 
     model: dict[str, Any] = {
-        "generated": datetime.now(UTC).isoformat(),
+        "generated": now_iso(),
         "brand": f"{palette.SHIELD} skuggi",
         "engagement": engagement.model_dump(mode="json") if engagement else None,
         "scope_describe": engagement.describe() if engagement else "",
@@ -453,7 +454,7 @@ def write_visualization(  # noqa: PLR0913 -- keyword-only data sources, like col
         name = sessions[0]["engagement_name"] if sessions else "engagement"
     html = render_html(view_model)
     out_dir = ensure_dir(out_dir)
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    stamp = file_stamp()
     path = out_dir / f"{_slug(name)}-{stamp}.html"
     path.write_text(html, encoding="utf-8")
     return path

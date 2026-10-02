@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import cast
 
 from skuggi.agent.core import AgentCore
+from skuggi.common.paths import ensure_dir
 from skuggi.config.config import Settings
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.eval.baseline import DimensionResult
@@ -42,7 +43,7 @@ def build_live_core(  # pragma: no cover
 ) -> AgentCore:
     """An ``AgentCore`` on the real provider for ``scope``, state under ``tmp``."""
     workspace = tmp / "engagements" / scope.name
-    workspace.mkdir(parents=True, exist_ok=True)
+    ensure_dir(workspace)
     (workspace / "scope.json").write_text(scope.model_dump_json(), encoding="utf-8")
     live = settings.model_copy(
         update={

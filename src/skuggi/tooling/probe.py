@@ -22,6 +22,7 @@ from pathlib import Path
 
 from skuggi.common import execution
 from skuggi.common.execution import CommandResult
+from skuggi.common.paths import ensure_parent
 from skuggi.tooling.registry import (
     InstallPlan,
     RuntimeSpec,
@@ -215,7 +216,7 @@ def _ensure_managed_venv(managed_dir: Path, runner: Runner) -> None:
     venv = managed_dir.expanduser() / "venv"
     if (venv / "bin" / "python").is_file() or (venv / "bin" / "pip").is_file():
         return
-    venv.parent.mkdir(parents=True, exist_ok=True)
+    ensure_parent(venv)
     runner(
         ["python3", "-m", "venv", str(venv)],
         timeout=_INSTALL_TIMEOUT,
