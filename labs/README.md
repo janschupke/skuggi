@@ -6,9 +6,11 @@ lab is a realistic-but-simplified scenario with **real reportable surface and pl
 skuggi like a real engagement; manage them with `labctl`.
 
 > ⚠️ Every lab is **intentionally insecure**. Run only on a machine you control, for
-> authorized offline practice. All ports bind to `127.0.0.1` only. Nothing calls a
-> third-party or external API — the "cloud" lab uses LocalStack, the "AD/SMB" lab uses
-> Samba, and every metadata/IMDS endpoint is a local mock.
+> authorized practice. All ports bind to `127.0.0.1` only. Nothing calls a third-party or
+> external API **at runtime** — the "cloud" lab uses LocalStack, the "AD/SMB" lab uses Samba,
+> and every metadata/IMDS endpoint is a local mock. (Base images are pulled from registries
+> at build time; lab 01's **optional** WireGuard overlay is the one runtime image fetched
+> from a third party.)
 
 Full guide (topology, credentials, the `labctl` workflow, per-lab intent): [../docs/labs.md](../docs/labs.md).
 This is separate from the frozen automated-test target in `tests/e2e/fixtures/lab/`, which
@@ -68,7 +70,9 @@ manifest and scope offline, so a malformed lab fails `make check` without bootin
   the internal-only network, unpublished.
 - **Loopback-only published ports**: HTTP on `81NN`, auxiliary services on `82NN`/`83NN`
   (NN = lab number). Only one lab is expected up at a time; distinct ports let two coexist.
-- **Unique compose project + image names** per lab (`skuggi-lab-NN…`) so no two stacks or the
-  e2e fixture collide.
+- **Unique compose project + image names** per lab (`skuggi-lab-NN…`) so no two stacks
+  collide on names. One caveat: lab 01 and the e2e fixture both default to the `192.0.2.0/24`
+  bridge, so those two cannot be up simultaneously (override lab 01 with `LAB_SUBNET=` if you
+  need both). Every other lab has its own subnet.
 - **Planted loot with stable fingerprints** in `manifest.json`, so `labctl verify` proves a
   restore re-seeded and a future scoring harness can auto-grade.

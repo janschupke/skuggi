@@ -1,6 +1,10 @@
 # Engagement brief — "Goat Blog" public website
 
-**Tier:** trivial · **Target:** `web.lab` (`192.0.2.10`) · **Scope net:** `192.0.2.0/24`
+**Tier:** trivial · **Target:** `web.lab` (`192.0.2.10`) · **Scope nets:** `192.0.2.0/24`, `127.0.0.0/8`
+
+> **On macOS** reach it at the loopback-published port `127.0.0.1:8101` (in scope) — Docker
+> Desktop doesn't route container IPs; the IP above is the Linux/direct-routing view. The
+> optional `wireguard/` overlay lets you hit `192.0.2.10` by IP instead (see the README).
 
 ## Scenario
 

@@ -1,22 +1,30 @@
-# WireGuard reachability overlay (macOS fallback).
+# WireGuard reachability overlay (OPTIONAL — macOS by-IP convenience).
 #
-# Docker Desktop on macOS does not route to container IPs, so to reach the lab's
-# defined addresses (192.0.2.0/24) by IP, run this overlay alongside the base
-# stack. It joins a WireGuard gateway to the lab network, masquerades tunnel
-# traffic onto the subnet, and hands your host a client config whose AllowedIPs
-# route 192.0.2.0/24 through the tunnel.
+# You do NOT need this to run lab 01. The lab's scope authorises loopback, so on
+# macOS the supported path is simply the published port: http://127.0.0.1:8101
+# (skuggi reaches it, the engagement guard allows it). On Linux the bridge is
+# directly routable and you do not need this either.
+#
+# This overlay exists only if you want to hit the lab's in-network address
+# (192.0.2.10) BY IP from the macOS host, since Docker Desktop does not route to
+# container IPs. It joins a WireGuard gateway to the lab network and hands your
+# host a client config whose AllowedIPs route 192.0.2.0/24 through the tunnel.
 #
 #   docker compose -f docker-compose.yml -f wireguard/docker-compose.wg.yml up -d
 #
+# Caveat: bringing it up pulls a THIRD-PARTY image from lscr.io (LinuxServer.io),
+# the one non-local image in the range — it needs network and can rate-limit or
+# fail. If it does, use the loopback path above instead. The image is pinned by
+# digest below for reproducibility (resolved from :latest on 2026-10-02).
+#
 # The generated client config appears at wireguard/config/peer1/peer1.conf.
-# Import it into the WireGuard app on the host, activate it, then skuggi (on the
-# host) can nmap/curl/sqlmap 192.0.2.10 directly. On Linux you do NOT need this —
-# the bridge network is directly routable.
+# Import it into the WireGuard app on the host, activate it, then skuggi can
+# nmap/curl/sqlmap 192.0.2.10 directly.
 name: skuggi-lab-01
 
 services:
   wg-gw:
-    image: lscr.io/linuxserver/wireguard:latest
+    image: lscr.io/linuxserver/wireguard:latest@sha256:216ca1ce9da7bfe26fb752111d952487804bd18933bbd4794970d424bf8adfe9
     container_name: skuggi-01-wg
     cap_add:
       - NET_ADMIN

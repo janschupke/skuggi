@@ -2,6 +2,10 @@
 
 **Tier:** hard · **Target:** `portal.cirrus.lab` (`172.30.8.30`) · **Scope nets:** `172.30.8.0/24`, `169.254.169.0/24`
 
+> **On macOS** reach it at the loopback-published ports `127.0.0.1:8108` (app), `:8308`
+> (LocalStack) — Docker Desktop doesn't route container IPs; the IPs above are the
+> Linux/direct-routing view.
+
 ## Scenario
 
 Cirrus runs a customer document portal on a cloud instance with an attached role. The

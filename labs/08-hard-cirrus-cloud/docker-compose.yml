@@ -30,6 +30,8 @@ services:
     environment:
       SERVICES: s3,iam,sts,secretsmanager
       DEBUG: "0"
+      DISABLE_EVENTS: "1"           # no outbound analytics — labs are offline at runtime
+      SKIP_SSL_CERT_DOWNLOAD: "1"   # don't fetch a cert from the internet
     volumes:
       - ./localstack/init:/etc/localstack/init/ready.d:ro
     ports:

@@ -2,6 +2,10 @@
 
 **Tier:** easy · **Target:** `portal.helix.lab` (`10.13.4.20`) · **Scope net:** `10.13.4.0/24`
 
+> **On macOS** reach it at the loopback-published ports `127.0.0.1:8104` (app), `:8304`
+> (postgres) — Docker Desktop doesn't route container IPs; the IP above is the
+> Linux/direct-routing view.
+
 ## Scenario
 
 Helix Dynamics exposes an internal admin portal (a Spring Boot service). Ops recently

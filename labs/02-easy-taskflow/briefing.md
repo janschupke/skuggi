@@ -2,6 +2,9 @@
 
 **Tier:** easy · **Target:** `app.taskflow.lab` (`198.51.100.20`) · **Scope net:** `198.51.100.0/24`
 
+> **On macOS** reach it at the loopback-published port `127.0.0.1:8102` — Docker Desktop
+> doesn't route container IPs; the IP above is the Linux/direct-routing view.
+
 ## Scenario
 
 TaskFlow is an early-stage SaaS that sells team task-tracking. They handle real customer

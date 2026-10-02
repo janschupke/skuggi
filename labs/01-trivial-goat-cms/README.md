@@ -32,8 +32,10 @@ docker compose up -d --build
 curl -s http://127.0.0.1:8101/
 ```
 
-macOS only — to reach `192.0.2.10` by IP, add the WireGuard overlay (details in
-[../../docs/labs.md](../../docs/labs.md)):
+On macOS, use the loopback port above (`127.0.0.1:8101`) — it is in scope and is the
+supported path. The WireGuard overlay below is **optional**: it only lets you reach
+`192.0.2.10` by IP, and it pulls a third-party image from lscr.io (needs network, may
+rate-limit). Details in [../../docs/labs.md](../../docs/labs.md):
 
 ```sh
 docker compose -f docker-compose.yml -f wireguard/docker-compose.wg.yml up -d

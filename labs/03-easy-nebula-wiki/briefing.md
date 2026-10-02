@@ -2,6 +2,10 @@
 
 **Tier:** easy · **Target:** `wiki.nebula.lab` (`203.0.113.20`) · **Scope net:** `203.0.113.0/24`
 
+> **On macOS** reach it at the loopback-published ports `127.0.0.1:8103` (web), `:8203`
+> (redis), `:8303` (postgres) — Docker Desktop doesn't route container IPs; the IP above is
+> the Linux/direct-routing view.
+
 ## Scenario
 
 Nebula Robotics runs a small internal wiki for runbooks and HR notes. It was stood up on a

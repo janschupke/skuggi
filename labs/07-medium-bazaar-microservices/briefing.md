@@ -2,6 +2,10 @@
 
 **Tier:** medium · **Target:** `shop.bazaar.lab` (`172.30.7.20`) · **Scope nets:** `172.30.7.0/24` (edge), `10.7.0.0/24` (internal)
 
+> **On macOS** reach the edge at the loopback-published port `127.0.0.1:8107` — Docker
+> Desktop doesn't route container IPs; the IPs above are the Linux/direct-routing view. (The
+> internal service stays unpublished by design — reach it by pivoting, as on Linux.)
+
 ## Scenario
 
 Bazaar is an online marketplace. Only the storefront API is internet-facing; its order

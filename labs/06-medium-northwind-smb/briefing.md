@@ -2,6 +2,10 @@
 
 **Tier:** medium · **Targets:** `files.northwind.lab` (`10.13.6.10`), `pivot.northwind.lab` (`10.13.6.20`) · **Scope net:** `10.13.6.0/24`
 
+> **On macOS** reach the services at the loopback-published ports `127.0.0.1:8106` (SMB),
+> `:8206` (SSH) — Docker Desktop doesn't route container IPs; the IPs above are the
+> Linux/direct-routing view.
+
 ## Scenario
 
 Northwind Trading runs a small Windows-style file server (Samba) and a Linux "backup/pivot"

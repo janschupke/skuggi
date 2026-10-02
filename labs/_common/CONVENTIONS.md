@@ -37,7 +37,8 @@ entry with a stable `fingerprint` so `labctl verify` can confirm a pristine rest
 
 ## Restore
 
-Prefer `restore.strategy: "reseed"` (exec a seed script in the container — fast, keeps the
-engagement) when the target's mutable state is a DB/files that a script can reset in place.
-Fall back to `"recreate"` (drop volumes + re-up) when a clean volume is the only reliable
-reset (e.g. the trivial lab's first-boot MariaDB seed).
+`restore.strategy: "recreate"` (drop volumes + re-up) is the norm across the range — a clean
+volume is the most reliable reset, and every lab currently uses it. `labctl restore` keeps
+your `./engagements/<id>` either way. `"reseed"` (exec a seed script in the container —
+faster, no teardown) is also supported by `labctl` for a target whose mutable state a script
+can reset in place; it is available if a future lab wants it, but none relies on it today.

@@ -2,6 +2,10 @@
 
 **Tier:** hard · **Target:** `portal.bastion.lab` (`172.30.9.20`) · **Scope nets:** `172.30.9.0/24` (DMZ), `10.9.0.0/24` (internal)
 
+> **On macOS** reach the DMZ at the loopback-published port `127.0.0.1:8109` — Docker Desktop
+> doesn't route container IPs; the IPs above are the Linux/direct-routing view. (The internal
+> crown-jewel host stays unpublished by design — reach it by pivoting, as on Linux.)
+
 ## Scenario
 
 Bastion Trust exposes a single customer portal in a DMZ. Behind it, on a separate internal

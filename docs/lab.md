@@ -14,7 +14,8 @@ One host, one container: Apache/PHP 8.2 on `:80` and MariaDB on `:3306` co-locat
 supervisord, static IP `192.0.2.10` (hostname `web.lab`) on the `192.0.2.0/24` bridge
 (`skuggi-lab`). Ports publish to `127.0.0.1:8080` (HTTP) and `127.0.0.1:3306` (MySQL). On a
 Linux CI runner the bridge is directly routable, so both the loopback and the `192.0.2.10`
-cases run; on macOS only the loopback cases run unless a WireGuard overlay is added.
+cases run; on macOS the `192.0.2.10` cases skip (this fixture ships no reachability overlay)
+and only the loopback cases run.
 
 ## The pinned oracles
 

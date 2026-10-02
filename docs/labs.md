@@ -8,9 +8,11 @@ manage them with `labctl` (via the `make lab-*` targets).
 This range is separate from the frozen e2e fixture in `tests/e2e/fixtures/lab/`
 ([lab.md](lab.md)), which CI drives and which never changes as these labs evolve.
 
-> ⚠️ Every lab is **intentionally insecure** and loopback-only. Everything is **offline** —
-> no third-party or external APIs. LocalStack stands in for AWS, Samba for a Windows DC, and
-> every cloud-metadata/IMDS endpoint is a local mock.
+> ⚠️ Every lab is **intentionally insecure** and loopback-only. Nothing calls out at
+> **runtime** — LocalStack stands in for AWS, Samba for a Windows DC, and every
+> cloud-metadata/IMDS endpoint is a local mock. (Base images are pulled from registries at
+> build time; the one exception at runtime is lab 01's **optional** WireGuard overlay, which
+> fetches a third-party image — see [macOS reachability](#macos-reachability).)
 
 ## The ladder
 
@@ -64,7 +66,12 @@ and scope offline, inside `make check`.
 
 ## macOS reachability
 
-On macOS, Docker Desktop does not route to container IPs, so target the loopback-published
-port. To reach an in-network IP (e.g. `192.0.2.10`) directly, a lab that ships a
-`wireguard/` overlay can be brought up with it (see that lab's README). On Linux the bridge
-is directly routable and no overlay is needed.
+On macOS, Docker Desktop does not route to container IPs, so reach each lab at its
+loopback-published port (`127.0.0.1:81NN`). Every lab's scope authorises loopback, so this
+is the supported path — the briefings name an in-network IP for the Linux/direct-routing
+view. On Linux the bridge is directly routable, so you can target that IP directly.
+
+Only **lab 01** ships an optional `wireguard/` overlay, for operators who specifically want
+to hit its in-network IP (`192.0.2.10`) by IP from a macOS host; it is not required to run
+the lab, and it pulls a third-party image (see
+[labs/01-trivial-goat-cms/README.md](../labs/01-trivial-goat-cms/README.md)).
