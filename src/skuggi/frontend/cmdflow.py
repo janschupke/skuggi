@@ -16,7 +16,7 @@ import shlex
 from collections.abc import Callable
 
 from skuggi.config.configs import ConfigError
-from skuggi.frontend.commands import CommandAlias
+from skuggi.tooling.commands import CommandAlias
 
 Ask = Callable[[str], str | None]
 Notify = Callable[[str], None]

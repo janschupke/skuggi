@@ -27,9 +27,9 @@ from skuggi.common import palette
 from skuggi.config.config import PROVIDERS, Settings
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.frontend import cmdflow, configflow, dispatch, menu, setup, verbs, wizard
-from skuggi.frontend.commands import CommandAlias, render
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import Ledger, finding_line
+from skuggi.tooling.commands import CommandAlias, render
 from skuggi.tooling.doctor import PROBING_MSG, render_doctor
 from skuggi.tooling.registry import ToolRegistry
 

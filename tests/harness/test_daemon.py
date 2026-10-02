@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 
 from skuggi.agent.core import AgentCore
-from skuggi.frontend.commands import CommandAlias, CommandRegistry
 from skuggi.frontend.daemon import Daemon
 from skuggi.persistence import pdf as pdf_mod
 from skuggi.tooling import probe as probe_mod
+from skuggi.tooling.commands import CommandAlias, CommandRegistry
 from skuggi.tooling.registry import ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
 

@@ -15,8 +15,8 @@ import pytest
 
 from skuggi.agent.core import AgentCore
 from skuggi.agent.protocol import CriticResponse, WorkerResponse
-from skuggi.frontend.commands import CommandAlias, CommandRegistry
 from skuggi.providers import providers
+from skuggi.tooling.commands import CommandAlias, CommandRegistry
 from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import RoleScriptedChatModel, ScriptedChatModel
 

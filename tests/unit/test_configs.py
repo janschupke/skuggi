@@ -16,7 +16,7 @@ from skuggi.config.configs import (
     load_scope,
     write_commands,
 )
-from skuggi.frontend.commands import CommandAlias, CommandRegistry
+from skuggi.tooling.commands import CommandAlias, CommandRegistry
 from tests.support import template
 
 

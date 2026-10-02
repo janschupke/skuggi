@@ -55,13 +55,13 @@ from skuggi.engagement.engagement import (
     parse_command,
 )
 from skuggi.engagement.workspace import Workspace, WorkspaceLayout
-from skuggi.frontend.commands import CommandRegistry
 from skuggi.install import envfile
 from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence import memory, preferences
 from skuggi.persistence.vectorstore import Store
 from skuggi.providers import providers
+from skuggi.tooling.commands import CommandRegistry
 from skuggi.tooling.registry import ToolRegistry
 
 log = logs.get_logger(__name__)

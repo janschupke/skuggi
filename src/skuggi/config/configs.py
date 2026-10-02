@@ -16,7 +16,7 @@ from pathlib import Path
 from skuggi.common.paths import ensure_parent
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.engagement.workspace import WorkspaceLayout
-from skuggi.frontend.commands import CommandRegistry
+from skuggi.tooling.commands import CommandRegistry
 from skuggi.tooling.registry import ToolRegistry
 
 

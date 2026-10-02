@@ -20,9 +20,9 @@ from skuggi.agent.protocol import ConfigEdit, ConfigProposal
 from skuggi.common.execution import CommandResult
 from skuggi.config.config import config_path
 from skuggi.config.configs import ConfigError, load_commands
-from skuggi.frontend.commands import CommandAlias, CommandRegistry
 from skuggi.install import update as update_mod
 from skuggi.tooling import probe as probe_mod
+from skuggi.tooling.commands import CommandAlias, CommandRegistry
 from skuggi.tooling.registry import ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import StructuredChatModel

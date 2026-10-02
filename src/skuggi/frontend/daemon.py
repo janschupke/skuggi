@@ -30,9 +30,9 @@ from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.common.logs import get_logger
 from skuggi.config.config import PROVIDERS
 from skuggi.frontend import cmdflow, configflow, dispatch, setup, verbs, wizard
-from skuggi.frontend.commands import CommandAlias, render
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import finding_line
+from skuggi.tooling.commands import CommandAlias, render
 from skuggi.tooling.doctor import PROBING_MSG, doctor_ansi
 
 log = get_logger(__name__)

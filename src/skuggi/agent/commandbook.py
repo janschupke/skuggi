@@ -21,7 +21,7 @@ from skuggi.engagement.engagement import (
     check_command,
     parse_command,
 )
-from skuggi.frontend.commands import CommandAlias, CommandRegistry, raw_command, render
+from skuggi.tooling.commands import CommandAlias, CommandRegistry, raw_command, render
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore

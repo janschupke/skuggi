@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from skuggi.engagement.workspace import WorkspaceLayout
-from skuggi.frontend.commands import CommandAlias, CommandRegistry, raw_command, render
+from skuggi.tooling.commands import CommandAlias, CommandRegistry, raw_command, render
 from skuggi.tooling.registry import ToolRegistry, ToolSpec
 from tests.support import template
 
