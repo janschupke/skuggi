@@ -192,16 +192,16 @@ def run_memory(core: AgentCore, arg: str) -> MemoryOutcome:
     if sub == "add":
         if not rest:
             return MemoryUsage("add <preference>")
-        row = core.add_preference(rest)
+        row = core.memory.add(rest)
         return MemoryAdded(row) if row else MemoryAlreadyKnown()
     if sub == "forget":
         if not rest.isdigit():
             return MemoryUsage("forget <id>")
-        removed = core.forget_preference(int(rest))
+        removed = core.memory.forget(int(rest))
         return MemoryForgotten() if removed else MemoryMissing(rest)
     if sub == "clear":
-        return MemoryCleared(core.clear_preferences())
-    return MemoryList(core.list_preferences())
+        return MemoryCleared(core.memory.clear())
+    return MemoryList(core.memory.entries())
 
 
 # ----- add (note / loot / finding) ------------------------------------------

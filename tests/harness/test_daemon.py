@@ -441,11 +441,11 @@ def test_memory_add_list_and_forget(daemon: Daemon) -> None:
     assert "Prefer ffuf over gobuster" in _chunks(
         daemon, {"op": "input", "text": "memory"}
     )
-    [row] = daemon.core.list_preferences()
+    [row] = daemon.core.memory.entries()
     assert "forgotten" in _chunks(
         daemon, {"op": "input", "text": f"memory forget {row.id}"}
     )
-    assert daemon.core.list_preferences() == []
+    assert daemon.core.memory.entries() == []
 
 
 def test_control_verbs_are_audited_but_ask_is_not(daemon: Daemon) -> None:

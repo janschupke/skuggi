@@ -232,10 +232,10 @@ def test_memory_add_list_and_forget(tui: tuple[Tui, io.StringIO]) -> None:
     app.dispatch("/memory")
     assert "Prefer ffuf over gobuster" in _out(buffer)
 
-    [row] = app.core.list_preferences()
+    [row] = app.core.memory.entries()
     app.dispatch(f"/memory forget {row.id}")
     assert "forgotten" in _out(buffer)
-    assert app.core.list_preferences() == []
+    assert app.core.memory.entries() == []
 
 
 def test_memory_add_requires_text(tui: tuple[Tui, io.StringIO]) -> None:
@@ -253,7 +253,7 @@ def test_memory_duplicate_forget_usage_and_clear(tui: tuple[Tui, io.StringIO]) -
     assert "usage:" in _out(buffer)
     app.dispatch("/memory clear")
     assert "cleared 1 preference" in _out(buffer)
-    assert app.core.list_preferences() == []
+    assert app.core.memory.entries() == []
 
 
 # --- notes / loot / findings (operator-recorded artifacts) ------------------

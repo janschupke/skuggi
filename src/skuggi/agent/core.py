@@ -32,9 +32,9 @@ from skuggi.agent.commandbook import CommandBook
 from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
+from skuggi.agent.preferencebook import PreferenceBook
 from skuggi.agent.protocol import (
     ConfigProposal,
-    MemoryExtraction,
     structured_invoke,
 )
 from skuggi.agent.session_archive import SessionArchive
@@ -153,6 +153,7 @@ class AgentCore:
         self.archive = SessionArchive(self)
         self.cmds = CommandBook(self)
         self.journal = Journal(self)
+        self.memory = PreferenceBook(self)
 
     # ----- config + workspace ------------------------------------------------
 
@@ -588,80 +589,6 @@ class AgentCore:
 
     # ----- harness memory (operator preferences) -----------------------------
 
-    def list_preferences(self) -> list[preferences.PreferenceRow]:
-        """Every remembered operator preference (grouped by category)."""
-        return self.prefs.all()
-
-    def add_preference(
-        self, text: str, *, source: str = "manual"
-    ) -> preferences.PreferenceRow | None:
-        """Remember one preference, rebuilding the graph so the next turn sees it.
-
-        Returns the stored row, or ``None`` if it was blank or a duplicate.
-        """
-        row = self.prefs.add(text, source=source)
-        if row is not None:
-            self.graph = self._build()
-        return row
-
-    def forget_preference(self, pref_id: int) -> bool:
-        """Drop one preference by id; ``True`` if it existed. Rebuilds the graph."""
-        removed = self.prefs.forget(pref_id)
-        if removed:
-            self.graph = self._build()
-        return removed
-
-    def clear_preferences(self) -> int:
-        """Drop every preference; returns how many. Rebuilds the graph if any."""
-        removed = self.prefs.clear()
-        if removed:
-            self.graph = self._build()
-        return removed
-
-    def maybe_capture_preferences(
-        self, user_text: str
-    ) -> list[preferences.PreferenceRow]:
-        """Automatically capture any standing directive in `user_text`.
-
-        Harness-side automatic memory, run post-turn: gated first by the cheap
-        `preferences.looks_like_directive` heuristic (so an ordinary request never
-        spends a model call), then by a one-shot structured extraction (a strict
-        ``MemoryExtraction``, which works on every provider including the tool-less
-        chatgpt one via the JSON-contract fallback). Persists each captured
-        directive with source ``auto`` and returns the rows actually stored
-        (deduped). Never raises -- a capture failure must not break the turn.
-        """
-        if not self.settings.memory_auto or not preferences.looks_like_directive(
-            user_text
-        ):
-            return []
-        if self.llm is None:  # no model configured; nothing to extract with
-            return []
-        try:
-            extraction = structured_invoke(
-                self.llm,
-                MemoryExtraction,
-                [
-                    SystemMessage(content=prompts.MEMORY_EXTRACTION_INSTRUCTION),
-                    HumanMessage(content=user_text),
-                ],
-                native=self.settings.supports_structured_output(),
-            )
-        except Exception:  # best-effort; a failure is not fatal
-            log.exception("preference extraction failed; capturing nothing this turn")
-            return []
-        captured: list[preferences.PreferenceRow] = []
-        for directive in extraction.directives:
-            text = directive.strip()
-            if not text:
-                continue
-            row = self.prefs.add(text, source="auto")
-            if row is not None:
-                captured.append(row)
-        if captured:
-            self.graph = self._build()
-        return captured
-
     # ----- the agent turn ----------------------------------------------------
 
     def _config(self) -> RunnableConfig:
@@ -717,7 +644,7 @@ class AgentCore:
                     yield ev
             # The turn is answered; now let the harness remember any standing
             # directive it carried (best-effort, never raises).
-            for row in self.maybe_capture_preferences(user_text):
+            for row in self.memory.maybe_capture(user_text):
                 yield TurnEvent(
                     "status",
                     f"remembered: {row.text} (forget {row.id} to undo)",
