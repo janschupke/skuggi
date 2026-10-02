@@ -415,7 +415,12 @@ def _run_or_propose(
             summary="recorded proposed; the operator runs it manually",
         )
         return cid, brief, False
-    result = execution.run(parsed.argv, timeout=deps.command_timeout_s, cwd=work_dir)
+    result = execution.run(
+        parsed.argv,
+        timeout=deps.command_timeout_s,
+        cwd=work_dir,
+        env=execution.safe_env(),
+    )
     try:
         cid = deps.ledger.record_command(
             session_id=deps.session_id,

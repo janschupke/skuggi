@@ -16,6 +16,7 @@ blow up the ledger or a prompt.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -25,6 +26,51 @@ from pathlib import Path
 from skuggi.common.logs import get_logger
 
 log = get_logger(__name__)
+
+# The only environment variables an agent-proposed tool inherits. Model-proposed
+# commands run third-party binaries against a (possibly hostile) target, so the
+# harness hands them a minimal, non-secret environment rather than the operator's
+# whole `os.environ` -- a provider API key must never reach a scanner that could
+# log or exfiltrate it. PATH/HOME and friends keep ordinary tools working;
+# proxy/CA vars keep networked tools honest. Prefixes catch LC_* etc.
+_ENV_ALLOW = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "LANG",
+        "TERM",
+        "TZ",
+        "TMPDIR",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+    }
+)
+_ENV_ALLOW_PREFIXES = ("LC_",)
+
+
+def safe_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """A minimal, secret-free environment for a spawned tool.
+
+    Allow-list, not deny-list: only the names in ``_ENV_ALLOW`` (plus ``LC_*``)
+    survive, so a new secret in the operator's environment can never leak into a
+    scanner by default. Reads ``os.environ`` when ``base`` is not given.
+    """
+    source = os.environ if base is None else base
+    return {
+        key: value
+        for key, value in source.items()
+        if key in _ENV_ALLOW or key.startswith(_ENV_ALLOW_PREFIXES)
+    }
+
 
 # A scan can emit megabytes; the ledger and any prompt that echoes a result
 # both need this bounded. Shared with tools.file_read (same 256 KiB ceiling).

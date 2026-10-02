@@ -6,6 +6,7 @@ subprocess block. `_cap` needs no process and stays unmarked.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -44,3 +45,41 @@ def test_timeout_is_recorded_not_raised(tmp_path: Path) -> None:
     result = run(["sleep", "5"], timeout=0.5, cwd=tmp_path)
     assert result.timed_out
     assert "timed out" in result.stderr
+
+
+# --- S2: spawned tools must not inherit the operator's secrets --------------
+
+
+def test_safe_env_drops_secrets_keeps_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-other")
+    monkeypatch.setenv("LC_ALL", "C")
+    env = execution.safe_env()
+    assert env["PATH"] == "/usr/bin"
+    assert env["LC_ALL"] == "C"
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "OPENAI_API_KEY" not in env
+
+
+@pytest.mark.runs_commands
+def test_spawned_process_never_sees_a_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end: a tool run with safe_env() cannot read a provider key."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-super-secret-value")
+    dump = (
+        "import os, sys\n"
+        "sys.stdout.write('\\n'.join(f'{k}={v}' for k, v in os.environ.items()))"
+    )
+    result = run(
+        [sys.executable, "-c", dump],
+        timeout=30,
+        cwd=tmp_path,
+        env=execution.safe_env(),
+    )
+    assert result.exit_code == 0
+    assert "sk-super-secret-value" not in result.stdout
+    assert "ANTHROPIC_API_KEY" not in result.stdout
