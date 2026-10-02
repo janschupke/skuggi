@@ -39,10 +39,11 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from skuggi.common import palette
 from skuggi.common.paths import ensure_dir, packaged_template
+from skuggi.common.text import redact_secrets
 
 if TYPE_CHECKING:
     from skuggi.engagement.engagement import EngagementConfig
@@ -237,6 +238,22 @@ def _local_stamp(
     return naive.replace(tzinfo=local_tz), level, logger, message
 
 
+def _redact_model(obj: object, secrets: frozenset[str]) -> object:
+    """Recursively mask secrets/auth headers in every string of the view model.
+
+    Applied as a final pass so no embedded command output, transcript or log
+    line carries a credential into the on-disk dashboard, wherever it sits in
+    the structure.
+    """
+    if isinstance(obj, str):
+        return redact_secrets(obj, secrets)
+    if isinstance(obj, dict):
+        return {key: _redact_model(value, secrets) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_model(value, secrets) for value in obj]
+    return obj
+
+
 def collect_engagement(  # noqa: PLR0913 -- one keyword arg per already-read source
     ledger: Ledger,
     *,
@@ -245,6 +262,7 @@ def collect_engagement(  # noqa: PLR0913 -- one keyword arg per already-read sou
     notes_text: str = "",
     loot_text: str = "",
     log_text: str = "",
+    secrets: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Build the JSON-serializable view model for the whole engagement.
 
@@ -252,7 +270,8 @@ def collect_engagement(  # noqa: PLR0913 -- one keyword arg per already-read sou
     primitives, so it serializes directly and is trivial to unit-test. Commands,
     findings, events and audit are unioned across *all* sessions in the ledger;
     durations and gaps are derived from the ISO timestamps; the diagnostic log is
-    bounded to the engagement's timeframe.
+    bounded to the engagement's timeframe. A final pass redacts `secrets` and any
+    ``Authorization``/``Bearer`` material from every embedded string.
     """
     sessions: list[SessionRow] = ledger.sessions()
     all_commands: list[CommandRow] = []
@@ -292,7 +311,7 @@ def collect_engagement(  # noqa: PLR0913 -- one keyword arg per already-read sou
     window_start = min(instants) if instants else None
     window_end = max(instants) if instants else None
 
-    return {
+    model: dict[str, Any] = {
         "generated": datetime.now(UTC).isoformat(),
         "brand": f"{palette.SHIELD} skuggi",
         "engagement": engagement.model_dump(mode="json") if engagement else None,
@@ -337,6 +356,7 @@ def collect_engagement(  # noqa: PLR0913 -- one keyword arg per already-read sou
             "loot": len(loot),
         },
     }
+    return cast("dict[str, Any]", _redact_model(model, secrets))
 
 
 def _absorb_event(
@@ -376,11 +396,19 @@ def _push(instants: list[datetime], ts: str | None) -> None:
 def render_html(view_model: dict[str, Any]) -> str:
     r"""Inject the view model into the packaged template as embedded JSON.
 
-    ``<`` is escaped to its ``<`` JSON form so arbitrary command output
-    containing ``</script>`` cannot break out of the embedding ``<script>`` tag
-    (a rendering bug and an injection guard in one).
+    ``<``, ``>`` and ``&`` are escaped to their ``\uXXXX`` JSON forms so
+    arbitrary command output containing ``</script>`` cannot break out of the
+    embedding ``<script>`` tag. This is a *backstop*: the template's DOM builder
+    never assigns engagement data via ``innerHTML`` (it uses ``textContent``),
+    which is the primary defense; a future edit that reintroduced ``innerHTML``
+    would still not execute script smuggled through this blob.
     """
-    blob = json.dumps(view_model, ensure_ascii=False).replace("<", "\\u003c")
+    blob = (
+        json.dumps(view_model, ensure_ascii=False)
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
     template = packaged_template(_TEMPLATE_NAME).read_text(encoding="utf-8")
     return template.replace(_DATA_SENTINEL, blob)
 
@@ -403,6 +431,7 @@ def write_visualization(  # noqa: PLR0913 -- keyword-only data sources, like col
     loot_text: str = "",
     log_text: str = "",
     engagement_name: str | None = None,
+    secrets: frozenset[str] = frozenset(),
 ) -> Path:
     """Render the engagement dashboard and write a timestamped ``.html`` file.
 
@@ -416,6 +445,7 @@ def write_visualization(  # noqa: PLR0913 -- keyword-only data sources, like col
         notes_text=notes_text,
         loot_text=loot_text,
         log_text=log_text,
+        secrets=secrets,
     )
     name = engagement_name or (engagement.name if engagement else None)
     if not name:
@@ -503,6 +533,11 @@ def main(argv: list[str] | None = None) -> int:
         else ""
     )
     out_dir = args.out or workspace.reports_dir
+    secrets = frozenset(
+        key.get_secret_value()
+        for key in (settings.openai_api_key, settings.anthropic_api_key)
+        if key is not None
+    )
     with open_ledger(workspace.ledger_path) as ledger:
         path = write_visualization(
             ledger,
@@ -513,6 +548,7 @@ def main(argv: list[str] | None = None) -> int:
             loot_text=read_entries(workspace.loot_file),
             log_text=log_text,
             engagement_name=args.engagement,
+            secrets=secrets,
         )
     print(f"visualization written: {path}")
     return 0

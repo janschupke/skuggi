@@ -8,6 +8,7 @@ the empty-body guard or the blank-line join.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 # Path/flag-safe characters for a cheatsheet-rendered field, and the stricter
 # set for an output-filename label. The `cmd` renderer appends output_dir/flag/
@@ -35,6 +36,36 @@ def safe_cmd_fragment(
             msg = f"{field} contains unsafe characters: {value!r}"
             raise ValueError(msg)
     return value
+
+
+REDACTED = "***REDACTED***"
+_MIN_SECRET_LEN = 8  # shorter values are too generic to mask without false hits
+
+# An ``Authorization: …`` / ``X-Api-Key: …`` header line, and a ``Bearer <tok>``
+# credential, anywhere in captured text. The engagement dashboard embeds raw
+# command output and logs, so a header echoed by ``curl -v`` or a token in a
+# traceback would otherwise land verbatim in an on-disk HTML artifact.
+_AUTH_HEADER = re.compile(
+    r"(?im)^(?P<head>\s*(?:proxy-)?authorization\s*:\s*|\s*x-api-key\s*:\s*).+$"
+)
+_BEARER = re.compile(r"(?i)\b(?P<kind>bearer|token)\s+[A-Za-z0-9._~+/=-]{8,}")
+
+
+def redact_secrets(text: str, secrets: Iterable[str] = ()) -> str:
+    """Mask known secret values and auth headers/bearer tokens in `text`.
+
+    Used before captured output/logs are embedded in the engagement dashboard
+    (an internal, on-disk artifact). ``secrets`` are exact values the harness
+    holds (provider API keys); only values of 8+ chars are masked, so a short
+    or empty key cannot blank out unrelated text.
+    """
+    if not text:
+        return text
+    for secret in secrets:
+        if len(secret) >= _MIN_SECRET_LEN:
+            text = text.replace(secret, REDACTED)
+    text = _AUTH_HEADER.sub(lambda m: m.group("head") + REDACTED, text)
+    return _BEARER.sub(lambda m: f"{m.group('kind')} {REDACTED}", text)
 
 
 def labeled(label: str, body: str, *, heading: bool = False) -> str:

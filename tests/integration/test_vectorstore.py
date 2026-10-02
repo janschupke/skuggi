@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from skuggi.persistence.vectorstore import Store, format_hits
+import pytest
+
+from skuggi.persistence.vectorstore import Store, VectorStoreError, format_hits
 from tests.fakes import CountingFakeEmbeddings
 
 
@@ -91,3 +93,19 @@ def test_format_hits_renders_source_and_separator(tmp_path: Path, store: Store) 
     rendered = format_hits(store.search("content", k=2))
     assert rendered.count("---") == 1
     assert rendered.startswith("[")
+
+
+# --- S9: the mandatory dangerous-deserialization load must refuse a symlink --
+
+
+def test_refuses_a_symlinked_index(
+    tmp_path: Path, fake_embeddings: CountingFakeEmbeddings
+) -> None:
+    """A planted symlink would redirect the pickle load to an attacker file."""
+    idx = tmp_path / "idx"
+    idx.mkdir()
+    outside = tmp_path / "evil.faiss"
+    outside.write_text("x", encoding="utf-8")
+    (idx / "index.faiss").symlink_to(outside)
+    with pytest.raises(VectorStoreError, match="symlink"):
+        Store(idx, fake_embeddings)

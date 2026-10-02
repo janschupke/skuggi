@@ -36,6 +36,10 @@ def format_hits(hits: Sequence[Document]) -> str:
     )
 
 
+class VectorStoreError(RuntimeError):
+    """Raised when a FAISS index on disk cannot be trusted to load."""
+
+
 class Store:
     """A lazily-loaded FAISS index over local markdown and text files."""
 
@@ -67,13 +71,28 @@ class Store:
         )
 
     def _try_load(self) -> FAISS | None:
-        if (self.path / "index.faiss").exists():
-            return FAISS.load_local(
-                str(self.path),
-                self.embeddings,
-                allow_dangerous_deserialization=True,
-            )
-        return None
+        if not (self.path / "index.faiss").exists():
+            return None
+        # `allow_dangerous_deserialization` is mandatory (FAISS persists its
+        # docstore as a pickle), so the trust boundary is that only the operator
+        # can write the index dir. Refuse a symlinked index file -- a planted
+        # symlink would otherwise redirect the pickle load to an attacker file.
+        self._reject_symlinked_index()
+        return FAISS.load_local(
+            str(self.path),
+            self.embeddings,
+            allow_dangerous_deserialization=True,
+        )
+
+    def _reject_symlinked_index(self) -> None:
+        for name in ("index.faiss", "index.pkl"):
+            member = self.path / name
+            if member.is_symlink():
+                msg = (
+                    f"refusing to load FAISS index: {name} in {self.path} is a "
+                    "symlink, not a regular file"
+                )
+                raise VectorStoreError(msg)
 
     def search(self, query: str, k: int = 4) -> list[Document]:
         """Return the top-k matches, or nothing when no index exists yet."""

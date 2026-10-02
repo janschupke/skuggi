@@ -182,7 +182,7 @@ def test_log_is_windowed_and_continuations_attach(tmp_path: Path) -> None:
 
 def test_render_escapes_script_breakout() -> None:
     html = render_html({"payload": "</script><b>pwned"})
-    assert "\\u003c/script>" in html  # the dangerous < was escaped
+    assert "\\u003c/script\\u003e" in html  # < and > both escaped (S8)
     assert "</script><b>pwned" not in html  # the raw breakout never survives
 
 
@@ -228,3 +228,47 @@ def test_main_rejects_an_unknown_engagement(
     _redirect_homes(monkeypatch, tmp_path)
     rc = main(["ghost", "--engagements-dir", str(tmp_path / "engagements")])
     assert rc == 2
+
+
+# --- S6/S8: no secret bleed into the dashboard; the JSON blob cannot break out
+
+
+def test_collect_redacts_known_secret_and_auth_header(tmp_path: Path) -> None:
+    secret = "sk-ant-verysecretvalue123"
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme", mode="pentest")
+        eid = led.record_event(
+            session_id="s1", thread_id="t1", kind="prompt", text="go"
+        )
+        led.record_command(
+            session_id="s1",
+            thread_id="t1",
+            command="curl -v https://api",
+            binary="curl",
+            method="recon",
+            status="executed",
+            result=CommandResult(
+                "curl -v https://api",
+                0,
+                f"> Authorization: Bearer {secret}\n< HTTP/1.1 200 OK",
+                "",
+                _BASE,
+                _BASE,
+            ),
+            turn_event_id=eid,
+        )
+        vm = collect_engagement(
+            led, engagement=None, registry=_REGISTRY, secrets=frozenset({secret})
+        )
+    blob = render_html(vm)
+    assert secret not in blob
+    assert "***REDACTED***" in blob
+
+
+def test_render_html_escapes_a_script_breakout() -> None:
+    model = {"x": "</script><img src=x onerror=alert(1)>", "y": "a & b"}
+    out = render_html(model)
+    assert "</script><img" not in out
+    assert "\\u003c" in out
+    assert "\\u003e" in out
+    assert "\\u0026" in out
