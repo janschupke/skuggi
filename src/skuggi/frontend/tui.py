@@ -388,15 +388,15 @@ class Tui:
             self._install_tool(parts[1] if len(parts) > 1 else "")
             return
         with self.console.status(PROBING_MSG, spinner="dots"):
-            statuses = self.core.doctor_statuses()
-            runtimes = self.core.runtime_statuses()
-            net_tools = self.core.net_tool_statuses()
+            statuses = self.core.doctor.tools()
+            runtimes = self.core.doctor.runtimes()
+            net_tools = self.core.doctor.net_tools()
         render_doctor(self.console, statuses, runtimes, net_tools, self.core.settings)
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""
         self.console.print(f"[dim]installing {binary}...[/dim]")
-        status = self.core.install_tool(binary)
+        status = self.core.doctor.install(binary)
         if status is None:
             self.console.print(f"[red]unknown tool:[/red] {binary!r}")
         elif status.found:

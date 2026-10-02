@@ -174,10 +174,10 @@ def test_doctor_and_install(core: AgentCore, monkeypatch: pytest.MonkeyPatch) ->
         spec, found=True, path=Path("/usr/bin/nmap"), version="7", source="host"
     )
     monkeypatch.setattr(probe_mod, "probe", lambda *_a, **_k: [status])
-    assert core.doctor_statuses() == [status]
-    assert core.install_tool("ghost-tool") is None
+    assert core.doctor.tools() == [status]
+    assert core.doctor.install("ghost-tool") is None
     monkeypatch.setattr(probe_mod, "install_tool", lambda *_a, **_k: status)
-    assert core.install_tool("nmap") == status
+    assert core.doctor.install("nmap") == status
 
 
 def test_ingest_indexes_a_file(core: AgentCore, tmp_path: Path) -> None:

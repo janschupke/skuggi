@@ -38,6 +38,7 @@ from skuggi.agent.protocol import (
     structured_invoke,
 )
 from skuggi.agent.state import AgentState
+from skuggi.agent.tooldoctor import ToolDoctor
 from skuggi.common import logs
 from skuggi.common.text import join_blocks, labeled
 from skuggi.config import editing
@@ -72,8 +73,7 @@ from skuggi.persistence import transcript as transcript_mod
 from skuggi.persistence.ledger import FindingRow, SessionRow
 from skuggi.persistence.vectorstore import Store
 from skuggi.providers import providers
-from skuggi.tooling import probe
-from skuggi.tooling.registry import RuntimeStatus, ToolRegistry, ToolStatus
+from skuggi.tooling.registry import ToolRegistry
 
 log = logs.get_logger(__name__)
 
@@ -174,6 +174,9 @@ class AgentCore:
         self.prefs = self._prefs_ctx.__enter__()
 
         self.graph = self._build()
+
+        # ----- sub-components (public; hold a back-ref and read live state) -
+        self.doctor = ToolDoctor(self)
 
     # ----- config + workspace ------------------------------------------------
 
@@ -843,33 +846,6 @@ class AgentCore:
         if captured:
             self.graph = self._build()
         return captured
-
-    def doctor_statuses(self) -> list[ToolStatus]:
-        """Probe the host for every recognized tool."""
-        return probe.probe(
-            self.registry,
-            source=self.settings.tool_source,
-            managed_dir=self.settings.managed_tools_dir,
-        )
-
-    def runtime_statuses(self) -> list[RuntimeStatus]:
-        """Probe the host for the standard runtimes/toolchains."""
-        return probe.probe_runtimes()
-
-    def net_tool_statuses(self) -> list[RuntimeStatus]:
-        """Probe the host for the standard Unix net tools."""
-        return probe.probe_net_tools()
-
-    def install_tool(self, binary: str) -> ToolStatus | None:
-        """Install one recognized tool; returns its status, or None if unknown."""
-        spec = self.registry.spec_for(binary)
-        if spec is None:
-            return None
-        return probe.install_tool(
-            spec,
-            source=self.settings.tool_source,
-            managed_dir=self.settings.managed_tools_dir,
-        )
 
     def search_commands(self, query: str) -> tuple[CommandAlias, ...]:
         """Cheatsheet aliases matching `query` by substring (blank = all)."""

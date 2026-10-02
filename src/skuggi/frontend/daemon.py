@@ -483,14 +483,14 @@ class Daemon:
         # Emitted (and flushed) before the probe so the client shows progress.
         yield PROBING_MSG + "\n"
         yield doctor_ansi(
-            self.core.doctor_statuses(),
-            self.core.runtime_statuses(),
-            self.core.net_tool_statuses(),
+            self.core.doctor.tools(),
+            self.core.doctor.runtimes(),
+            self.core.doctor.net_tools(),
             self.core.settings,
         )
 
     def _install(self, binary: str) -> Iterator[str]:
-        status = self.core.install_tool(binary)
+        status = self.core.doctor.install(binary)
         if status is None:
             yield f"unknown tool: {binary!r}\n"
         elif status.found:
