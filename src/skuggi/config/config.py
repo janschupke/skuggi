@@ -42,8 +42,8 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from skuggi.agent.modes import Mode
 from skuggi.common import home, logs
+from skuggi.common.modes import Mode
 from skuggi.common.paths import ensure_parent
 
 Provider = Literal["openai", "chatgpt", "anthropic", "ollama"]

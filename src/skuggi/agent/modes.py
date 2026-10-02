@@ -10,6 +10,7 @@ working without change.
 
 from __future__ import annotations
 
-from skuggi.agent.prompts import MODES, Mode, PromptSet, prompt_set
+from skuggi.agent.prompts import PromptSet, prompt_set
+from skuggi.common.modes import MODES, Mode
 
 __all__ = ["MODES", "Mode", "PromptSet", "prompt_set"]

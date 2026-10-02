@@ -18,11 +18,8 @@ reworded opening line would silently desynchronise the multi-pass harness tests.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, get_args
 
-Mode = Literal["pentest", "redteam", "blueteam"]
-
-MODES: tuple[Mode, ...] = get_args(Mode)
+from skuggi.common.modes import Mode
 
 
 @dataclass(frozen=True, slots=True)
