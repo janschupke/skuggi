@@ -19,8 +19,16 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from skuggi.common.logs import get_logger
 from skuggi.common.paths import ensure_dir
 from skuggi.config.config import Settings
+
+log = get_logger(__name__)
+
+# A single source file larger than this is skipped at ingest rather than read
+# whole into memory -- a stray multi-hundred-MB recon artifact or log must not
+# be able to blow up the embedding step.
+MAX_FILE_BYTES = 5 * 1024 * 1024
 
 _HIT_SEPARATOR = "\n\n---\n\n"
 
@@ -118,13 +126,20 @@ class Store:
         `errors="replace"` is kept deliberately over a document loader: ingest
         must never fail the whole run because one file has a stray byte.
         """
-        sources = [
-            Document(
-                page_content=path.read_text(encoding="utf-8", errors="replace"),
-                metadata={"source": str(path)},
+        sources: list[Document] = []
+        for path in self._files(paths):
+            size = path.stat().st_size
+            if size > MAX_FILE_BYTES:
+                log.warning(
+                    "skipping oversized ingest source (%d bytes): %s", size, path
+                )
+                continue
+            sources.append(
+                Document(
+                    page_content=path.read_text(encoding="utf-8", errors="replace"),
+                    metadata={"source": str(path)},
+                )
             )
-            for path in self._files(paths)
-        ]
         docs = self._splitter.split_documents(sources)
         if not docs:
             return 0

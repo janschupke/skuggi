@@ -83,3 +83,31 @@ def test_spawned_process_never_sees_a_secret(
     assert result.exit_code == 0
     assert "sk-super-secret-value" not in result.stdout
     assert "ANTHROPIC_API_KEY" not in result.stdout
+
+
+# --- F1: a chatty tool must not be buffered unboundedly into memory ---------
+
+
+@pytest.mark.runs_commands
+def test_large_output_is_capped_not_buffered_whole(tmp_path: Path) -> None:
+    """Emit ~4x the cap; only a bounded, truncation-marked slice is returned."""
+    program = f"import sys; sys.stdout.write('x' * ({MAX_CAPTURE_BYTES} * 4))"
+    result = run([sys.executable, "-c", program], timeout=30, cwd=tmp_path)
+    assert result.exit_code == 0
+    assert result.stdout.endswith("[truncated]")
+    assert len(result.stdout.encode("utf-8")) <= MAX_CAPTURE_BYTES + len(
+        "\n...[truncated]"
+    )
+
+
+@pytest.mark.runs_commands
+def test_timeout_still_captures_partial_output(tmp_path: Path) -> None:
+    program = (
+        "import sys, time\n"
+        "sys.stdout.write('partial'); sys.stdout.flush()\n"
+        "time.sleep(5)"
+    )
+    result = run([sys.executable, "-c", program], timeout=0.5, cwd=tmp_path)
+    assert result.timed_out
+    assert "partial" in result.stdout
+    assert "timed out" in result.stderr

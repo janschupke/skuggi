@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from skuggi.persistence import vectorstore
 from skuggi.persistence.vectorstore import Store, VectorStoreError, format_hits
 from tests.fakes import CountingFakeEmbeddings
 
@@ -109,3 +110,31 @@ def test_refuses_a_symlinked_index(
     (idx / "index.faiss").symlink_to(outside)
     with pytest.raises(VectorStoreError, match="symlink"):
         Store(idx, fake_embeddings)
+
+
+# --- F6: the second-ingest (add to an existing index) branch ----------------
+
+
+def test_second_ingest_extends_the_live_index(tmp_path: Path, store: Store) -> None:
+    store.ingest([_corpus(tmp_path)])
+    more = tmp_path / "more"
+    more.mkdir()
+    (more / "d.md").write_text("delta content about owls", encoding="utf-8")
+    assert store.ingest([more]) >= 1  # takes the add_documents branch
+    assert store.search("owls", k=1)
+
+
+# --- F2: an oversized source file is skipped, not read whole ----------------
+
+
+def test_oversized_source_is_skipped(
+    tmp_path: Path, store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(vectorstore, "MAX_FILE_BYTES", 10)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "small.md").write_text("tiny", encoding="utf-8")
+    (docs / "big.md").write_text("x" * 100, encoding="utf-8")
+    assert store.ingest([docs]) == 1  # only the small file
+    hits = store.search("tiny", k=5)
+    assert all("big.md" not in h.metadata["source"] for h in hits)

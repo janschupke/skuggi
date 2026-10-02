@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import IO
 
 from skuggi.common.logs import get_logger
 
@@ -124,52 +126,63 @@ def run(
     """
     started = datetime.now(UTC)
     command = " ".join(argv)
-    try:
-        completed = subprocess.run(  # noqa: S603 -- shell=False, argv is not model-shell-parsed
-            list(argv),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(cwd),
-            env=dict(env) if env is not None else None,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        log.warning("command timed out after %ss: %s", timeout, command)
+    # Spool output to temp files rather than pipes read into memory: a chatty or
+    # hostile tool can emit gigabytes within the timeout, and `capture_output`
+    # would buffer all of it before `_cap` ever ran. Here only `MAX_CAPTURE_BYTES`
+    # (+1, to detect overflow) is ever read back into memory; the rest stays on
+    # disk and is discarded with the temp file. Disk use is bounded by runtime.
+    with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
+        try:
+            proc = subprocess.Popen(  # noqa: S603 -- shell=False, argv is not model-shell-parsed
+                list(argv),
+                stdout=out_f,
+                stderr=err_f,
+                cwd=str(cwd),
+                env=dict(env) if env is not None else None,
+            )
+        except (OSError, ValueError) as exc:
+            # A missing binary or a bad argv is a failed command, not a crash.
+            log.warning("could not spawn command %r: %s", command, exc)
+            return CommandResult(
+                command=command,
+                exit_code=_SPAWN_ERROR_EXIT,
+                stdout="",
+                stderr=f"error: could not run command: {exc}",
+                started_at=started,
+                finished_at=datetime.now(UTC),
+            )
+        timed_out = False
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            timed_out = True
+        stdout = _cap(_read_capped(out_f))
+        stderr = _read_capped(err_f)
+        if timed_out:
+            log.warning("command timed out after %ss: %s", timeout, command)
+            stderr = _cap(stderr + f"\n[timed out after {timeout}s]")
+            exit_code = _TIMEOUT_EXIT
+        else:
+            stderr = _cap(stderr)
+            exit_code = proc.returncode
         return CommandResult(
             command=command,
-            exit_code=_TIMEOUT_EXIT,
-            stdout=_cap(_decode(exc.stdout)),
-            stderr=_cap(_decode(exc.stderr) + f"\n[timed out after {timeout}s]"),
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
             started_at=started,
             finished_at=datetime.now(UTC),
         )
-    except (OSError, ValueError) as exc:
-        # A missing binary or a bad argv is a failed command, not a crash. Log it
-        # so "tool not installed" is distinguishable from "tool ran and failed".
-        log.warning("could not spawn command %r: %s", command, exc)
-        return CommandResult(
-            command=command,
-            exit_code=_SPAWN_ERROR_EXIT,
-            stdout="",
-            stderr=f"error: could not run command: {exc}",
-            started_at=started,
-            finished_at=datetime.now(UTC),
-        )
-    return CommandResult(
-        command=command,
-        exit_code=completed.returncode,
-        stdout=_cap(completed.stdout or ""),
-        stderr=_cap(completed.stderr or ""),
-        started_at=started,
-        finished_at=datetime.now(UTC),
-    )
 
 
-def _decode(raw: str | bytes | None) -> str:
-    """Coerce TimeoutExpired's partial output, which may be bytes or str."""
-    if raw is None:
-        return ""
-    if isinstance(raw, bytes):
-        return raw.decode("utf-8", errors="replace")
-    return raw
+def _read_capped(handle: IO[bytes]) -> str:
+    """Read at most ``MAX_CAPTURE_BYTES`` + 1 bytes from a spool file, decoded.
+
+    The +1 lets ``_cap`` tell "exactly at the ceiling" from "over it" and mark
+    the latter truncated. Reading a bounded amount is what keeps a huge spool
+    from being pulled into memory.
+    """
+    handle.seek(0)
+    return handle.read(MAX_CAPTURE_BYTES + 1).decode("utf-8", errors="replace")
