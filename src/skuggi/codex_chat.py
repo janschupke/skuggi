@@ -180,6 +180,24 @@ class CodexTokenStore:
             raise CodexAuthError(msg)
         return access
 
+    def persist_login(self, tokens: dict[str, str]) -> None:
+        """Write a fresh ChatGPT login to auth.json (0600).
+
+        ``tokens`` carries ``access_token``/``refresh_token``/``id_token`` and
+        ``account_id``. The shape matches what ``_tokens`` reads back and what
+        ``codex login`` itself writes, so the ``chatgpt`` provider and the
+        refresh path work against it unchanged. ``auth_mode`` is recorded for
+        parity with codex (skuggi never reads it).
+        """
+        self._save(
+            {
+                "OPENAI_API_KEY": None,
+                "tokens": tokens,
+                "last_refresh": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "auth_mode": "chatgpt",
+            }
+        )
+
 
 class CodexAuth(httpx.Auth):
     """Stamps codex credentials per request, refreshing and replaying on a 401.

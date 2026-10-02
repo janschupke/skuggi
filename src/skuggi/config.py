@@ -56,6 +56,8 @@ ToolSource = Literal["host", "managed", "combine"]
 # defaults so the two never drift.
 CODEX_RESPONSES_BASE = "https://chatgpt.com/backend-api/codex"
 CODEX_REFRESH_URL = "https://auth.openai.com/oauth/token"
+# The OAuth authorize endpoint for the in-app ChatGPT login (codex_login).
+CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
 
 # The persisted, `config`-editable settings file, under the config home.
 # Overridable so tests (and a multi-project user) can point elsewhere; env still
@@ -274,6 +276,7 @@ class Settings(BaseSettings):
     codex_auth_path: Path = Path("~/.codex/auth.json")
     codex_responses_base: str = CODEX_RESPONSES_BASE
     codex_refresh_url: str = CODEX_REFRESH_URL
+    codex_authorize_url: str = CODEX_AUTHORIZE_URL
 
     openai_api_key: SecretStr | None = Field(None, validation_alias="OPENAI_API_KEY")
     anthropic_api_key: SecretStr | None = Field(
