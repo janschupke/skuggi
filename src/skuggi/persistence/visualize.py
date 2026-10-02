@@ -192,7 +192,7 @@ def _log_entries(
     entries: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
     for line in log_text.splitlines():
-        parsed = _local_stamp(line, local_tz)
+        parsed = _parse_log_line(line, local_tz)
         if parsed is None:  # continuation of the entry above
             if current is not None:
                 current["message"] += "\n" + line
@@ -212,7 +212,7 @@ def _log_entries(
     return entries
 
 
-def _local_stamp(
+def _parse_log_line(
     line: str, local_tz: tzinfo | None
 ) -> tuple[datetime, str, str, str] | None:
     """Read ``(when, level, logger, message)`` from a log line, or ``None``.

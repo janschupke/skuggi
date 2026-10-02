@@ -454,8 +454,6 @@ class AgentCore:
         self.graph = self._build()
         return self.engagement
 
-    # ----- app config (the `config` verb) ------------------------------------
-
     # ----- self-update (the `update` verb) -----------------------------------
 
     def self_update(self, runner: updater.UpdateRunner | None = None) -> Iterator[str]:
@@ -503,8 +501,6 @@ class AgentCore:
             method=parsed.method,
             status="passthrough",
         )
-
-    # ----- harness memory (operator preferences) -----------------------------
 
     # ----- the agent turn ----------------------------------------------------
 
