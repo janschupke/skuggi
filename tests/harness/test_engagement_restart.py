@@ -27,9 +27,11 @@ def test_sole_engagement_is_auto_loaded_when_none_configured(
         core.close()
 
 
-def test_load_engagement_persists_the_name_to_config(
+def test_load_engagement_does_not_write_engagement_to_config(
     tmp_path: Path, pentest_configs: Callable[..., Path]
 ) -> None:
+    # An engagement is cwd-scoped, so loading one must NOT persist its name to
+    # the machine-global config.json (restart recovery is cwd-local discovery).
     pentest_configs()
     core = AgentCore(offline_settings(tmp_path, engagement="test-eng"))
     wire_offline_core(core)
@@ -37,8 +39,9 @@ def test_load_engagement_persists_the_name_to_config(
         core.load_engagement("test-eng")
     finally:
         core.close()
-    saved = json.loads(config_path().read_text(encoding="utf-8"))
-    assert saved["engagement"] == "test-eng"
+    path = config_path()
+    saved = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    assert "engagement" not in saved
 
 
 def test_stale_configured_name_falls_back_to_discovery(

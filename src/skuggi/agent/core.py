@@ -200,12 +200,13 @@ class AgentCore:
         return ws
 
     def _resolve_engagement_name(self) -> str | None:
-        """Which engagement to load: the configured one, else a sole discovered one.
+        """Which engagement to load: an explicit override, else a sole discovered one.
 
-        A configured/persisted name whose directory is gone (e.g. skuggi launched
-        from a different cwd) is ignored and falls back to discovery, since
-        ``engagements_dir`` is cwd-relative. Returns ``None`` for agent-only
-        (nothing configured and not exactly one engagement on disk).
+        Nothing is auto-persisted -- an engagement is cwd-scoped. An explicit
+        ``engagement`` (env/JSON) is honoured when its directory exists in this
+        cwd; otherwise, and whenever that directory is absent, recovery is pure
+        cwd-local discovery (``engagements_dir`` is cwd-relative). Returns
+        ``None`` for agent-only (no override and not exactly one on disk).
         """
         configured = self.settings.engagement
         engagements_dir = self.settings.engagements_dir
@@ -584,12 +585,12 @@ class AgentCore:
         graph -- so a running session reflects the new boundary with no restart.
         Raises ``ConfigError`` if the scope is missing or invalid.
         """
+        # In-memory only, deliberately NOT persisted to config.json: an
+        # engagement is cwd-scoped (``engagements_dir`` is cwd-relative), so a
+        # machine-global pointer would be a category error. Restart recovery is
+        # cwd-local discovery in ``_resolve_engagement_name``; an explicit
+        # env/JSON ``engagement`` still overrides.
         self.settings = self.settings.model_copy(update={"engagement": name})
-        # Persist so the engagement survives a restart (the next `Settings()`
-        # reads it from config.json), mirroring provider/model persistence. The
-        # workspace stays cwd-relative, so boot also falls back to on-disk
-        # discovery when the persisted name does not resolve in the launch cwd.
-        write_config(config_path(), {"engagement": name})
         self.workspace = self._open_workspace()
         if self.workspace is None:  # pragma: no cover -- name is always truthy here
             msg = f"could not open workspace for engagement {name!r}"
