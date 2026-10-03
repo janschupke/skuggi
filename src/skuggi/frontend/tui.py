@@ -11,7 +11,7 @@ from __future__ import annotations
 import zoneinfo
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from langgraph.graph.state import CompiledStateGraph
 from prompt_toolkit import PromptSession
@@ -54,18 +54,13 @@ from skuggi.tooling.commands import CommandAlias
 from skuggi.tooling.commands import render as render_alias
 from skuggi.tooling.doctor import (
     PROBING_MSG,
+    TOOL_FILTERS,
     ToolFilter,
     doctor_table,
     filter_tool_statuses,
     render_doctor,
 )
 from skuggi.tooling.registry import ToolRegistry
-
-if TYPE_CHECKING:
-    pass
-
-# The filters ``show tools`` accepts, for argument validation.
-_TOOL_FILTERS: frozenset[str] = frozenset({"all", "scoped", "installed", "missing"})
 
 
 class DraftView:
@@ -296,7 +291,8 @@ class Tui:
         if not text:
             return
         style = "red" if node == "error" else "dim"
-        self.console.print(f"[{style}]({node})[/{style}] {text.splitlines()[0][:100]}")
+        summary = text.splitlines()[0][: presenters.STATUS_LINE_CAP]
+        self.console.print(f"[{style}]({node})[/{style}] {summary}")
 
     # ----- dispatch ----------------------------------------------------------
 
@@ -702,7 +698,7 @@ class Tui:
 
     def _show_tools(self, rest: str) -> None:
         which = rest.strip().lower() or "all"
-        if which not in _TOOL_FILTERS:
+        if which not in TOOL_FILTERS:
             self.console.print(
                 "[yellow]usage:[/yellow] "
                 f"{verbs.cmd('show tools [all|scoped|installed|missing]', 'repl')}"
@@ -749,27 +745,13 @@ class Tui:
             )
 
     def _show_history(self, arg: str) -> None:
-        count = int(arg) if arg.isdigit() else 20
-        labels = {"human": "you", "ai": "bot", "system": "sys", "tool": "tool"}
-        for message in self.core.state().get("messages", [])[-count:]:
-            self.console.print(
-                f"[bold]{labels.get(message.type, message.type)}:[/bold] {message.text}"
-            )
+        self._emit(
+            presenters.present_history(self.core.state().get("messages", []), arg)
+        )
 
     def _show_trace(self, _arg: str) -> None:
         """Show the command trail, which `show history` deliberately excludes."""
-        commands = self.core.state().get("commands") or []
-        if not commands:
-            self.console.print("[dim](no command activity on this thread)[/dim]")
-            return
-        for cmd in commands:
-            self.console.print(
-                f"[cyan]{cmd.status}[/cyan] [cmd:{cmd.id}] {cmd.command}"
-            )
-            if cmd.summary:
-                self.console.print(
-                    f"[green]  {cmd.summary.splitlines()[0][:200]}[/green]"
-                )
+        self._emit(presenters.present_trace(self.core.state().get("commands") or []))
 
     def _cmd_findings(self, arg: str) -> None:
         """Review a finding (approve/reject/rescore); listing is `show findings`."""

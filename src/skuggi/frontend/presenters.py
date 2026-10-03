@@ -62,11 +62,22 @@ from skuggi.frontend.render import Styled
 from skuggi.install import configdiff, reconcile
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
+    from langchain_core.messages import BaseMessage
+
+    from skuggi.agent.protocol import CommandBrief
     from skuggi.agent.readiness import Readiness
     from skuggi.persistence.ledger import FindingRow, ThreadSummary
+
+# ``show history`` renders each message type under a short label; the default
+# window and the trace/status truncation caps live here too, so the two front-ends
+# share one spelling instead of each re-typing the map and the slice widths.
+HISTORY_LABELS = {"human": "you", "ai": "bot", "system": "sys", "tool": "tool"}
+DEFAULT_HISTORY_COUNT = 20
+TRACE_SUMMARY_CAP = 200
+STATUS_LINE_CAP = 100
 
 
 def usage(invocation: str, surface: verbs.Surface) -> Styled:
@@ -98,6 +109,36 @@ def finding_line(
     stale = " ⚠ outdated" if outdated else ""
     meta = f" — {row.author}/{row.status}{stale}"
     return f"{severity} [{row.id}] {row.title}{meta}{link}"
+
+
+def present_history(messages: Sequence[BaseMessage], arg: str) -> Styled:
+    """The recent conversation turns (``show history [n]``), newest last.
+
+    ``arg`` is the optional count; a non-numeric or absent one takes the default
+    window. Shared by both front-ends so the label map and the window never drift.
+    """
+    count = int(arg) if arg.isdigit() else DEFAULT_HISTORY_COUNT
+    return [
+        render.plain(f"{HISTORY_LABELS.get(m.type, m.type)}: {m.text}")
+        for m in messages[-count:]
+    ]
+
+
+def present_trace(commands: Sequence[CommandBrief]) -> Styled:
+    """The command trail for the active thread (``show trace``).
+
+    Deliberately excluded from ``show history``; each command shows its status, id
+    and argv, with a one-line, capped output summary beneath it.
+    """
+    if not commands:
+        return [render.info("(no command activity on this thread)")]
+    lines: Styled = []
+    for cmd in commands:
+        lines.append(render.plain(f"{cmd.status} [cmd:{cmd.id}] {cmd.command}"))
+        if cmd.summary:
+            summary = cmd.summary.splitlines()[0][:TRACE_SUMMARY_CAP]
+            lines.append(render.info(f"  {summary}"))
+    return lines
 
 
 def empty(kind: str) -> Styled:

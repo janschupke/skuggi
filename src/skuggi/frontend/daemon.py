@@ -46,15 +46,13 @@ from skuggi.tooling.commands import CommandAlias
 from skuggi.tooling.commands import render as render_alias
 from skuggi.tooling.doctor import (
     PROBING_MSG,
+    TOOL_FILTERS,
     ToolFilter,
     doctor_ansi,
     doctor_table,
     filter_tool_statuses,
     table_ansi,
 )
-
-# The filters ``show tools`` accepts, for argument validation.
-_TOOL_FILTERS: frozenset[str] = frozenset({"all", "scoped", "installed", "missing"})
 
 # The help listing's intro line, per surface. The command grammar differs
 # (``/skuggi <verb>`` at the wrapped-shell prompt, a bare ``<verb>`` inside the
@@ -265,7 +263,8 @@ class Daemon:
                     # and reason that make a failure diagnosable.
                     yield f"({ev.node}) {ev.text}\n"
                 else:
-                    yield f"({ev.node}) {ev.text.splitlines()[0]}\n"
+                    summary = ev.text.splitlines()[0][: presenters.STATUS_LINE_CAP]
+                    yield f"({ev.node}) {summary}\n"
             elif ev.kind == "final":
                 final = ev.text
         yield (final or "(no answer)") + "\n"
@@ -458,7 +457,7 @@ class Daemon:
 
     def _show_tools(self, rest: str) -> Iterator[str]:
         which = rest.strip().lower() or "all"
-        if which not in _TOOL_FILTERS:
+        if which not in TOOL_FILTERS:
             yield f"usage: {self._cmd('show tools [all|scoped|installed|missing]')}\n"
             return
         yield PROBING_MSG + "\n"
@@ -566,20 +565,14 @@ class Daemon:
         yield from self._emit(control.set_model_named(self.core, arg, self._surface()))
 
     def _history(self, arg: str) -> Iterator[str]:
-        count = int(arg) if arg.isdigit() else 20
-        labels = {"human": "you", "ai": "bot", "system": "sys", "tool": "tool"}
-        for message in self.core.state().get("messages", [])[-count:]:
-            yield f"{labels.get(message.type, message.type)}: {message.text}\n"
+        yield from self._emit(
+            presenters.present_history(self.core.state().get("messages", []), arg)
+        )
 
     def _trace(self, _arg: str) -> Iterator[str]:
-        commands = self.core.state().get("commands") or []
-        if not commands:
-            yield "(no command activity on this thread)\n"
-            return
-        for cmd in commands:
-            yield f"{cmd.status} [cmd:{cmd.id}] {cmd.command}\n"
-            if cmd.summary:
-                yield f"  {cmd.summary.splitlines()[0][:200]}\n"
+        yield from self._emit(
+            presenters.present_trace(self.core.state().get("commands") or [])
+        )
 
     def _ingest(self, arg: str) -> Iterator[str]:
         if not arg:

@@ -14,7 +14,7 @@ import importlib.util
 import re
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, get_args
 
 from rich.console import Console
 from rich.table import Table
@@ -32,8 +32,11 @@ from skuggi.tooling.registry import RuntimeStatus, ToolStatus
 if TYPE_CHECKING:
     from skuggi.engagement.engagement import EngagementConfig
 
-# The filters ``show tools`` accepts.
+# The filters ``show tools`` accepts. ``TOOL_FILTERS`` is derived from the type so
+# the accepted set and the type cannot drift, and both front-ends validate against
+# this one frozenset rather than each re-typing the literals.
 ToolFilter = Literal["all", "scoped", "installed", "missing"]
+TOOL_FILTERS: frozenset[str] = frozenset(get_args(ToolFilter))
 
 # Emitted before a probe runs so the operator sees progress, not a silent wait.
 PROBING_MSG = "probing host tools and runtimes..."
