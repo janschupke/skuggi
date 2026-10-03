@@ -111,6 +111,9 @@ class GraphDeps:
     vault: SecretVault | None = None
     # The engagement workspace, for confining data-file paths a command names.
     workspace: Workspace | None = None
+    # Directories outside the workspace a data-file path may also point at
+    # (the operator's system wordlist/seclist roots).
+    wordlist_roots: tuple[Path, ...] = ()
     session_id: str = ""
     thread_id: Callable[[], str] = field(default=lambda: "")
     turn_id: Callable[[], int | None] = field(default=lambda: None)
@@ -447,7 +450,12 @@ def _run_or_propose(
     assert deps.registry is not None  # noqa: S101
     parsed = parse_command(command, deps.registry)
     verdict = check_command(
-        parsed, deps.engagement, now=now, workspace=deps.workspace, cwd=work_dir
+        parsed,
+        deps.engagement,
+        now=now,
+        workspace=deps.workspace,
+        cwd=work_dir,
+        wordlist_roots=deps.wordlist_roots,
     )
     if not verdict.allowed:
         cid = deps.ledger.record_command(

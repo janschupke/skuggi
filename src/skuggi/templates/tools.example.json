@@ -72,7 +72,10 @@
       "output_flag": "-o",
       "output_dir": "recon/dirs",
       "output_kind": "file",
-      "output_ext": ".txt"
+      "output_ext": ".txt",
+      "input_file_flags": [
+        "-w"
+      ]
     },
     {
       "name": "ffuf",
@@ -97,7 +100,10 @@
         "json"
       ],
       "output_kind": "file",
-      "output_ext": ".json"
+      "output_ext": ".json",
+      "input_file_flags": [
+        "-w"
+      ]
     },
     {
       "name": "sqlmap",
@@ -191,7 +197,12 @@
       "output_flag": "-o",
       "output_dir": "loot",
       "output_kind": "file",
-      "output_ext": ".txt"
+      "output_ext": ".txt",
+      "input_file_flags": [
+        "-L",
+        "-P",
+        "-C"
+      ]
     },
     {
       "name": "john",
@@ -201,7 +212,10 @@
       "install": {
         "brew": "brew install john-jumbo",
         "apt": "apt-get install -y john"
-      }
+      },
+      "input_file_flags": [
+        "--wordlist"
+      ]
     },
     {
       "name": "unshadow",

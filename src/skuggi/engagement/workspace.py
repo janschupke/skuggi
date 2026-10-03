@@ -189,20 +189,25 @@ class Workspace:
             self.vault_path.resolve(),
         }
 
-    def confine_datafile(self, relpath: str, *, cwd: Path) -> Path:
+    def confine_datafile(
+        self, relpath: str, *, cwd: Path, extra_roots: tuple[Path, ...] = ()
+    ) -> Path:
         """Resolve a tool data-file path the way the tool will, and confine it.
 
         The autonomously-run command's path is interpreted by the tool relative
         to its working directory (`cwd`), so this resolves it the same way and
-        requires the result to stay inside the workspace root and not be one of
-        the harness control files (``scope.json``/ledger/vault). A symlink or
-        ``..`` that climbs out, an absolute ``/etc/shadow``, or a reserved file
-        all raise ``ValueError`` -- so a wordlist reaches the tool by path while
-        nothing outside the engagement's own data can.
+        requires the result to stay inside the workspace root -- or one of
+        ``extra_roots`` (the operator's standard wordlist directories) -- and not
+        be one of the harness control files (``scope.json``/ledger/vault). A
+        symlink or ``..`` that climbs out of every allowed root, an absolute
+        ``/etc/shadow``, or a reserved file all raise ``ValueError`` -- so a
+        wordlist reaches the tool by path while nothing sensitive can.
         """
-        root = self.root.resolve()
         candidate = (cwd / relpath).resolve()
-        if root != candidate and not candidate.is_relative_to(root):
+        roots = [self.root.resolve(), *(r.expanduser().resolve() for r in extra_roots)]
+        if not any(
+            candidate == root or candidate.is_relative_to(root) for root in roots
+        ):
             msg = f"data-file path escapes the workspace: {relpath!r}"
             raise ValueError(msg)
         if candidate in self._reserved_files():

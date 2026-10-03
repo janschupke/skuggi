@@ -281,6 +281,17 @@ class Settings(BaseSettings):
     # model; set it to run reviews on a stronger model than the working one.
     review_model: str | None = None
 
+    # Directories outside the workspace a tool may read a data file from -- the
+    # standard system wordlist/seclist locations. A wordlist/credential-list flag
+    # (ToolSpec.input_file_flags) is confined to the engagement workspace OR one
+    # of these roots; the file's contents still never reach the model (a tool
+    # reads it, the agent only ever names the path). See engagement.check_command.
+    wordlist_roots: tuple[str, ...] = (
+        "/usr/share/wordlists",
+        "/usr/share/seclists",
+        "/opt/seclists",
+    )
+
     # --- harness memory ---
     # The operator's durable operational preferences (the `memory` verb + the
     # post-turn automatic capture). GLOBAL across engagements -- a preference is

@@ -296,6 +296,7 @@ class AgentCore:
             redaction_policy=self._redaction_policy(),
             vault=self.vault,
             workspace=self.workspace,
+            wordlist_roots=tuple(Path(r) for r in self.settings.wordlist_roots),
             session_id=self.session_id,
             thread_id=lambda: self.thread_id,
             turn_id=lambda: self._current_turn_event_id,

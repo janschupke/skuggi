@@ -468,11 +468,28 @@ def test_wordlist_targeting_a_control_file_is_denied(tmp_path: Path) -> None:
     assert "control file" in verdict.reason
 
 
-def test_input_file_without_a_workspace_is_denied() -> None:
+def test_input_file_without_a_workspace_is_scope_only() -> None:
+    # The pure-scope path (e.g. the compliance scorer) passes no workspace, so
+    # data-file confinement is not evaluated and scope alone decides.
     verdict = check_command(
         parse_command("hydra -P inputs/pw.txt 10.0.0.5", REGISTRY),
         _engagement(),
         now=NOW,
     )
-    assert not verdict.allowed
-    assert "workspace" in verdict.reason
+    assert verdict.allowed, verdict.reason
+
+
+def test_a_configured_wordlist_root_is_allowed(tmp_path: Path) -> None:
+    ws = _ws(tmp_path)
+    roots = (tmp_path / "share" / "wordlists",)
+    roots[0].mkdir(parents=True)
+    (roots[0] / "rockyou.txt").write_text("hunter2\n", encoding="utf-8")
+    verdict = check_command(
+        parse_command("hydra -P share/wordlists/rockyou.txt 10.0.0.5", REGISTRY),
+        _engagement(),
+        now=NOW,
+        workspace=ws,
+        cwd=tmp_path,
+        wordlist_roots=roots,
+    )
+    assert verdict.allowed, verdict.reason

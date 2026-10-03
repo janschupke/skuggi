@@ -402,42 +402,45 @@ def _target_in_scope(target: str, engagement: EngagementConfig) -> bool:
 
 
 def _datafiles_in_scope(
-    cmd: ParsedCommand, workspace: Workspace | None, cwd: Path | None
+    cmd: ParsedCommand,
+    workspace: Workspace | None,
+    cwd: Path | None,
+    wordlist_roots: tuple[Path, ...],
 ) -> GuardVerdict | None:
     """Confine each data-file path to the workspace, or deny. None = all clear.
 
-    A data-file flag (wordlist/credential list) is allowed only when its path
-    stays inside the engagement workspace; without a workspace+cwd to confine
-    against there is nothing to prove it safe, so it is denied -- the same
-    conservative posture as an un-enumerable target.
+    A data-file flag (wordlist/credential list) is confined to the engagement
+    workspace or a configured wordlist root. Confinement is only *enforced* when
+    a workspace and cwd are supplied: the real execution path always has both (a
+    loaded engagement implies a workspace), while the pure-scope compliance
+    scorer passes neither and is not evaluating file paths.
     """
-    if not cmd.input_files:
+    if not cmd.input_files or workspace is None or cwd is None:
         return None
-    if workspace is None or cwd is None:
-        return GuardVerdict(False, "data-file paths need a loaded engagement workspace")
     for path in cmd.input_files:
         try:
-            workspace.confine_datafile(path, cwd=cwd)
+            workspace.confine_datafile(path, cwd=cwd, extra_roots=wordlist_roots)
         except ValueError as exc:
             return GuardVerdict(False, str(exc))
     return None
 
 
-def check_command(  # noqa: PLR0911, PLR0912 -- a guard is a linear sequence of denials; each check is one return
+def check_command(  # noqa: PLR0911, PLR0912, PLR0913 -- a guard is a linear sequence of denials over its inputs
     cmd: ParsedCommand,
     engagement: EngagementConfig,
     *,
     now: datetime,
     workspace: Workspace | None = None,
     cwd: Path | None = None,
+    wordlist_roots: tuple[Path, ...] = (),
 ) -> GuardVerdict:
     """The single choke point: is this command inside the engagement boundary?
 
     Runs cheapest-to-costliest, returning the first failure's reason. `now`
     must be timezone-aware; it is converted into the engagement timezone for
-    the daily-window check. `workspace`/`cwd` enable data-file confinement: a
-    wordlist/credential-list path is allowed only when it stays inside the
-    engagement workspace.
+    the daily-window check. `workspace`/`cwd`/`wordlist_roots` enable data-file
+    confinement: a wordlist/credential-list path is allowed only when it stays
+    inside the engagement workspace or a configured wordlist root.
     """
     if not cmd.binary:
         return GuardVerdict(False, "empty or unparseable command")
@@ -475,7 +478,7 @@ def check_command(  # noqa: PLR0911, PLR0912 -- a guard is a linear sequence of 
             return GuardVerdict(
                 False, f"target {target!r} is outside the authorized scope"
             )
-    datafile_verdict = _datafiles_in_scope(cmd, workspace, cwd)
+    datafile_verdict = _datafiles_in_scope(cmd, workspace, cwd, wordlist_roots)
     if datafile_verdict is not None:
         return datafile_verdict
     return GuardVerdict(True, "in scope")
