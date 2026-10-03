@@ -174,10 +174,23 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
 _PROMPT = "🐐 > "
 
 # Verbs that drive an interactive round-trip and so need an attach session rather
-# than a one-shot request: setup (prompts + menus), engagement (the wizard),
-# config (a natural-language request is LLM + confirm), and login (streams OAuth
-# progress). Everything else stays one-shot.
-_INTERACTIVE_VERBS = frozenset({"setup", "engagement", "config", "login"})
+# than a one-shot request.
+_INTERACTIVE_VERBS = frozenset({"engagement", "config", "login"})
+
+
+def _is_interactive(args: list[str]) -> bool:
+    """Whether `args` (the ``/skuggi`` argv) needs an attach session, not a one-shot.
+
+    Interactive verbs prompt the operator (menus, the wizard, OAuth progress), so
+    their ask/choose round-trips only reach the terminal over an attach loop:
+    ``engagement``/``config``/``login``, plus ``set provider`` and ``set model``
+    with NO value (the guided picker). ``set provider openai`` stays one-shot.
+    """
+    if not args:
+        return False
+    if args[0] in _INTERACTIVE_VERBS:
+        return True
+    return len(args) == 2 and args[0] == "set" and args[1] in {"provider", "model"}  # noqa: PLR2004 -- verb + noun, no value
 
 
 def _choose_frame(spec: object) -> str | None:  # pragma: no cover -- real terminal
@@ -378,10 +391,10 @@ def main() -> int:  # pragma: no cover -- console entry point
         return record(sock_path, " ".join(args[1:]))
     if not args:  # bare `/skuggi` -> attach an interactive loop to the warm daemon
         return attach(sock_path, _stdin_prompt, sys.stdout)
-    if args[0] in _INTERACTIVE_VERBS:
-        # Verbs that prompt (setup, the engagement wizard, login progress) need an
-        # attach session so their ask/choose round-trips reach the operator --
-        # `/skuggi setup` runs the flow instead of being refused as one-shot.
+    if _is_interactive(args):
+        # Verbs that prompt (the engagement wizard, `set provider`/`set model`,
+        # login progress) need an attach session so their ask/choose round-trips
+        # reach the operator -- run the flow instead of refusing it as one-shot.
         return attach_once(sock_path, " ".join(args), _stdin_prompt, sys.stdout)
     return run(sock_path, " ".join(args), sys.stdout)
 

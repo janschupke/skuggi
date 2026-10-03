@@ -331,3 +331,35 @@ def test_stream_turn_aborts_when_multiselect_cancelled(
     out = io.StringIO()
     assert _stream_turn(frames, out, conn=cast(socket.socket, conn), ask=None)  # abort
     assert conn.sent == []
+
+
+# --- _is_interactive (which argv needs an attach session) -------------------
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["engagement", "setup"],
+        ["config", "make it faster"],
+        ["login"],
+        ["set", "provider"],  # no value -> the guided picker
+        ["set", "model"],
+    ],
+)
+def test_is_interactive_true(args: list[str]) -> None:
+    assert client._is_interactive(args) is True
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        [],
+        ["ask", "hello"],
+        ["show", "status"],
+        ["set", "provider", "openai"],  # a value -> one-shot
+        ["set", "mode", "pentest"],
+        ["set", "thread", "new"],
+    ],
+)
+def test_is_interactive_false(args: list[str]) -> None:
+    assert client._is_interactive(args) is False

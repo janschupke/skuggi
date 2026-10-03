@@ -299,15 +299,26 @@ def test_attach_wizard_creates_engagement_over_socket(tmp_path: Path) -> None:
         core.close()
 
 
-def test_attach_setup_configures_provider_over_socket(tmp_path: Path) -> None:
+def test_attach_set_provider_configures_over_socket(tmp_path: Path) -> None:
     core = _core(tmp_path)
     daemon = Daemon(core)
     try:
-        # "setup" -> a {"choose"} provider menu (its label), the ollama url
-        # (blank), then a {"choose"} model menu (keep the default).
+        # "set provider" (no name) -> a {"choose"} provider menu (its label), the
+        # ollama url (blank), then a {"choose"} model menu (keep the default).
         label = setup._PROVIDER_LABELS["ollama"]
-        frames = _drive_attached(daemon, ["setup", label, "", "qwen3"])
+        frames = _drive_attached(daemon, ["set provider", label, "", "qwen3"])
         assert any("choose" in f for f in frames)
         assert Settings().provider == "ollama"
+    finally:
+        core.close()
+
+
+def test_attach_set_model_picks_over_socket(tmp_path: Path) -> None:
+    core = _core(tmp_path)
+    daemon = Daemon(core)
+    try:
+        # "set model" (no name) -> a {"choose"} model menu for the current provider.
+        frames = _drive_attached(daemon, ["set model", "qwen3"])
+        assert any("choose" in f for f in frames)
     finally:
         core.close()

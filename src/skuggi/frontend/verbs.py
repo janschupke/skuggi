@@ -6,14 +6,34 @@ registry here for the known-verb set, argument hints and the help listing, so th
 two dispatch surfaces can never drift (they did, as ``daemon._CONTROL_HELP`` vs
 ``tui.HELP``). The handlers themselves stay in each front-end because their
 rendering differs (Rich tables/colour in the REPL, plain text over the socket).
+
+The grammar is verb-object: the four grouping verbs ``show`` / ``set`` / ``add``
+/ ``remove`` each take a *noun* as their first word (``show config``, ``set
+model``) and route on it internally. The nouns live in the same registry (a
+``Verb.nouns`` tuple) so ``help <verb>`` can enumerate them and a per-front-end
+noun router can be drift-checked against ``noun_names(verb)``, exactly as the
+top-level handlers are checked against ``KNOWN``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 Category = Literal["engagement", "control"]
+
+# Help subheadings. Separate from ``category`` (which only routes the audit log)
+# so the two concerns never get conflated.
+Group = Literal[
+    "agent",
+    "read",
+    "configure",
+    "record",
+    "remove",
+    "engagement",
+    "review",
+    "system",
+]
 
 # The three front-end surfaces, each with its own command grammar. A hint shown
 # on one surface must use that surface's grammar or it will not run there.
@@ -36,19 +56,36 @@ def cmd(invocation: str, surface: Surface = "shell") -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class Noun:
+    """One sub-command of a grouping verb (``show config``, ``set model`` …).
+
+    ``usage`` is the hint that follows the noun, e.g. ``[all|scoped|…]`` for
+    ``show tools``; empty when the noun takes no argument.
+    """
+
+    name: str
+    summary: str
+    usage: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class Verb:
     """One dispatchable action: its name, a one-line summary, and an arg hint.
 
     ``category`` separates the two logs the harness keeps: ``engagement`` verbs
-    (``ask``, ``cmd``) direct the engagement and land on the session timeline;
-    ``control`` verbs are harness chatter and are recorded to the separate audit
-    log instead (see ``AgentCore.note_interaction``).
+    (``ask``, ``cmd``, ``add``) direct the engagement and land on the session
+    timeline; ``control`` verbs are harness chatter and are recorded to the
+    separate audit log instead (see ``AgentCore.note_interaction``). ``group`` is
+    purely the help subheading. ``nouns`` is populated only for the grouping
+    verbs (``show``/``set``/``add``/``remove``).
     """
 
     name: str
     summary: str
     usage: str = ""
     category: Category = "control"
+    group: Group = "agent"
+    nouns: tuple[Noun, ...] = field(default_factory=tuple)
 
 
 # Ordered for the help listing: the everyday agent path first, controls after.
@@ -56,57 +93,135 @@ VERBS: tuple[Verb, ...] = (
     Verb("ask", "send a prompt to the agent", "<prompt>", category="engagement"),
     Verb(
         "cmd",
-        "search the command cheatsheet; resolve one to scope-check & advise",
+        "search the command cheatsheet; resolve one to scope-check it",
         "[list | <query> | <name> | add | edit <name> | rm <name>]",
         category="engagement",
+        group="agent",
+    ),
+    Verb(
+        "show",
+        "inspect state",
+        "<what>",
+        group="read",
+        nouns=(
+            Noun("config", "app settings"),
+            Noun("provider", "active provider + credential status"),
+            Noun("model", "active model"),
+            Noun("engagement", "scope summary"),
+            Noun("db", "session ledger stats"),
+            Noun(
+                "tools",
+                "recognized tools / host status",
+                "[all|scoped|installed|missing]",
+            ),
+            Noun("memory", "remembered operator preferences"),
+            Noun("notes", "engagement notes"),
+            Noun("loot", "captured loot"),
+            Noun("findings", "recorded findings"),
+            Noun("history", "recent messages on this thread", "[n]"),
+            Noun("trace", "the worker's tool calls on this thread"),
+            Noun("threads", "conversation threads"),
+            Noun("status", "readiness + a session glance"),
+        ),
+    ),
+    Verb(
+        "set",
+        "change config / session state",
+        "<what>",
+        group="configure",
+        nouns=(
+            Noun("provider", "switch provider (interactive with no name)", "[<name>]"),
+            Noun("model", "switch model (interactive with no name)", "[<name>]"),
+            Noun("mode", "operating mode", "<pentest|redteam|blueteam>"),
+            Noun("autonomous", "arm autonomous command execution", "[on|off]"),
+            Noun(
+                "config",
+                "set a setting, or a natural-language request",
+                "<key> <value> | <request>",
+            ),
+            Noun("thread", "start or switch a conversation thread", "<id>|new"),
+        ),
     ),
     Verb(
         "add",
-        "record a note, loot item or finding",
-        "note <text> | loot <text> | finding <severity> <title>",
+        "record engagement data",
+        "<what>",
         category="engagement",
+        group="record",
+        nouns=(
+            Noun("note", "record a note", "<text>"),
+            Noun("loot", "record a loot item", "<text>"),
+            Noun("finding", "record a finding", "<severity|CVSS> <title>"),
+            Noun("memory", "remember an operator preference", "<entry>"),
+        ),
     ),
-    Verb("notes", "list engagement notes"),
-    Verb("loot", "list captured loot"),
+    Verb(
+        "remove",
+        "delete records",
+        "<what>",
+        group="remove",
+        nouns=(Noun("memory", "forget a preference, or all of them", "<id> | all"),),
+    ),
+    Verb(
+        "engagement",
+        "run setup, scaffold a scope file, or set the threat model",
+        "[setup | scaffold | threat-model <conf> <int> <avail>]",
+        group="engagement",
+    ),
     Verb(
         "findings",
-        "list findings, or review one",
-        "[approve <id> | reject <id> <reason>]",
+        "review a finding (approve / reject / rescore)",
+        "[approve <id> | reject <id> <reason> | rescore [all|<id>]]",
+        group="review",
     ),
     Verb(
         "report",
         "write an engagement report, or add a changelog note",
         "[pdf | note <text>]",
-    ),
-    Verb("visualize", "build an interactive HTML dashboard of the whole engagement"),
-    Verb("replay", "reconstruct & view a session transcript", "[list | <session>]"),
-    Verb("review", "private LLM review of a session (feedback for you)", "[<session>]"),
-    Verb(
-        "memory",
-        "show / add / forget remembered operator preferences",
-        "[add <text> | forget <id> | clear]",
+        group="review",
     ),
     Verb(
-        "engagement",
-        "show scope, run setup, or set the threat model",
-        "[setup | threat-model <conf> <int> <avail>]",
+        "visualize",
+        "build an interactive HTML dashboard of the whole engagement",
+        group="review",
     ),
-    Verb("config", "show or change app settings", "[show | <key> <value> | <request>]"),
-    Verb("setup", "configure a provider + credentials (guided)", "[provider]"),
-    Verb("doctor", "probe host tools / runtimes / net tools", "[install <tool>]"),
-    Verb("mode", "switch operating mode", "<pentest|redteam|blueteam>"),
-    Verb("autonomous", "toggle autonomous command execution", "[on|off]"),
-    Verb("provider", "switch LLM provider", "<openai|chatgpt|anthropic|ollama>"),
-    Verb("login", "log in to a ChatGPT account (OAuth) for the chatgpt provider"),
-    Verb("model", "switch model on the current provider", "<name>"),
-    Verb("thread", "start / list / resume a conversation thread", "new|list|<id>"),
-    Verb("history", "show recent messages on this thread", "[n]"),
-    Verb("trace", "show the worker's tool calls on this thread"),
-    Verb("ingest", "index a file or directory into the retrieval store", "<path>"),
-    Verb("update", "update skuggi (git pull --ff-only, then refresh this install)"),
-    Verb("clear", "clear the screen"),
-    Verb("help", "show this command reference"),
-    Verb("exit", "leave skuggi"),
+    Verb(
+        "replay",
+        "reconstruct & view a session transcript",
+        "[list | <session>]",
+        group="review",
+    ),
+    Verb(
+        "review",
+        "private LLM review of a session (feedback for you)",
+        "[<session>]",
+        group="review",
+    ),
+    Verb(
+        "doctor",
+        "probe host tools / runtimes / net tools",
+        "[install <tool>]",
+        group="system",
+    ),
+    Verb(
+        "login",
+        "log in to a ChatGPT account (OAuth) for the chatgpt provider",
+        group="system",
+    ),
+    Verb(
+        "ingest",
+        "index a file or directory into the retrieval store",
+        "<path>",
+        group="system",
+    ),
+    Verb(
+        "update",
+        "update skuggi (git pull --ff-only, then refresh this install)",
+        group="system",
+    ),
+    Verb("clear", "clear the screen", group="system"),
+    Verb("help", "show this command reference", "[<verb>]", group="system"),
+    Verb("exit", "leave skuggi", group="system"),
 )
 
 KNOWN: frozenset[str] = frozenset(v.name for v in VERBS)
@@ -117,6 +232,30 @@ ENGAGEMENT: frozenset[str] = frozenset(
     v.name for v in VERBS if v.category == "engagement"
 )
 
+_BY_NAME: dict[str, Verb] = {v.name: v for v in VERBS}
+
+# Grouping verbs that route on a noun, in help subheading order.
+_GROUP_ORDER: tuple[Group, ...] = (
+    "agent",
+    "read",
+    "configure",
+    "record",
+    "remove",
+    "engagement",
+    "review",
+    "system",
+)
+_GROUP_TITLES: dict[Group, str] = {
+    "agent": "Agent",
+    "read": "Inspect  (show <what>)",
+    "configure": "Configure  (set <what>)",
+    "record": "Record  (add <what>)",
+    "remove": "Remove  (remove <what>)",
+    "engagement": "Engagement",
+    "review": "Findings & reporting",
+    "system": "Harness",
+}
+
 # Bare words that mean "leave", accepted in addition to `exit`.
 _EXIT_ALIASES = frozenset({"exit", "quit"})
 
@@ -124,6 +263,17 @@ _EXIT_ALIASES = frozenset({"exit", "quit"})
 def is_engagement(verb: str) -> bool:
     """Whether `verb` directs the engagement (vs. being harness control chatter)."""
     return verb in ENGAGEMENT
+
+
+def nouns_of(verb: str) -> tuple[Noun, ...]:
+    """The sub-command nouns of a grouping verb (empty for a plain verb)."""
+    found = _BY_NAME.get(verb)
+    return found.nouns if found is not None else ()
+
+
+def noun_names(verb: str) -> frozenset[str]:
+    """The noun names of a grouping verb, for drift-checking a front-end router."""
+    return frozenset(n.name for n in nouns_of(verb))
 
 
 def split_verb(line: str) -> tuple[str, str]:
@@ -146,11 +296,39 @@ def is_exit(verb: str) -> bool:
     return verb in _EXIT_ALIASES
 
 
-def help_rows() -> list[tuple[str, str]]:
-    """``(invocation, summary)`` rows for the help listing, in registry order.
+def _invocation(name: str, usage: str) -> str:
+    return name + (f" {usage}" if usage else "")
 
-    ``invocation`` is the verb plus its arg hint (no front-end prefix); the REPL
-    renders it as ``/<invocation>``, the wrapped-shell help as
-    ``/skuggi <invocation>``.
+
+def help_sections() -> list[tuple[str, list[tuple[str, str]]]]:
+    """``(subheading, [(invocation, summary), …])`` groups, in display order.
+
+    A grouping verb appears as one collapsed row (``show <what>``); its nouns are
+    reached through ``help_for``. ``invocation`` carries no front-end prefix; the
+    REPL renders ``/<invocation>``, the wrapped-shell help ``/skuggi <invocation>``.
     """
-    return [(v.name + (f" {v.usage}" if v.usage else ""), v.summary) for v in VERBS]
+    sections: list[tuple[str, list[tuple[str, str]]]] = []
+    for group in _GROUP_ORDER:
+        rows = [
+            (_invocation(v.name, v.usage), v.summary) for v in VERBS if v.group == group
+        ]
+        if rows:
+            sections.append((_GROUP_TITLES[group], rows))
+    return sections
+
+
+def help_for(verb: str) -> list[tuple[str, str]] | None:
+    """Detailed ``(invocation, summary)`` rows for one verb, or ``None`` if unknown.
+
+    A grouping verb yields one row per noun (``show config``, ``show provider`` …);
+    a plain verb yields its single usage row.
+    """
+    found = _BY_NAME.get(verb)
+    if found is None:
+        return None
+    if found.nouns:
+        return [
+            (_invocation(f"{found.name} {n.name}", n.usage), n.summary)
+            for n in found.nouns
+        ]
+    return [(_invocation(found.name, found.usage), found.summary)]

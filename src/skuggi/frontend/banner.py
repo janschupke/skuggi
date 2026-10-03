@@ -4,13 +4,15 @@ A pure renderer so ``shell.main()`` (which is ``# pragma: no cover`` -- it
 launches a child shell + daemon) stays wiring-only and the banner's layout is
 unit-tested. Returns one Rich-markup string; the caller prints it through a Rich
 ``Console``. Styling draws on the shared :mod:`skuggi.common.palette` so the
-wrapped shell reads the same as the REPL, and the verb invocations are formatted
-through :func:`skuggi.frontend.verbs.cmd` so the shell grammar can never drift
-from the dispatcher.
+wrapped shell reads the same as the REPL, and the glance fields + next-step notes
+come from one :class:`skuggi.agent.readiness.Readiness` so the shell can never
+drift from the REPL or ``show status``.
 """
 
 from __future__ import annotations
 
+from skuggi.agent import readiness as readiness_mod
+from skuggi.agent.readiness import Readiness
 from skuggi.common import palette
 from skuggi.frontend import verbs
 
@@ -25,30 +27,25 @@ _VERBS: tuple[tuple[str, str], ...] = (
 )
 
 
-def render_startup_banner(  # noqa: PLR0913 -- keyword-only banner fields
+def render_startup_banner(
     *,
-    provider: str,
-    model: str,
-    engagement: str | None,
-    has_llm: bool,
-    warnings: list[str],
+    readiness: Readiness,
     unsupported_shell: str | None,
 ) -> str:
     """Compose the wrapped shell's startup banner as a Rich-markup string.
 
-    ``provider``/``model`` are shown at a glance (the prompt no longer carries
-    them); ``engagement`` is the scoped engagement name (``None`` -> agent-only,
-    which adds the scope-an-engagement next step); ``has_llm`` False adds the
-    configure-a-model next step; ``warnings`` are ``core.warnings`` verbatim;
-    ``unsupported_shell`` is the shell's name when it cannot take the hook, else
-    ``None``.
+    ``readiness`` carries the glance fields (provider/model/engagement) and the
+    pending next steps; ``unsupported_shell`` is the shell's name when it cannot
+    take the hook, else ``None``.
     """
-    scope = engagement or "(none)"
+    scope = readiness.engagement or "(none)"
     lines: list[str] = [
         f"{palette.SHIELD} [bold]skuggi shell[/bold]",
         "  "
         + palette.paint(
-            f"provider {provider} · model {model} · engagement {scope}", palette.INFO
+            f"provider {readiness.provider} · model {readiness.model} "
+            f"· engagement {scope}",
+            palette.INFO,
         ),
         "",
     ]
@@ -60,11 +57,7 @@ def render_startup_banner(  # noqa: PLR0913 -- keyword-only banner fields
         for cmd, what in hints
     )
 
-    notes: list[str] = list(warnings)
-    if engagement is None:
-        notes.append(f"run '{verbs.cmd('engagement setup')}' to scope an engagement")
-    if not has_llm:
-        notes.append(f"run '{verbs.cmd('setup')}' to configure a model")
+    notes = readiness_mod.render_banner_notes(readiness, "shell")
     if notes:
         lines.append("")
         lines.extend(f"  {palette.paint(note, palette.INFO)}" for note in notes)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import zoneinfo
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from langgraph.graph.state import CompiledStateGraph
 from prompt_toolkit import PromptSession
@@ -21,7 +22,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi.agent import prompts, protocol
+from skuggi.agent import protocol, readiness
 from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.agent.state import AgentState
 from skuggi.common import palette
@@ -33,8 +34,20 @@ from skuggi.frontend.prompter import Prompter
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import Ledger, finding_line
 from skuggi.tooling.commands import CommandAlias, render
-from skuggi.tooling.doctor import PROBING_MSG, render_doctor
+from skuggi.tooling.doctor import (
+    PROBING_MSG,
+    ToolFilter,
+    doctor_table,
+    filter_tool_statuses,
+    render_doctor,
+)
 from skuggi.tooling.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from skuggi.frontend.dispatch import MemoryOutcome
+
+# The filters ``show tools`` accepts, for argument validation.
+_TOOL_FILTERS: frozenset[str] = frozenset({"all", "scoped", "installed", "missing"})
 
 
 class DraftView:
@@ -83,47 +96,69 @@ class Tui:
         # straight after building the app, before run()/the banner).
         for warning in self.core.warnings:
             self.console.print(f"[yellow]{warning}[/yellow]")
-        # Actionable next steps in the REPL's own grammar.
-        if self.core.llm is None:
+        # Actionable next steps, computed once from the one readiness model and
+        # phrased in the REPL's own grammar.
+        for step in readiness.from_core(self.core).pending:
             self.console.print(
-                f"[dim]run {verbs.cmd('setup', 'repl')} to configure a model[/dim]"
-            )
-        if self.core.engagement is None:
-            self.console.print(
-                f"[dim]run {verbs.cmd('engagement setup', 'repl')} "
-                "to scope an engagement[/dim]"
+                f"[dim]{step.message} -- run {verbs.cmd(step.invocation, 'repl')}[/dim]"
             )
 
         # Keyed by bare verb (the shared registry in `verbs`); `ask` and `exit`
         # are handled directly in `dispatch`. Kept in sync with `verbs.KNOWN` by
-        # a drift test.
+        # a drift test. `show`/`set`/`add`/`remove` route on a noun internally.
         self._commands: dict[str, Callable[[str], bool | None]] = {
             "help": self._cmd_help,
-            "provider": self._cmd_provider,
-            "model": self._cmd_model,
-            "mode": self._cmd_mode,
-            "thread": self._cmd_thread,
-            "history": self._cmd_history,
-            "trace": self._cmd_trace,
-            "engagement": self._cmd_engagement,
-            "config": self._cmd_config,
-            "setup": self._cmd_setup,
-            "login": self._cmd_login,
-            "cmd": self._cmd_cmd,
-            "doctor": self._cmd_doctor,
+            "show": self._cmd_show,
+            "set": self._cmd_set,
             "add": self._cmd_add,
-            "notes": self._cmd_notes,
-            "loot": self._cmd_loot,
+            "remove": self._cmd_remove,
+            "cmd": self._cmd_cmd,
+            "engagement": self._cmd_engagement,
+            "login": self._cmd_login,
+            "doctor": self._cmd_doctor,
             "findings": self._cmd_findings,
             "report": self._cmd_report,
             "visualize": self._cmd_visualize,
             "replay": self._cmd_replay,
             "review": self._cmd_review,
-            "memory": self._cmd_memory,
-            "autonomous": self._cmd_autonomous,
             "clear": self._cmd_clear,
             "ingest": self._cmd_ingest,
             "update": self._cmd_update,
+        }
+        # Noun routers for the grouping verbs; each is drift-checked against
+        # `verbs.noun_names(<verb>)` so a new noun cannot be half-wired.
+        self._show_nouns: dict[str, Callable[[str], None]] = {
+            "config": self._show_config,
+            "provider": self._show_provider,
+            "model": self._show_model,
+            "engagement": self._show_engagement,
+            "db": self._show_db,
+            "tools": self._show_tools,
+            "memory": self._show_memory,
+            "notes": self._show_notes,
+            "loot": self._show_loot,
+            "findings": self._show_findings,
+            "history": self._show_history,
+            "trace": self._show_trace,
+            "threads": self._show_threads,
+            "status": self._show_status,
+        }
+        self._set_nouns: dict[str, Callable[[str], None]] = {
+            "provider": self._set_provider,
+            "model": self._set_model,
+            "mode": self._set_mode,
+            "autonomous": self._set_autonomous,
+            "config": self._set_config,
+            "thread": self._set_thread,
+        }
+        self._add_nouns: dict[str, Callable[[str], None]] = {
+            "note": lambda rest: self._add_record("note", rest),
+            "loot": lambda rest: self._add_record("loot", rest),
+            "finding": lambda rest: self._add_record("finding", rest),
+            "memory": self._add_memory,
+        }
+        self._remove_nouns: dict[str, Callable[[str], None]] = {
+            "memory": self._remove_memory,
         }
 
     # ----- delegated read state ----------------------------------------------
@@ -203,7 +238,7 @@ class Tui:
     def _prompt(self) -> str:
         # The shield marks that skuggi is active; the `!` warns autonomous
         # execution is armed. The engagement name is the only context worth the
-        # space -- mode/provider/model live in the banner and `/status`.
+        # space -- mode/provider/model live in the banner and `/show status`.
         auto = "!" if self.core.autonomous else ""
         engagement = self.core.engagement
         if engagement is not None:
@@ -212,23 +247,22 @@ class Tui:
 
     def _banner(self) -> None:
         self.console.rule("[bold]skuggi[/bold]")
-        core = self.core
-        engagement = core.engagement.name if core.engagement else "[red](none)[/red]"
-        autonomous = palette.paint("ON", palette.DANGER) if core.autonomous else "off"
-        model = core.model or core.settings.model_for(core.settings.provider)
+        self._print_glance(readiness.from_core(self.core))
+        self.console.print("type /help for commands\n")
+
+    def _print_glance(self, r: readiness.Readiness) -> None:
+        """The one-line mode/provider/model/engagement/autonomous status glance."""
+        engagement = r.engagement or "[red](none)[/red]"
+        autonomous = palette.paint("ON", palette.DANGER) if r.autonomous else "off"
         self.console.print(
-            f"mode=[cyan]{self.mode}[/cyan]  "
-            f"provider=[cyan]{self.provider}[/cyan]  "
-            f"model=[cyan]{model}[/cyan]  "
+            f"mode=[cyan]{r.mode}[/cyan]  "
+            f"provider=[cyan]{r.provider}[/cyan]  "
+            f"model=[cyan]{r.model}[/cyan]  "
             f"engagement=[cyan]{engagement}[/cyan]  "
             f"autonomous={autonomous}"
         )
-        if self.provider == "chatgpt":
-            self.console.print(
-                "[yellow]note:[/yellow] the chatgpt provider has no native "
-                "structured output, so responses use the JSON-contract fallback"
-            )
-        self.console.print("type /help for commands\n")
+        if r.provider_note:
+            self.console.print(f"[yellow]note:[/yellow] {r.provider_note}")
 
     def _status(self, node: str, text: str) -> None:
         if not text:
@@ -262,26 +296,77 @@ class Tui:
     def _cmd_quit(self, _arg: str) -> bool:
         return False
 
-    def _cmd_help(self, _arg: str) -> None:
-        table = Table(show_header=False, box=None)
-        for invocation, summary in verbs.help_rows():
-            table.add_row(f"[cyan]/{invocation}[/cyan]", summary)
-        self.console.print(table)
+    def _cmd_help(self, arg: str) -> None:
+        verb = arg.strip().split(" ", 1)[0]
+        if verb:
+            rows = verbs.help_for(verb)
+            if rows is None:
+                self.console.print(f"[red]no such command:[/red] {verb}")
+                return
+            table = Table(show_header=False, box=None, title=f"/{verb}")
+            for invocation, summary in rows:
+                table.add_row(f"[cyan]/{invocation}[/cyan]", summary)
+            self.console.print(table)
+            return
+        for title, section_rows in verbs.help_sections():
+            self.console.print(f"[bold]{title}[/bold]")
+            table = Table(show_header=False, box=None, pad_edge=False)
+            for invocation, summary in section_rows:
+                table.add_row(f"  [cyan]/{invocation}[/cyan]", summary)
+            self.console.print(table)
 
-    def _cmd_provider(self, arg: str) -> None:
-        """Switch the LLM provider on the live session."""
+    # ----- grouping-verb routers ---------------------------------------------
+
+    def _route_noun(
+        self, verb: str, arg: str, router: dict[str, Callable[[str], None]]
+    ) -> None:
+        """Dispatch ``<verb> <noun> <rest>`` to `router`, or show the noun usage."""
+        noun, _, rest = arg.partition(" ")
+        noun = noun.strip().lower()
+        handler = router.get(noun)
+        if handler is None:
+            options = " | ".join(n.name for n in verbs.nouns_of(verb))
+            self.console.print(
+                f"[yellow]usage:[/yellow] {verbs.cmd(f'{verb} <{options}>', 'repl')}"
+            )
+            return
+        handler(rest.strip())
+
+    def _cmd_show(self, arg: str) -> None:
+        """Inspect state: ``show <config|provider|model|…>``."""
+        self._route_noun("show", arg, self._show_nouns)
+
+    def _cmd_set(self, arg: str) -> None:
+        """Change config / session state: ``set <provider|model|mode|…>``."""
+        self._route_noun("set", arg, self._set_nouns)
+
+    def _cmd_add(self, arg: str) -> None:
+        """Record engagement data: ``add <note|loot|finding|memory>``."""
+        self._route_noun("add", arg, self._add_nouns)
+
+    def _cmd_remove(self, arg: str) -> None:
+        """Delete records: ``remove <memory>``."""
+        self._route_noun("remove", arg, self._remove_nouns)
+
+    # ----- set <noun> --------------------------------------------------------
+
+    def _set_provider(self, arg: str) -> None:
+        """Switch provider; with no name, run the guided provider+model setup."""
+        if not arg:
+            self._run_setup()
+            return
         match dispatch.run_provider(self.core, arg):
             case dispatch.ProviderUsage():
                 self.console.print(
-                    f"[yellow]usage:[/yellow] /provider <{'|'.join(PROVIDERS)}> "
-                    f"-- or run {verbs.cmd('setup', 'repl')} to configure one"
+                    f"[yellow]usage:[/yellow] {verbs.cmd('set provider', 'repl')} "
+                    f"<{'|'.join(PROVIDERS)}>"
                 )
             case dispatch.ProviderUnknown(message):
                 self.console.print(f"[red]{message}[/red]")
             case dispatch.ProviderNoCredential(provider):
                 self.console.print(
                     f"[yellow]{provider} isn't configured[/yellow] -- run "
-                    f"{verbs.cmd('setup', 'repl')} to add a key"
+                    f"{verbs.cmd('set provider', 'repl')} to add a key"
                 )
             case dispatch.ProviderError(message):
                 self.console.print(f"[red]provider error:[/red] {message}")
@@ -290,22 +375,33 @@ class Tui:
                     f"[dim]switched to[/dim] {provider}/{model or '(default)'}"
                 )
 
-    def _cmd_model(self, arg: str) -> None:
-        """Switch the model on the current provider."""
+    def _set_model(self, arg: str) -> None:
+        """Switch model; with no name, pick one from the provider's curated list."""
+        if not arg:
+            setup.run_model_select(
+                self.core,
+                self.core.provider,
+                self._ask,
+                self._choose,
+                lambda text: self.console.print(f"[dim]{text}[/dim]"),
+            )
+            return
         match dispatch.run_model(self.core, arg):
             case dispatch.ModelUsage():
-                self.console.print("[yellow]usage:[/yellow] /model <name>")
+                self.console.print(
+                    f"[yellow]usage:[/yellow] {verbs.cmd('set model <name>', 'repl')}"
+                )
             case dispatch.ModelNoCredential(provider):
                 self.console.print(
                     f"[yellow]can't switch model:[/yellow] {provider} isn't "
-                    f"configured -- run {verbs.cmd('setup', 'repl')} first"
+                    f"configured -- run {verbs.cmd('set provider', 'repl')} first"
                 )
             case dispatch.ModelError(message):
                 self.console.print(f"[red]provider error:[/red] {message}")
             case dispatch.ModelSwitched(provider, model):
                 self.console.print(f"[dim]switched to[/dim] {provider}/{model}")
 
-    def _cmd_mode(self, arg: str) -> None:
+    def _set_mode(self, arg: str) -> None:
         try:
             self.core.set_mode(arg)
         except ValueError as e:
@@ -314,26 +410,34 @@ class Tui:
         self.console.print(f"[dim]mode:[/dim] {self.mode}")
 
     def _cmd_engagement(self, arg: str) -> None:
-        parts = arg.split()
-        if parts and parts[0] in wizard.WIZARD_ARGS:
+        first = arg.split(maxsplit=1)[0] if arg.split() else ""
+        if first in wizard.WIZARD_ARGS:
             self._engagement_wizard()
             return
-        if parts and parts[0] == "threat-model":
-            rest = arg.split(maxsplit=1)[1] if len(parts) > 1 else ""
+        if first == "scaffold":
+            self._engagement_scaffold()
+            return
+        if first == "threat-model":
+            rest = arg.split(maxsplit=1)[1] if len(arg.split()) > 1 else ""
             self.console.print(dispatch.run_threat_model(self.core, rest))
             return
-        eng = self.engagement
-        if eng is None:
-            self.console.print(
-                f"[yellow]no engagement loaded[/yellow] -- run "
-                f"{verbs.cmd('engagement setup', 'repl')} to create one"
-            )
-            return
         self.console.print(
-            eng.describe(
-                method_paint=lambda m: palette.paint(m, palette.method_style(m))
-            )
+            "[yellow]usage:[/yellow] "
+            f"{verbs.cmd('engagement setup | scaffold | threat-model', 'repl')} "
+            f"-- scope summary is {verbs.cmd('show engagement', 'repl')}"
         )
+
+    def _engagement_scaffold(self) -> None:
+        """Copy the packaged scope template into the cwd for the operator to edit."""
+        match dispatch.run_scaffold(Path.cwd()):
+            case dispatch.Scaffolded(path):
+                self.console.print(f"[green]scaffolded[/green] [dim]{path}[/dim]")
+            case dispatch.ScaffoldExists(path):
+                self.console.print(
+                    f"[yellow]exists[/yellow] [dim]{path}[/dim] -- not overwritten"
+                )
+            case dispatch.ScaffoldError(message):
+                self.console.print(f"[red]scaffold failed:[/red] {message}")
 
     def _ask(self, prompt: str) -> str | None:
         """Prompt the operator for one line; None on EOF / Ctrl-C (an abort)."""
@@ -400,7 +504,7 @@ class Tui:
             existing=self.core.engagement,
         )
 
-    def _cmd_config(self, arg: str) -> None:
+    def _set_config(self, arg: str) -> None:
         text = self.core.config.line(arg)
         if text is not None:  # show / mechanical key-value
             self.console.print(text)
@@ -413,7 +517,29 @@ class Tui:
             apply=self.core.config.apply,
         )
 
-    def _cmd_setup(self, _arg: str) -> None:
+    def _set_autonomous(self, arg: str) -> None:
+        try:
+            state = self.core.set_autonomous(parse_toggle(arg))
+        except ValueError as e:
+            self.console.print(f"[yellow]{e}[/yellow]")
+            return
+        if state:
+            self.console.print(
+                palette.paint("autonomous execution is now ON", palette.DANGER)
+                + " -- proposed commands will EXECUTE within scope"
+            )
+        else:
+            self.console.print("autonomous execution is now off")
+
+    def _set_thread(self, arg: str) -> None:
+        if arg in ("new", ""):
+            new_id = self.core.new_thread()
+            self.console.print(f"[dim]new thread:[/dim] {new_id}")
+        else:
+            self.core.set_thread(arg)
+            self.console.print(f"[dim]switched to thread:[/dim] {arg}")
+
+    def _run_setup(self) -> None:
         """Guided provider + credential setup (the app owns the credentials)."""
         setup.run_setup(
             self.core,
@@ -515,7 +641,6 @@ class Tui:
                 f"[green]{plan.note}[/green] -- recorded proposed "
                 f"(cmd:{plan.command_id}); submit it yourself"
             )
-        self.turn(prompts.EVALUATE_RUN.format(command=plan.raw))
 
     def _cmd_alias_add(self) -> None:
         cmdflow.run_cmd_editor(
@@ -547,9 +672,11 @@ class Tui:
         else:
             self.console.print(f"[yellow]unknown alias[/yellow] {name!r}")
 
-    def _cmd_add(self, arg: str) -> None:
+    # ----- add <noun> --------------------------------------------------------
+
+    def _add_record(self, noun: str, rest: str) -> None:
         """Record a note, loot item or finding (one grammar, per-case rendering)."""
-        match dispatch.run_add(self.core, arg):
+        match dispatch.run_add(self.core, f"{noun} {rest}".strip()):
             case dispatch.AddUsage(form):
                 self.console.print(
                     f"[yellow]usage:[/yellow] {verbs.cmd(f'add {form}', 'repl')}"
@@ -579,25 +706,113 @@ class Tui:
                     )
                 )
 
-    def _cmd_notes(self, _arg: str) -> None:
+    def _add_memory(self, rest: str) -> None:
+        """Remember an operator preference (``add memory <entry>``)."""
+        if not rest:
+            self.console.print(
+                f"[yellow]usage:[/yellow] {verbs.cmd('add memory <entry>', 'repl')}"
+            )
+            return
+        self._render_memory(dispatch.run_memory(self.core, f"add {rest}"))
+
+    # ----- remove <noun> -----------------------------------------------------
+
+    def _remove_memory(self, rest: str) -> None:
+        """Forget one preference (``remove memory <id>``) or every one (``all``)."""
+        if rest == "all":
+            self._render_memory(dispatch.run_memory(self.core, "clear"))
+            return
+        if not rest.isdigit():
+            usage = verbs.cmd("remove memory <id> | all", "repl")
+            self.console.print(f"[yellow]usage:[/yellow] {usage}")
+            return
+        self._render_memory(dispatch.run_memory(self.core, f"forget {rest}"))
+
+    # ----- show <noun> -------------------------------------------------------
+
+    def _show_config(self, _rest: str) -> None:
+        self.console.print(self.core.config.summary())
+
+    def _show_provider(self, _rest: str) -> None:
+        r = readiness.from_core(self.core)
+        fix = verbs.cmd("set provider", "repl")
+        state = (
+            "[green]configured[/green]"
+            if r.provider_configured
+            else f"[yellow]not configured[/yellow] -- run {fix}"
+        )
+        self.console.print(f"provider [cyan]{r.provider}[/cyan] -- {state}")
+        if r.provider_note:
+            self.console.print(f"[yellow]note:[/yellow] {r.provider_note}")
+
+    def _show_model(self, _rest: str) -> None:
+        r = readiness.from_core(self.core)
+        self.console.print(
+            f"model [cyan]{r.model}[/cyan] on provider [cyan]{r.provider}[/cyan]"
+        )
+
+    def _show_engagement(self, _rest: str) -> None:
+        eng = self.engagement
+        if eng is None:
+            self.console.print(
+                f"[yellow]no engagement loaded[/yellow] -- run "
+                f"{verbs.cmd('engagement setup', 'repl')} to create one"
+            )
+            return
+        self.console.print(
+            eng.describe(
+                method_paint=lambda m: palette.paint(m, palette.method_style(m))
+            )
+        )
+
+    def _show_db(self, _rest: str) -> None:
+        self.console.print(dispatch.run_db_stats(self.core))
+
+    def _show_status(self, _rest: str) -> None:
+        r = dispatch.run_status(self.core)
+        self._print_glance(r)
+        notes = readiness.render_banner_notes(r, "repl")
+        for note in notes:
+            self.console.print(f"[dim]{note}[/dim]")
+        if not notes:
+            self.console.print("[green]ready[/green]")
+
+    def _show_tools(self, rest: str) -> None:
+        which = rest.strip().lower() or "all"
+        if which not in _TOOL_FILTERS:
+            self.console.print(
+                "[yellow]usage:[/yellow] "
+                f"{verbs.cmd('show tools [all|scoped|installed|missing]', 'repl')}"
+            )
+            return
+        with self.console.status(PROBING_MSG, spinner="dots"):
+            statuses = self.core.doctor.tools()
+        filtered = filter_tool_statuses(
+            statuses, cast("ToolFilter", which), self.core.engagement
+        )
+        if not filtered:
+            self.console.print(f"[dim](no {which} tools)[/dim]")
+            return
+        self.console.print(doctor_table(filtered))
+
+    def _show_memory(self, _rest: str) -> None:
+        self._render_memory(dispatch.run_memory(self.core, ""))
+
+    def _show_notes(self, _rest: str) -> None:
         text = self.core.journal.notes()
         if not text.strip():
             self.console.print("[dim](no notes yet)[/dim]")
             return
         self.console.print(Markdown(text))
 
-    def _cmd_loot(self, _arg: str) -> None:
+    def _show_loot(self, _rest: str) -> None:
         text = self.core.journal.loot()
         if not text.strip():
             self.console.print("[dim](no loot yet)[/dim]")
             return
         self.console.print(Markdown(text))
 
-    def _cmd_findings(self, arg: str) -> None:
-        message = dispatch.run_findings(self.core, arg)
-        if message is not None:
-            self.console.print(message)
-            return
+    def _show_findings(self, _rest: str) -> None:
         rows = self.core.journal.findings()
         if not rows:
             self.console.print("[dim](no findings yet)[/dim]")
@@ -612,6 +827,52 @@ class Tui:
                     and finding.cvss_tm_version != current,
                 )
             )
+
+    def _show_history(self, arg: str) -> None:
+        count = int(arg) if arg.isdigit() else 20
+        labels = {"human": "you", "ai": "bot", "system": "sys", "tool": "tool"}
+        for message in self.core.state().get("messages", [])[-count:]:
+            self.console.print(
+                f"[bold]{labels.get(message.type, message.type)}:[/bold] {message.text}"
+            )
+
+    def _show_trace(self, _arg: str) -> None:
+        """Show the command trail, which `show history` deliberately excludes."""
+        commands = self.core.state().get("commands") or []
+        if not commands:
+            self.console.print("[dim](no command activity on this thread)[/dim]")
+            return
+        for cmd in commands:
+            self.console.print(
+                f"[cyan]{cmd.status}[/cyan] [cmd:{cmd.id}] {cmd.command}"
+            )
+            if cmd.summary:
+                self.console.print(
+                    f"[green]  {cmd.summary.splitlines()[0][:200]}[/green]"
+                )
+
+    def _show_threads(self, _rest: str) -> None:
+        ids = self.core.list_threads()
+        if not ids:
+            self.console.print("[dim](no threads)[/dim]")
+            return
+        for thread_id in ids:
+            marker = " *" if thread_id == self.thread_id else ""
+            self.console.print(f"  {thread_id}{marker}")
+
+    def _cmd_findings(self, arg: str) -> None:
+        """Review a finding (approve/reject/rescore); listing is `show findings`."""
+        message = dispatch.run_findings(self.core, arg)
+        if message is not None:
+            self.console.print(message)
+            return
+        review = verbs.cmd(
+            "findings approve <id> | reject <id> <reason> | rescore", "repl"
+        )
+        self.console.print(
+            f"[yellow]usage:[/yellow] {review} "
+            f"-- list with {verbs.cmd('show findings', 'repl')}"
+        )
 
     def _cmd_report(self, arg: str) -> None:
         first, _, rest = arg.strip().partition(" ")
@@ -652,11 +913,15 @@ class Tui:
             text = self.core.archive.review(arg.strip() or None)
         self.console.print(Markdown(text))
 
-    def _cmd_memory(self, arg: str) -> None:
-        """Show, add or forget remembered operator preferences (harness memory)."""
-        match dispatch.run_memory(self.core, arg):
-            case dispatch.MemoryUsage(form):
-                self.console.print(f"[red]usage:[/red] /memory {form}")
+    def _render_memory(self, outcome: MemoryOutcome) -> None:
+        """Render a memory outcome (shared by show/add/remove memory).
+
+        The callers validate their arguments, so ``MemoryUsage`` never reaches
+        here -- they phrase the new-grammar usage themselves.
+        """
+        match outcome:
+            case dispatch.MemoryUsage():  # pragma: no cover -- callers pre-validate
+                pass
             case dispatch.MemoryAdded(row):
                 self.console.print(f"[green]remembered[/green] [{row.id}] {row.text}")
             case dispatch.MemoryAlreadyKnown():
@@ -674,59 +939,6 @@ class Tui:
                     self.console.print(
                         f"[cyan][{row.id}][/cyan] {row.text} [dim]({row.source})[/dim]"
                     )
-
-    def _cmd_autonomous(self, arg: str) -> None:
-        try:
-            state = self.core.set_autonomous(parse_toggle(arg))
-        except ValueError as e:
-            self.console.print(f"[yellow]{e}[/yellow]")
-            return
-        if state:
-            self.console.print(
-                palette.paint("autonomous execution is now ON", palette.DANGER)
-                + " -- proposed commands will EXECUTE within scope"
-            )
-        else:
-            self.console.print("autonomous execution is now off")
-
-    def _cmd_thread(self, arg: str) -> None:
-        if arg in ("new", ""):
-            new_id = self.core.new_thread()
-            self.console.print(f"[dim]new thread:[/dim] {new_id}")
-        elif arg == "list":
-            ids = self.core.list_threads()
-            if not ids:
-                self.console.print("[dim](no threads)[/dim]")
-                return
-            for thread_id in ids:
-                marker = " *" if thread_id == self.thread_id else ""
-                self.console.print(f"  {thread_id}{marker}")
-        else:
-            self.core.set_thread(arg)
-            self.console.print(f"[dim]switched to thread:[/dim] {arg}")
-
-    def _cmd_history(self, arg: str) -> None:
-        count = int(arg) if arg.isdigit() else 20
-        labels = {"human": "you", "ai": "bot", "system": "sys", "tool": "tool"}
-        for message in self.core.state().get("messages", [])[-count:]:
-            self.console.print(
-                f"[bold]{labels.get(message.type, message.type)}:[/bold] {message.text}"
-            )
-
-    def _cmd_trace(self, _arg: str) -> None:
-        """Show the command trail, which /history deliberately excludes."""
-        commands = self.core.state().get("commands") or []
-        if not commands:
-            self.console.print("[dim](no command activity on this thread)[/dim]")
-            return
-        for cmd in commands:
-            self.console.print(
-                f"[cyan]{cmd.status}[/cyan] [cmd:{cmd.id}] {cmd.command}"
-            )
-            if cmd.summary:
-                self.console.print(
-                    f"[green]  {cmd.summary.splitlines()[0][:200]}[/green]"
-                )
 
     def _cmd_update(self, _arg: str) -> None:
         for line in self.core.self_update():

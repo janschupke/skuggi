@@ -14,19 +14,25 @@ import importlib.util
 import re
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 from rich.console import Console
 from rich.table import Table
 
 from skuggi.common import home, palette
 from skuggi.common.logs import get_logger, setup_logging
-from skuggi.config.config import Settings, config_path
+from skuggi.config.config import PROVIDERS, Settings, config_path
 from skuggi.config.configs import ConfigError, load_registry
 from skuggi.frontend import shell
 from skuggi.providers import providers
-from skuggi.providers.codex_chat import CodexTokenStore
 from skuggi.tooling import probe
 from skuggi.tooling.registry import RuntimeStatus, ToolStatus
+
+if TYPE_CHECKING:
+    from skuggi.engagement.engagement import EngagementConfig
+
+# The filters ``show tools`` accepts.
+ToolFilter = Literal["all", "scoped", "installed", "missing"]
 
 # Emitted before a probe runs so the operator sees progress, not a silent wait.
 PROBING_MSG = "probing host tools and runtimes..."
@@ -291,27 +297,47 @@ def providers_table(settings: Settings) -> Table:
         status = (
             palette.paint("ready", palette.SUCCESS)
             if ok
-            else palette.paint("not configured -- /setup", palette.WARNING)
+            else palette.paint("not configured -- set provider", palette.WARNING)
         )
         table.add_row(label, status, detail)
 
-    add(
-        "openai",
-        providers.resolve_openai_key(settings) is not None,
-        "API key in skuggi's config, env, or auth.json",
-    )
-    add(
-        "anthropic",
-        settings.anthropic_api_key is not None,
-        "API key in skuggi's config or env",
-    )
-    add(
-        "chatgpt",
-        CodexTokenStore(settings.auth_json()).is_logged_in(),
-        f"OAuth tokens in {settings.auth_json()} (run /login)",
-    )
-    add("ollama", True, f"local, no key ({settings.ollama_base_url})")
+    details = {
+        "openai": "API key in skuggi's config, env, or auth.json",
+        "anthropic": "API key in skuggi's config or env",
+        "chatgpt": f"OAuth tokens in {settings.auth_json()} (run login)",
+        "claude-cli": "your local `claude` login (no key stored)",
+        "ollama": f"local, no key ({settings.ollama_base_url})",
+    }
+    for name in PROVIDERS:
+        add(name, providers.is_configured(settings, name), details.get(name, ""))
     return table
+
+
+def filter_tool_statuses(
+    statuses: list[ToolStatus],
+    which: ToolFilter,
+    engagement: EngagementConfig | None,
+) -> list[ToolStatus]:
+    """The subset of `statuses` named by `which`, for the ``show tools`` views.
+
+    ``installed``/``missing`` split on the host probe; ``scoped`` keeps only the
+    tools this engagement's scope reaches (by binary or by method), empty when no
+    engagement is loaded; ``all`` is every recognized tool.
+    """
+    if which == "installed":
+        return [s for s in statuses if s.found]
+    if which == "missing":
+        return [s for s in statuses if not s.found]
+    if which == "scoped":
+        if engagement is None:
+            return []
+        return [
+            s
+            for s in statuses
+            if s.spec.binary in engagement.allowed_tools
+            or s.spec.method in engagement.allowed_methods
+        ]
+    return list(statuses)
 
 
 def render_doctor(
@@ -358,6 +384,14 @@ def doctor_ansi(
     console = Console(force_terminal=True, width=100)
     with console.capture() as capture:
         render_doctor(console, statuses, runtimes, net_tools, settings)
+    return capture.get()
+
+
+def table_ansi(table: Table) -> str:
+    """Render one Rich table to a forced-colour ANSI string (for the daemon socket)."""
+    console = Console(force_terminal=True, width=100)
+    with console.capture() as capture:
+        console.print(table)
     return capture.get()
 
 

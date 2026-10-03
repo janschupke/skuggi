@@ -178,39 +178,18 @@ def shell_env_target(engagement: EngagementConfig | None) -> dict[str, str]:
     return {"target": target} if target else {}
 
 
-def _count_entries(text: str) -> int:
-    """Count timestamped journal entries (``- `<iso>`  …`` lines) in a journal."""
-    return sum(1 for line in text.splitlines() if line.strip().startswith("- "))
-
-
 def _session_summary(core: AgentCore) -> str:  # pragma: no cover -- live ledger I/O
     """Read the current session back from the ledger and render the exit summary.
 
     Called in ``main()``'s ``finally`` before ``core.close()`` (which shuts the
-    ledger). Any read failure degrades to a bare sign-off: leaving the shell must
-    never hinge on the ledger being readable.
+    ledger). Shares the ``show db`` renderer (``dispatch.run_db_stats``); any read
+    failure degrades to a bare sign-off, since leaving the shell must never hinge
+    on the ledger being readable.
     """
-    from datetime import UTC, datetime
-
-    from skuggi.persistence.session_summary import render_session_summary
+    from skuggi.frontend.dispatch import run_db_stats
 
     try:
-        events = core.ledger.events_for(core.session_id)
-        session = core.ledger.session(core.session_id)
-        elapsed: float | None = None
-        if session is not None:
-            started = datetime.fromisoformat(session.started_at)
-            elapsed = (datetime.now(UTC) - started).total_seconds()
-        return render_session_summary(
-            engagement_name=core.engagement.name if core.engagement else None,
-            mode=core.mode,
-            elapsed_s=elapsed,
-            turns=sum(1 for ev in events if ev.kind == "prompt"),
-            commands=core.ledger.commands_for(core.session_id),
-            findings=core.ledger.findings_for(core.session_id),
-            notes=_count_entries(core.journal.notes()),
-            loot=_count_entries(core.journal.loot()),
-        )
+        return run_db_stats(core)
     except Exception:  # noqa: BLE001 -- exit must not fail on a summary read
         return (
             f"{SHIELD} {palette.paint('session closed · ledger saved', palette.INFO)}"
@@ -225,6 +204,7 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
 
     from rich.console import Console
 
+    from skuggi.agent import readiness
     from skuggi.agent.core import AgentCore
     from skuggi.config.config import Settings
     from skuggi.frontend import daemon as daemon_mod
@@ -255,11 +235,7 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
         }
         console.print(
             render_startup_banner(
-                provider=core.settings.provider,
-                model=core.model or core.settings.model_for(core.settings.provider),
-                engagement=core.engagement.name if core.engagement else None,
-                has_llm=core.llm is not None,
-                warnings=core.warnings,
+                readiness=readiness.from_core(core),
                 unsupported_shell=(
                     None if supports_hook(shell_path) else Path(shell_path).name
                 ),

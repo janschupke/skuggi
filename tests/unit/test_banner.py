@@ -4,21 +4,31 @@ from __future__ import annotations
 
 from typing import Any
 
+from skuggi.agent.readiness import Readiness
 from skuggi.common import palette
 from skuggi.frontend.banner import render_startup_banner
 
 
-def _banner(**over: Any) -> str:
-    kwargs: dict[str, Any] = {
+def _readiness(**over: Any) -> Readiness:
+    fields: dict[str, Any] = {
         "provider": "anthropic",
         "model": "claude-haiku-4-5",
-        "engagement": "acme",
         "has_llm": True,
-        "warnings": [],
-        "unsupported_shell": None,
+        "provider_configured": True,
+        "engagement": "acme",
+        "autonomous": False,
+        "mode": "pentest",
+        "warnings": (),
+        "provider_note": None,
     }
-    kwargs.update(over)
-    return render_startup_banner(**kwargs)
+    fields.update(over)
+    return Readiness(**fields)
+
+
+def _banner(unsupported_shell: str | None = None, **over: Any) -> str:
+    return render_startup_banner(
+        readiness=_readiness(**over), unsupported_shell=unsupported_shell
+    )
 
 
 def test_banner_shows_provider_and_model() -> None:
@@ -48,11 +58,15 @@ def test_banner_adds_next_steps_only_when_unconfigured() -> None:
     bare = _banner(
         engagement=None,
         has_llm=False,
-        warnings=["no engagement selected; running agent-only"],
+        provider_configured=False,
+        warnings=("no engagement selected; running agent-only",),
     )
     assert "no engagement selected; running agent-only" in bare
     assert "scope an engagement" in bare
     assert "configure a model" in bare
+    # The remedy is phrased in the shell grammar.
+    assert "/skuggi set provider" in bare
+    assert "/skuggi engagement setup" in bare
 
 
 def test_banner_notes_an_unsupported_shell_only_when_set() -> None:

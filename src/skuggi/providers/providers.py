@@ -78,6 +78,26 @@ def resolve_openai_key(settings: Settings) -> str | None:
     return None
 
 
+def is_configured(settings: Settings, provider: Provider) -> bool:
+    """Whether `provider` has a usable credential (the readiness check).
+
+    The single answer to "is this provider actually configured?", shared by the
+    boot/readiness model and the doctor providers table so they cannot drift.
+    ``ollama`` and ``claude-cli`` are local (no stored credential), so they are
+    always considered configured.
+    """
+    if provider == "openai":
+        return resolve_openai_key(settings) is not None
+    if provider == "anthropic":
+        return settings.anthropic_api_key is not None
+    if provider == "chatgpt":
+        # Lazy: reading the OAuth token store should not pull codex in at import.
+        from skuggi.providers.codex_chat import CodexTokenStore  # noqa: PLC0415
+
+        return CodexTokenStore(settings.auth_json()).is_logged_in()
+    return True
+
+
 def get_chat_model(settings: Settings, *, model: str | None = None) -> BaseChatModel:
     """Build the chat model for the configured provider.
 

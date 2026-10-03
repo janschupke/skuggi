@@ -16,14 +16,104 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from skuggi.agent import readiness
 from skuggi.common import palette
+from skuggi.common.paths import packaged_template
 from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import ThreatModel
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
+    from skuggi.agent.readiness import Readiness
     from skuggi.persistence.ledger import FindingRow, SessionRow
     from skuggi.persistence.preferences import PreferenceRow
+
+# The packaged scope template and the name it scaffolds to in the cwd.
+_SCOPE_TEMPLATE = "scope.example.json"
+_SCOPE_OUT = "scope.json"
+
+
+def run_status(core: AgentCore) -> Readiness:
+    """A readiness snapshot for the ``show status`` view (rendered per front-end)."""
+    return readiness.from_core(core)
+
+
+def _count_journal_entries(text: str) -> int:
+    """Count timestamped journal bullets (``- `<iso>` …`` lines) in a journal."""
+    return sum(1 for line in text.splitlines() if line.strip().startswith("- "))
+
+
+def run_db_stats(core: AgentCore) -> str:
+    """Render the current session's ledger stats (the ``show db`` view).
+
+    Reads turns / commands / findings / notes / loot back from the live ledger
+    and journal and formats them with the shared session-summary renderer, so the
+    REPL, the daemon and the shell's exit summary all read the same.
+    """
+    from datetime import UTC, datetime  # noqa: PLC0415 -- keep module load light
+
+    from skuggi.persistence.session_summary import (  # noqa: PLC0415
+        render_session_summary,
+    )
+
+    events = core.ledger.events_for(core.session_id)
+    session = core.ledger.session(core.session_id)
+    elapsed: float | None = None
+    if session is not None:
+        started = datetime.fromisoformat(session.started_at)
+        elapsed = (datetime.now(UTC) - started).total_seconds()
+    return render_session_summary(
+        engagement_name=core.engagement.name if core.engagement else None,
+        mode=core.mode,
+        elapsed_s=elapsed,
+        turns=sum(1 for ev in events if ev.kind == "prompt"),
+        commands=core.ledger.commands_for(core.session_id),
+        findings=core.ledger.findings_for(core.session_id),
+        notes=_count_journal_entries(core.journal.notes()),
+        loot=_count_journal_entries(core.journal.loot()),
+    )
+
+
+# ----- engagement scaffold --------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class Scaffolded:
+    """The scope template was copied to `path`."""
+
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class ScaffoldExists:
+    """A scope file is already present at `path`; nothing was overwritten."""
+
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class ScaffoldError:
+    """Copying the template failed (`message` is the OS error)."""
+
+    message: str
+
+
+ScaffoldOutcome = Scaffolded | ScaffoldExists | ScaffoldError
+
+
+def run_scaffold(dest_dir: Path) -> ScaffoldOutcome:
+    """Copy the packaged scope template into `dest_dir`, never overwriting.
+
+    The operator edits the resulting ``scope.json`` and points an engagement at
+    it. A pre-existing file is left untouched (the template is a starting point,
+    not a reset).
+    """
+    target = dest_dir / _SCOPE_OUT
+    if target.exists():
+        return ScaffoldExists(target)
+    try:
+        target.write_bytes(packaged_template(_SCOPE_TEMPLATE).read_bytes())
+    except OSError as exc:
+        return ScaffoldError(str(exc))
+    return Scaffolded(target)
 
 
 # ----- provider -------------------------------------------------------------

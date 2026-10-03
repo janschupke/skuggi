@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from skuggi.frontend import verbs
+from skuggi.frontend import menu, verbs
 from skuggi.frontend.tui import Tui
 from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import FakePromptSession
@@ -61,7 +61,7 @@ def test_help_and_dispatch_do_not_drift(tui: tuple[Tui, io.StringIO]) -> None:
 def test_provider_switch_rebuilds_the_graph(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
     before = app.graph
-    app.dispatch("/provider anthropic")
+    app.dispatch("/set provider anthropic")
     assert "isn't configured" in _out(buffer), (
         "no ANTHROPIC_API_KEY in this environment"
     )
@@ -71,40 +71,60 @@ def test_provider_switch_rebuilds_the_graph(tui: tuple[Tui, io.StringIO]) -> Non
 def test_invalid_provider_is_rejected(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
     before = app.graph
-    app.dispatch("/provider banana")
+    app.dispatch("/set provider banana")
     assert "unknown provider" in _out(buffer)
     assert app.graph is before
 
 
-def test_model_requires_an_argument(tui: tuple[Tui, io.StringIO]) -> None:
+def test_set_model_switches_directly(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
-    app.dispatch("/model")
-    assert "usage:" in _out(buffer)
+    app.dispatch("/set model qwen3")
+    assert "switched to" in _out(buffer)
+
+
+def test_set_model_interactive_keeps_current_on_abort(
+    tui: tuple[Tui, io.StringIO], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, buffer = tui
+    # No name -> the picker opens; aborting it (menu returns None) keeps the model.
+    monkeypatch.setattr(menu, "select", lambda *_a, **_k: None)
+    app.dispatch("/set model")
+    assert "keeping the current model" in _out(buffer)
+
+
+def test_set_provider_interactive_can_be_cancelled(
+    tui: tuple[Tui, io.StringIO], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, buffer = tui
+    # No name -> the guided setup opens; aborting the provider menu cancels it.
+    monkeypatch.setattr(menu, "select", lambda *_a, **_k: None)
+    app.dispatch("/set provider")
+    assert "setup cancelled" in _out(buffer)
 
 
 def test_thread_new_changes_the_id(tui: tuple[Tui, io.StringIO]) -> None:
     app, _ = tui
     first = app.thread_id
-    app.dispatch("/thread new")
+    app.dispatch("/set thread new")
     assert app.thread_id != first
 
 
 def test_bare_thread_is_also_new(tui: tuple[Tui, io.StringIO]) -> None:
     app, _ = tui
     first = app.thread_id
-    app.dispatch("/thread")
+    app.dispatch("/set thread")
     assert app.thread_id != first
 
 
 def test_thread_list_is_empty_before_any_turn(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
-    app.dispatch("/thread list")
+    app.dispatch("/show threads")
     assert "(no threads)" in _out(buffer)
 
 
 def test_thread_switch_sets_the_id(tui: tuple[Tui, io.StringIO]) -> None:
     app, _ = tui
-    app.dispatch("/thread abc123")
+    app.dispatch("/set thread abc123")
     assert app.thread_id == "abc123"
 
 
@@ -128,10 +148,20 @@ def test_ingest_indexes_a_directory(
     assert "indexed 1 chunk" in _out(buffer)
 
 
-def test_help_renders_every_row(tui: tuple[Tui, io.StringIO]) -> None:
+def test_help_renders_grouped_sections(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
     app.dispatch("/help")
-    assert "/trace" in _out(buffer)
+    out = _out(buffer)
+    assert "Inspect" in out  # a group subheading
+    assert "/show" in out  # the grouping verb, collapsed to one row
+
+
+def test_help_for_a_verb_lists_its_nouns(tui: tuple[Tui, io.StringIO]) -> None:
+    app, buffer = tui
+    app.dispatch("/help show")
+    out = _out(buffer)
+    assert "/show status" in out
+    assert "/show tools" in out
 
 
 # --- a full turn ------------------------------------------------------------
@@ -159,7 +189,7 @@ def test_turn_persists_history_and_history_shows_it(
     buffer.truncate(0)
     buffer.seek(0)
 
-    app.dispatch("/history")
+    app.dispatch("/show history")
     output = _out(buffer)
 
     assert "first question" in output
@@ -171,7 +201,7 @@ def test_trace_is_empty_without_tool_use(tui: tuple[Tui, io.StringIO]) -> None:
     app.turn("q")
     buffer.truncate(0)
     buffer.seek(0)
-    app.dispatch("/trace")
+    app.dispatch("/show trace")
     assert "no command activity" in _out(buffer)
 
 
@@ -195,7 +225,7 @@ def test_a_failing_turn_does_not_kill_the_repl(
 
 def test_run_loops_until_end_of_input(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
-    app.session = FakePromptSession(["", "/thread new", "/quit"])  # type: ignore[assignment]
+    app.session = FakePromptSession(["", "/set thread new", "/quit"])  # type: ignore[assignment]
 
     app.run()
 
@@ -217,41 +247,41 @@ def test_replay_review_and_control_audit(
     assert "No activity recorded" in _out(buffer)
 
     # a control verb is recorded to the audit log, an agent turn is not
-    app.dispatch("/mode blueteam")
+    app.dispatch("/set mode blueteam")
     audit = app.core.ledger.audit_for(app.session_id)
-    assert any(a.kind == "control" and a.verb == "mode" for a in audit)
+    assert any(a.kind == "control" and a.verb == "set" for a in audit)
 
 
 def test_memory_add_list_and_forget(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
-    app.dispatch("/memory")  # nothing yet
+    app.dispatch("/show memory")  # nothing yet
     assert "nothing remembered yet" in _out(buffer)
 
-    app.dispatch("/memory add Prefer ffuf over gobuster")
+    app.dispatch("/add memory Prefer ffuf over gobuster")
     assert "remembered" in _out(buffer)
-    app.dispatch("/memory")
+    app.dispatch("/show memory")
     assert "Prefer ffuf over gobuster" in _out(buffer)
 
     [row] = app.core.memory.entries()
-    app.dispatch(f"/memory forget {row.id}")
+    app.dispatch(f"/remove memory {row.id}")
     assert "forgotten" in _out(buffer)
     assert app.core.memory.entries() == []
 
 
 def test_memory_add_requires_text(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
-    app.dispatch("/memory add")
+    app.dispatch("/add memory")
     assert "usage:" in _out(buffer)
 
 
 def test_memory_duplicate_forget_usage_and_clear(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
-    app.dispatch("/memory add prefer ffuf")
-    app.dispatch("/memory add PREFER ffuf")  # case-insensitive duplicate
+    app.dispatch("/add memory prefer ffuf")
+    app.dispatch("/add memory PREFER ffuf")  # case-insensitive duplicate
     assert "already remembered" in _out(buffer)
-    app.dispatch("/memory forget nope")  # non-numeric id
+    app.dispatch("/remove memory nope")  # non-numeric id
     assert "usage:" in _out(buffer)
-    app.dispatch("/memory clear")
+    app.dispatch("/remove memory all")
     assert "cleared 1 preference" in _out(buffer)
     assert app.core.memory.entries() == []
 
@@ -267,9 +297,9 @@ def test_add_note_without_engagement_explains(tui: tuple[Tui, io.StringIO]) -> N
 
 def test_notes_and_loot_empty_without_engagement(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
-    app.dispatch("/notes")
+    app.dispatch("/show notes")
     assert "no notes yet" in _out(buffer)
-    app.dispatch("/loot")
+    app.dispatch("/show loot")
     assert "no loot yet" in _out(buffer)
 
 
@@ -295,9 +325,9 @@ def test_add_and_list_with_engagement(
         app.dispatch("/add note found a subdomain")
         app.dispatch("/add loot token abc123")
         app.dispatch("/add finding medium open redirect on /go")
-        app.dispatch("/notes")
-        app.dispatch("/loot")
-        app.dispatch("/findings")
+        app.dispatch("/show notes")
+        app.dispatch("/show loot")
+        app.dispatch("/show findings")
         out = _out(buffer)
         assert "noted" in out
         assert "loot recorded" in out
@@ -307,3 +337,27 @@ def test_add_and_list_with_engagement(
         assert "open redirect on /go" in out
     finally:
         app.close()
+
+
+# --- show status / tools in agent-only mode ---------------------------------
+
+
+def test_show_status_lists_pending_without_engagement(
+    tui: tuple[Tui, io.StringIO],
+) -> None:
+    app, buffer = tui  # the repl fixture has no engagement loaded
+    app.dispatch("/show status")
+    out = _out(buffer)
+    assert "engagement=" in out
+    assert "scope an engagement" in out  # a pending next step
+
+
+def test_show_tools_scoped_is_empty_in_agent_only_mode(
+    tui: tuple[Tui, io.StringIO], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, buffer = tui
+    monkeypatch.setattr(
+        app.core.doctor, "tools", list
+    )  # probe not needed; filter short-circuits on no engagement
+    app.dispatch("/show tools scoped")
+    assert "no scoped tools" in _out(buffer)

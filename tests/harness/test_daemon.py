@@ -60,31 +60,33 @@ def test_plain_input_reaches_the_agent(daemon: Daemon) -> None:
 
 
 def test_slash_findings_lists_findings(daemon: Daemon) -> None:
-    assert "no findings" in _chunks(daemon, {"op": "input", "text": "/findings"})
+    assert "no findings" in _chunks(daemon, {"op": "input", "text": "/show findings"})
 
 
 def test_slash_add_note_and_list(daemon: Daemon) -> None:
-    assert "no notes yet" in _chunks(daemon, {"op": "input", "text": "/notes"})
+    assert "no notes yet" in _chunks(daemon, {"op": "input", "text": "/show notes"})
     assert "noted" in _chunks(daemon, {"op": "input", "text": "/add note recon done"})
-    assert "recon done" in _chunks(daemon, {"op": "input", "text": "/notes"})
+    assert "recon done" in _chunks(daemon, {"op": "input", "text": "/show notes"})
 
 
 def test_slash_add_loot_and_list(daemon: Daemon) -> None:
-    assert "no loot yet" in _chunks(daemon, {"op": "input", "text": "/loot"})
+    assert "no loot yet" in _chunks(daemon, {"op": "input", "text": "/show loot"})
     added = _chunks(daemon, {"op": "input", "text": "/add loot cred admin:hunter2"})
     assert "loot recorded" in added
-    assert "hunter2" in _chunks(daemon, {"op": "input", "text": "/loot"})
+    assert "hunter2" in _chunks(daemon, {"op": "input", "text": "/show loot"})
 
 
 def test_slash_add_finding_records_and_surfaces(daemon: Daemon) -> None:
     out = _chunks(daemon, {"op": "input", "text": "/add finding high SQLi in login"})
     assert "recorded" in out
     assert "SQLi in login" in out
-    assert "SQLi in login" in _chunks(daemon, {"op": "input", "text": "/findings"})
+    assert "SQLi in login" in _chunks(daemon, {"op": "input", "text": "/show findings"})
 
 
 def test_slash_add_usage_and_bad_severity(daemon: Daemon) -> None:
-    assert "usage: add note" in _chunks(daemon, {"op": "input", "text": "/add"})
+    bare = _chunks(daemon, {"op": "input", "text": "/add"})
+    assert "note" in bare  # the noun list
+    assert "memory" in bare
     assert "usage: add note" in _chunks(daemon, {"op": "input", "text": "/add note"})
     assert "usage: add finding" in _chunks(
         daemon, {"op": "input", "text": "/add finding high"}
@@ -129,7 +131,7 @@ def test_slash_report_pdf_writes_both(
 
 
 def test_slash_engagement_shows_scope(daemon: Daemon) -> None:
-    assert "test-eng" in _chunks(daemon, {"op": "input", "text": "/engagement"})
+    assert "test-eng" in _chunks(daemon, {"op": "input", "text": "/show engagement"})
 
 
 def test_slash_doctor(daemon: Daemon, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -147,13 +149,13 @@ def test_slash_doctor(daemon: Daemon, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_slash_mode_switches_and_reports_error(daemon: Daemon) -> None:
-    assert "blueteam" in _chunks(daemon, {"op": "input", "text": "/mode blueteam"})
-    assert "unknown mode" in _chunks(daemon, {"op": "input", "text": "/mode nope"})
+    assert "blueteam" in _chunks(daemon, {"op": "input", "text": "/set mode blueteam"})
+    assert "unknown mode" in _chunks(daemon, {"op": "input", "text": "/set mode nope"})
 
 
 def test_slash_autonomous_toggles(daemon: Daemon) -> None:
-    assert "ON" in _chunks(daemon, {"op": "input", "text": "/autonomous on"})
-    assert "off" in _chunks(daemon, {"op": "input", "text": "/autonomous off"})
+    assert "ON" in _chunks(daemon, {"op": "input", "text": "/set autonomous on"})
+    assert "off" in _chunks(daemon, {"op": "input", "text": "/set autonomous off"})
 
 
 def test_slash_help_and_unknown(daemon: Daemon) -> None:
@@ -163,7 +165,7 @@ def test_slash_help_and_unknown(daemon: Daemon) -> None:
 
 def test_verb_first_without_slash(daemon: Daemon) -> None:
     """The wrapped shell sends bare verbs (no leading slash)."""
-    assert "no findings" in _chunks(daemon, {"op": "input", "text": "findings"})
+    assert "no findings" in _chunks(daemon, {"op": "input", "text": "show findings"})
     assert "the answer" in _chunks(daemon, {"op": "input", "text": "ask hello"})
 
 
@@ -172,54 +174,56 @@ def test_ask_without_prompt_shows_usage(daemon: Daemon) -> None:
 
 
 def test_provider_and_model(daemon: Daemon) -> None:
-    assert "switched to" in _chunks(daemon, {"op": "input", "text": "provider ollama"})
-    assert "usage:" in _chunks(daemon, {"op": "input", "text": "model"})
-    assert "switched to" in _chunks(daemon, {"op": "input", "text": "model qwen3"})
+    out = _chunks(daemon, {"op": "input", "text": "set provider ollama"})
+    assert "switched to" in out
+    # A no-value `set model` one-shot points at the interactive picker.
+    assert "interactive" in _chunks(daemon, {"op": "input", "text": "set model"})
+    assert "switched to" in _chunks(daemon, {"op": "input", "text": "set model qwen3"})
 
 
 def test_provider_rejects_unknown(daemon: Daemon) -> None:
-    assert "unknown" in _chunks(daemon, {"op": "input", "text": "provider banana"})
+    assert "unknown" in _chunks(daemon, {"op": "input", "text": "set provider banana"})
 
 
-def test_provider_with_no_arg_shows_usage_and_setup_hint(daemon: Daemon) -> None:
-    out = _chunks(daemon, {"op": "input", "text": "provider"})
-    assert "usage: provider" in out
-    assert "/skuggi setup" in out  # one-shot surface uses the shell grammar
+def test_set_provider_with_no_value_points_to_the_picker(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "set provider"})
+    assert "interactive" in out
+    assert "/skuggi set provider" in out  # one-shot surface uses the shell grammar
 
 
-def test_provider_without_a_credential_points_to_setup(daemon: Daemon) -> None:
-    # Switching to a provider that has no key reports a setup hint, not a raw
-    # "provider error: No OpenAI API key…".
-    out = _chunks(daemon, {"op": "input", "text": "provider openai"})
+def test_provider_without_a_credential_points_to_set_provider(daemon: Daemon) -> None:
+    # Switching to a provider that has no key reports a set-provider hint, not a
+    # raw "provider error: No OpenAI API key…".
+    out = _chunks(daemon, {"op": "input", "text": "set provider openai"})
     assert "openai isn't configured" in out
-    assert "/skuggi setup" in out
+    assert "/skuggi set provider" in out
 
 
 def test_attached_hints_use_the_bare_chat_grammar(daemon: Daemon) -> None:
     # In the persistent chat loop (mode=loop), a hint uses bare-verb grammar,
     # not the /skuggi-prefixed shell grammar.
-    lines = iter(["provider", None])
+    lines = iter(["set provider openai", None])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(lines), emitted.append, mode="loop")
     out = "".join(str(e.get("chunk", "")) for e in emitted)
-    assert "run setup to configure one" in out
+    assert "run set provider to add a key" in out
     assert "/skuggi" not in out
 
 
 def test_thread_new_list_switch(daemon: Daemon) -> None:
     # A turn checkpoints the current thread, so `list` has one to mark.
     _chunks(daemon, {"op": "input", "text": "ask hello"})
-    assert "*" in _chunks(daemon, {"op": "input", "text": "thread list"})
-    assert "new thread" in _chunks(daemon, {"op": "input", "text": "thread new"})
+    assert "*" in _chunks(daemon, {"op": "input", "text": "show threads"})
+    assert "new thread" in _chunks(daemon, {"op": "input", "text": "set thread new"})
     assert "switched to thread" in _chunks(
-        daemon, {"op": "input", "text": "thread abc123"}
+        daemon, {"op": "input", "text": "set thread abc123"}
     )
 
 
 def test_history_and_trace(daemon: Daemon) -> None:
     _chunks(daemon, {"op": "input", "text": "ask hello"})
-    assert "you:" in _chunks(daemon, {"op": "input", "text": "history"})
-    assert _chunks(daemon, {"op": "input", "text": "trace"})  # non-empty
+    assert "you:" in _chunks(daemon, {"op": "input", "text": "show history"})
+    assert _chunks(daemon, {"op": "input", "text": "show trace"})  # non-empty
 
 
 def test_ingest_usage_and_index(daemon: Daemon, tmp_path: Path) -> None:
@@ -314,7 +318,7 @@ def test_cmd_list_search_and_miss(daemon: Daemon) -> None:
 
 def test_attach_routes_multiple_lines_over_one_session(daemon: Daemon) -> None:
     """One attach session dispatches successive lines against the warm core."""
-    lines = iter(["/findings", "ask what is exposed?", "exit"])
+    lines = iter(["/show findings", "ask what is exposed?", "exit"])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(lines, None), emitted.append)
     text = "".join(str(f.get("chunk", "")) for f in emitted)
@@ -413,18 +417,18 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
 
 def test_config_show_one_shot(daemon: Daemon) -> None:
     assert "provider = ollama" in _chunks(
-        daemon, {"op": "input", "text": "config show"}
+        daemon, {"op": "input", "text": "show config"}
     )
 
 
 def test_config_mechanical_one_shot(daemon: Daemon) -> None:
-    out = _chunks(daemon, {"op": "input", "text": "config retrieve_k 7"})
+    out = _chunks(daemon, {"op": "input", "text": "set config retrieve_k 7"})
     assert "retrieve_k = 7" in out
     assert daemon.core.settings.retrieve_k == 7
 
 
 def test_config_nl_one_shot_points_at_the_loop(daemon: Daemon) -> None:
-    out = _chunks(daemon, {"op": "input", "text": "config make it faster"})
+    out = _chunks(daemon, {"op": "input", "text": "set config make it faster"})
     assert "chat loop" in out  # one-shot cannot confirm; needs the attach loop
 
 
@@ -438,7 +442,7 @@ def test_attach_config_request_confirms_and_applies(
     )
     # The confirm is a menu now: the daemon emits a {"choose"} frame and the
     # client sends back the selected option ("yes").
-    answers = iter(["config switch to blue team", "yes"])
+    answers = iter(["set config switch to blue team", "yes"])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
     assert [f["choose"] for f in emitted if "choose" in f]  # asked to confirm
@@ -471,28 +475,28 @@ def test_review_routes_to_the_core(
 
 def test_memory_add_list_and_forget(daemon: Daemon) -> None:
     assert "nothing remembered yet" in _chunks(
-        daemon, {"op": "input", "text": "memory"}
+        daemon, {"op": "input", "text": "show memory"}
     )
     added = _chunks(
-        daemon, {"op": "input", "text": "memory add Prefer ffuf over gobuster"}
+        daemon, {"op": "input", "text": "add memory Prefer ffuf over gobuster"}
     )
     assert "remembered" in added
     assert "Prefer ffuf over gobuster" in _chunks(
-        daemon, {"op": "input", "text": "memory"}
+        daemon, {"op": "input", "text": "show memory"}
     )
     [row] = daemon.core.memory.entries()
     assert "forgotten" in _chunks(
-        daemon, {"op": "input", "text": f"memory forget {row.id}"}
+        daemon, {"op": "input", "text": f"remove memory {row.id}"}
     )
     assert daemon.core.memory.entries() == []
 
 
 def test_control_verbs_are_audited_but_ask_is_not(daemon: Daemon) -> None:
-    _chunks(daemon, {"op": "input", "text": "mode blueteam"})  # control -> audit
+    _chunks(daemon, {"op": "input", "text": "set mode blueteam"})  # control -> audit
     _chunks(daemon, {"op": "input", "text": "ask hello"})  # engagement -> timeline
     audit = daemon.core.ledger.audit_for(daemon.core.session_id)
     verbs_seen = {a.verb for a in audit if a.kind == "control"}
-    assert "mode" in verbs_seen
+    assert "set" in verbs_seen
     assert "ask" not in verbs_seen
 
 
@@ -527,3 +531,103 @@ def test_agent_relays_a_multiline_error_in_full(
     out = "".join(daemon._agent("ask who are you?"))
     assert "phase" in out
     assert "Field required" in out
+
+
+# --- show <noun> / set interactive / scaffold over the daemon ---------------
+
+
+def test_show_status_db_config(daemon: Daemon) -> None:
+    assert "engagement=test-eng" in _chunks(
+        daemon, {"op": "input", "text": "show status"}
+    )
+    assert "skuggi session ended" in _chunks(daemon, {"op": "input", "text": "show db"})
+    assert "provider = ollama" in _chunks(
+        daemon, {"op": "input", "text": "show config"}
+    )
+
+
+def test_show_provider_and_model(daemon: Daemon) -> None:
+    assert "provider ollama" in _chunks(
+        daemon, {"op": "input", "text": "show provider"}
+    )
+    assert "model" in _chunks(daemon, {"op": "input", "text": "show model"})
+
+
+def test_show_tools_filters(daemon: Daemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    spec = ToolSpec(name="nmap", binary="nmap", method="scan")
+    monkeypatch.setattr(
+        probe_mod,
+        "probe",
+        lambda *_a, **_k: [
+            ToolStatus(spec, found=True, path=Path("/x"), version="7", source="host")
+        ],
+    )
+    assert "nmap" in _chunks(daemon, {"op": "input", "text": "show tools all"})
+    assert "no missing tools" in _chunks(
+        daemon, {"op": "input", "text": "show tools missing"}
+    )
+    assert "usage:" in _chunks(daemon, {"op": "input", "text": "show tools bogus"})
+
+
+def test_show_unknown_noun_shows_usage(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "show bogus"})
+    assert "usage:" in out
+    assert "config" in out
+
+
+def test_set_thread_new_and_switch(daemon: Daemon) -> None:
+    assert "new thread" in _chunks(daemon, {"op": "input", "text": "set thread new"})
+    assert "switched to thread" in _chunks(
+        daemon, {"op": "input", "text": "set thread abc123"}
+    )
+
+
+def test_remove_memory_all(daemon: Daemon) -> None:
+    _chunks(daemon, {"op": "input", "text": "add memory prefer ffuf"})
+    assert "cleared" in _chunks(daemon, {"op": "input", "text": "remove memory all"})
+    assert daemon.core.memory.entries() == []
+
+
+def test_findings_review_usage(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "findings"})
+    assert "usage:" in out
+    assert "show findings" in out
+
+
+def test_engagement_scaffold_over_socket(
+    daemon: Daemon, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    out = _chunks(daemon, {"op": "input", "text": "engagement scaffold"})
+    assert "scaffolded" in out
+    assert (tmp_path / "scope.json").is_file()
+
+
+def test_cmd_resolve_does_not_invoke_the_planner(daemon: Daemon) -> None:
+    daemon.core.commands = CommandRegistry(
+        commands=(CommandAlias(name="nmap-network", argv=("nmap", "-sn")),)
+    )
+    out = _chunks(daemon, {"op": "input", "text": "cmd nmap-network"})
+    assert "$ nmap -sn ${target}" in out
+    assert "(planner)" not in out  # resolve returns control; no agent turn fires
+
+
+def test_help_for_a_verb_lists_nouns(daemon: Daemon) -> None:
+    out = _chunks(daemon, {"op": "input", "text": "help show"})
+    assert "/skuggi show status" in out
+    assert "/skuggi show tools" in out
+
+
+def test_is_set_interactive_detects_no_value_forms() -> None:
+    assert Daemon._is_set_interactive("set provider")
+    assert Daemon._is_set_interactive("set model")
+    assert not Daemon._is_set_interactive("set provider openai")
+    assert not Daemon._is_set_interactive("set mode pentest")
+    assert not Daemon._is_set_interactive("show status")
+
+
+def test_attach_set_model_round_trips_a_choose_frame(daemon: Daemon) -> None:
+    answers = iter(["set model", "qwen3"])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(answers, None), emitted.append)
+    assert any("choose" in f for f in emitted)  # the model picker frame

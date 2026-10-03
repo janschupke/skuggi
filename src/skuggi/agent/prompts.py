@@ -146,14 +146,6 @@ def prompt_set(mode: Mode) -> PromptSet:
 # codex carries the system prompt in `instructions`; this is its default prefix.
 CODEX_DEFAULT_INSTRUCTIONS = "You are a helpful assistant."
 
-# The `run <alias>` verb: a one-turn advisory pass over a resolved command. Shared
-# by both front-ends (was duplicated verbatim in daemon.py and tui.py). Format the
-# resolved command in with ``EVALUATE_RUN.format(command=...)``.
-EVALUATE_RUN = (
-    "Briefly evaluate this proposed command and note any risks; do not run "
-    "anything, just advise: {command}"
-)
-
 # The reviewer's brief. Private feedback for the operator, deliberately not
 # client-facing (stored in the audit log, never the report).
 REVIEW_INSTRUCTION = (

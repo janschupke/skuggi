@@ -91,7 +91,7 @@ def run_setup(backend: SetupBackend, ask: Ask, choose: Choose, notify: Notify) -
         return False
     if not configured:
         return False
-    _setup_model(backend, provider, ask, choose, notify)
+    run_model_select(backend, provider, ask, choose, notify)
     return True
 
 
@@ -169,7 +169,7 @@ def _setup_chatgpt(backend: SetupBackend, notify: Notify) -> bool:
     return True
 
 
-def _setup_model(
+def run_model_select(
     backend: SetupBackend, provider: str, ask: Ask, choose: Choose, notify: Notify
 ) -> None:
     """Offer a model for `provider` from the curated list, or a custom id."""
