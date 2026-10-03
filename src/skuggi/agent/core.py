@@ -21,13 +21,13 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast, get_args
+from typing import Any, Literal, cast
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from skuggi.agent import awareness
 from skuggi.agent.commandbook import CommandBook
@@ -38,6 +38,7 @@ from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.preferencebook import PreferenceBook
 from skuggi.agent.protocol import render_answer
+from skuggi.agent.provider_kernel import ProviderKernel
 from skuggi.agent.reconcile_controller import ReconcileController
 from skuggi.agent.scope_controller import ScopeController
 from skuggi.agent.session_archive import SessionArchive
@@ -47,8 +48,6 @@ from skuggi.common import logs
 from skuggi.config.config import (
     Provider,
     Settings,
-    config_path,
-    write_config,
 )
 from skuggi.config.configs import (
     ConfigError,
@@ -70,29 +69,17 @@ from skuggi.engagement.workspace import (
     has_engagement,
     safe_engagement_name,
 )
-from skuggi.install import configdiff, envfile, reconcile
+from skuggi.install import configdiff, reconcile
 from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence import memory, preferences
 from skuggi.persistence.vectorstore import Store
-from skuggi.providers import providers
 from skuggi.security.policy import RedactionPolicy
 from skuggi.security.vault import SecretVault, open_vault
 from skuggi.tooling.commands import CommandRegistry
 from skuggi.tooling.registry import ToolRegistry
 
 log = logs.get_logger(__name__)
-
-_PROVIDERS = get_args(Provider)
-
-# The API-key providers: provider name -> (env-file key, Settings field). The
-# key persists to skuggi's own secret file; the field holds it on the live
-# Settings. chatgpt (OAuth) and ollama (no key) are deliberately absent.
-_API_KEY_FIELDS: dict[str, tuple[str, str]] = {
-    "openai": ("OPENAI_API_KEY", "openai_api_key"),
-    "anthropic": ("ANTHROPIC_API_KEY", "anthropic_api_key"),
-}
-
 
 EventKind = Literal["reset", "status", "token", "final"]
 
@@ -126,7 +113,6 @@ class AgentCore:
     def __init__(self, settings: Settings | None = None) -> None:
         """Load config, open the ledger, and build the graph for one session."""
         self.settings = settings or Settings()
-        self.model: str | None = None
         self.mode: Mode = self.settings.mode
         self.thread_id = str(uuid.uuid4())
         self.session_id = str(uuid.uuid4())
@@ -145,9 +131,9 @@ class AgentCore:
         self.registry = self._load_registry()
         self.commands = self._load_commands()
 
-        self._embeddings = providers.get_embeddings(self.settings)
-        self.store = Store.from_settings(self.settings, self._embeddings)
-        self.llm: BaseChatModel | None = self._load_chat_model()
+        # The model plane (provider/credentials/llm/store). Built here, before the
+        # graph, because _deps() reads its llm/store; it has no engagement dep.
+        self.provider_kernel = ProviderKernel(self)
 
         self._saver_ctx = memory.open_checkpointer(self.settings.sqlite_path)
         self.saver = self._saver_ctx.__enter__()
@@ -351,6 +337,31 @@ class AgentCore:
         """Whether autonomous command execution is armed."""
         return self.engagement is not None and self.engagement.autonomous
 
+    # ----- model plane (delegated to ProviderKernel) -------------------------
+
+    @property
+    def llm(self) -> BaseChatModel | None:
+        """The live chat model (None until a credential is configured)."""
+        return self.provider_kernel.llm
+
+    @llm.setter
+    def llm(self, value: BaseChatModel | None) -> None:
+        self.provider_kernel.llm = value
+
+    @property
+    def store(self) -> Store:
+        """The FAISS retrieval store."""
+        return self.provider_kernel.store
+
+    @store.setter
+    def store(self, value: Store) -> None:
+        self.provider_kernel.store = value
+
+    @property
+    def model(self) -> str | None:
+        """The active model name (None = the provider's persisted default)."""
+        return self.provider_kernel.model
+
     def _deps(self) -> GraphDeps:
         return GraphDeps(
             llm=self.llm,
@@ -404,138 +415,46 @@ class AgentCore:
     # ----- session controls --------------------------------------------------
 
     def set_provider(self, name: str) -> None:
-        """Switch provider (raises ValueError on an unknown name)."""
-        if name not in _PROVIDERS:
-            msg = f"unknown provider: {name!r}"
-            raise ValueError(msg)
-        self.settings = self.settings.model_copy(update={"provider": name})
-        self.model = None
-        self._rebuild_llm()
+        """Switch provider (delegated)."""
+        self.provider_kernel.set_provider(name)
 
     def set_model(self, name: str) -> None:
-        """Switch model on the current provider."""
-        if not name:
-            msg = "model name is required"
-            raise ValueError(msg)
-        self.model = name
-        self._rebuild_llm()
-
-    # ----- guided setup: app-owned credentials (the `setup`/`login` verbs) ----
+        """Switch model on the current provider (delegated)."""
+        self.provider_kernel.set_model(name)
 
     def set_api_key(self, provider: str, key: str) -> None:
-        """Persist an API key to skuggi's own secret file and use its provider.
-
-        The key goes into ``<config home>/env`` at mode 0600 (via envfile), never
-        the environment; the provider goes into ``config.json``. Both are applied
-        to the live session so the next turn uses them without a restart.
-        """
-        try:
-            env_name, field = _API_KEY_FIELDS[provider]
-        except KeyError:
-            msg = f"{provider} is not an API-key provider"
-            raise ValueError(msg) from None
-        envfile.write_secret(env_name, key)
-        write_config(config_path(), {"provider": provider})
-        self.settings = self.settings.model_copy(
-            update={field: SecretStr(key), "provider": provider}
-        )
-        self.model = None
-        self._rebuild_llm()
+        """Persist an API key and switch to its provider (delegated)."""
+        self.provider_kernel.set_api_key(provider, key)
 
     def use_ollama(self, base_url: str | None = None) -> None:
-        """Switch to the local Ollama provider (no credential), setting its URL."""
-        persist: dict[str, object] = {"provider": "ollama"}
-        updates: dict[str, object] = {"provider": "ollama"}
-        if base_url:
-            persist["ollama_base_url"] = base_url
-            updates["ollama_base_url"] = base_url
-        write_config(config_path(), persist)
-        self.settings = self.settings.model_copy(update=updates)
-        self.model = None
-        self._rebuild_llm()
+        """Switch to the local Ollama provider (delegated)."""
+        self.provider_kernel.use_ollama(base_url)
 
     def use_claude_cli(self) -> None:
-        """Switch to the local Claude CLI provider (uses the operator's own login).
-
-        No key is stored: the ``claude`` binary carries its own credentials. The
-        provider is persisted so the next session starts on it.
-        """
-        write_config(config_path(), {"provider": "claude-cli"})
-        self.settings = self.settings.model_copy(update={"provider": "claude-cli"})
-        self.model = None
-        self._rebuild_llm()
+        """Switch to the local Claude CLI provider (delegated)."""
+        self.provider_kernel.use_claude_cli()
 
     def default_model(self, provider: str) -> str:
-        """The persisted default model for `provider` (what setup pre-selects)."""
-        return self.settings.model_for(cast("Provider", provider))
+        """The persisted default model for `provider` (delegated)."""
+        return self.provider_kernel.default_model(provider)
 
     def set_provider_model(self, provider: str, model: str) -> None:
-        """Persist the default model for `provider` and apply it to this session.
-
-        Writes the non-secret ``model_<provider>`` key to config.json (so it
-        survives a restart) and rebuilds the live model. Resetting ``self.model``
-        to ``None`` means the session now follows the persisted provider default.
-        """
-        if not model:
-            msg = "model name is required"
-            raise ValueError(msg)
-        field = f"model_{provider.replace('-', '_')}"
-        write_config(config_path(), {field: model})
-        self.settings = self.settings.model_copy(update={field: model})
-        self.model = None
-        self._rebuild_llm()
+        """Persist and apply the default model for `provider` (delegated)."""
+        self.provider_kernel.set_provider_model(provider, model)
 
     def login_chatgpt(
         self, notify: Callable[[str], None] = lambda _msg: None
     ) -> str | None:
-        """Run the in-app ChatGPT OAuth login, then switch to the chatgpt provider.
-
-        Writes ``auth.json`` (owned by codex_login/CodexTokenStore), persists the
-        provider, and rebuilds the live model. Returns the account id, if any.
-        """
-        # lazy: pulls the OpenAI SDK, kept out of the module import graph.
-        from skuggi.providers import codex_login  # noqa: PLC0415
-
-        account = codex_login.login(auth_path=self.settings.auth_json(), notify=notify)
-        write_config(config_path(), {"provider": "chatgpt"})
-        self.settings = self.settings.model_copy(update={"provider": "chatgpt"})
-        self.model = None
-        self._rebuild_llm()
-        return account
-
-    def _rebuild_llm(self) -> None:
-        self.llm = providers.get_chat_model(self.settings, model=self.model)
-        self.rebuild_graph()
-
-    def _load_chat_model(self) -> BaseChatModel | None:
-        """Build the chat model at boot, or degrade to a warning if uncredentialed.
-
-        Boot must never die for lack of a model: the shell wrapper only needs one
-        when the operator actually asks something, and the graph just holds the
-        reference until a turn runs. A missing/unusable credential becomes a
-        warning (the front-end shows it) and a ``None`` llm; `ensure_llm` builds
-        it on first use, where the operator can fix it with `/setup` or
-        `/provider`. Mirrors the credential-free boot of `providers.get_embeddings`.
-        """
-        try:
-            return providers.get_chat_model(self.settings, model=self.model)
-        except (RuntimeError, ImportError) as exc:
-            log.warning("no chat model configured: %s", exc)
-            self.warnings.append(providers.NO_MODEL_CONFIGURED)
-            return None
+        """Run the ChatGPT OAuth login and switch provider (delegated)."""
+        return self.provider_kernel.login_chatgpt(notify)
 
     def ensure_llm(self) -> BaseChatModel:
-        """Return the chat model, building it on first use.
+        """Return the chat model, building it on first use (delegated)."""
+        return self.provider_kernel.ensure_llm()
 
-        Deferred from construction so the session boots without credentials.
-        Raises ``ConfigError`` (with the provider's specific guidance) when no
-        usable credential is configured; callers on the turn path let that
-        surface as a clean error event rather than a crash.
-        """
-        if self.llm is None:
-            self.llm = providers.get_chat_model(self.settings, model=self.model)
-            self.rebuild_graph()
-        return self.llm
+    def ingest(self, path: Path) -> int:
+        """Index a file or directory into FAISS (delegated)."""
+        return self.provider_kernel.ingest(path)
 
     def set_mode(self, mode: str) -> Mode:
         """Switch operating mode, rebuilding the graph's prompt set."""
@@ -571,12 +490,6 @@ class AgentCore:
     def list_threads(self) -> list[str]:
         """Every thread id the checkpointer has seen."""
         return memory.list_threads(self.saver)
-
-    def ingest(self, path: Path) -> int:
-        """Index a file or directory into FAISS; returns chunks added."""
-        added = self.store.ingest([path])
-        self.store.persist()
-        return added
 
     # ----- engagement data ---------------------------------------------------
 
