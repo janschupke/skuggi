@@ -65,7 +65,7 @@ from skuggi.engagement.workspace import (
     WorkspaceLayout,
     list_engagements,
 )
-from skuggi.install import envfile
+from skuggi.install import envfile, reconcile
 from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence import memory, preferences
@@ -662,6 +662,38 @@ class AgentCore:
         is forwarded so the subprocess path stays injectable and testable.
         """
         return updater.perform_update(runner)
+
+    # ----- config reconcile (the `reconcile` verb) --------------------------
+
+    @property
+    def _config_dir(self) -> Path:
+        """The config home holding tools.json/commands.json/… (per settings)."""
+        return self.settings.registry_path.parent
+
+    def reconcile_status(self) -> tuple[reconcile.FileStatus, ...]:
+        """How each installed config compares to its packaged template."""
+        return reconcile.status(self._config_dir)
+
+    def stale_configs(self) -> tuple[str, ...]:
+        """The installed config files that have fallen behind their template."""
+        return reconcile.drifted(self._config_dir)
+
+    def reconcile_diff(self, name: str) -> str:
+        """The diff an overwrite of `name` would apply (empty when up to date)."""
+        return reconcile.diff_text(self._config_dir, name)
+
+    def reconcile_overwrite(self, name: str) -> Path | None:
+        """Overwrite `name` from its template (backing up), then reload config.
+
+        The in-memory registries are rebuilt from disk so a subsequent ``cmd``
+        reflects the updated tool/alias output conventions without a restart;
+        the graph is rebuilt because it carries the tool registry.
+        """
+        backup = reconcile.overwrite(self._config_dir, name)
+        self.registry = self._load_registry()
+        self.commands = self._load_commands()
+        self.graph = self._build()
+        return backup
 
     # ----- session logging, retrieval, replay & review ----------------------
 

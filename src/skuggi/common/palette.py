@@ -23,6 +23,12 @@ INFO = "dim"
 # The terminal's own foreground: a neutral, no-sentiment colour.
 NEUTRAL = "default"
 
+# Emphasis for a search hit -- the matched substring in `cmd <query>` results.
+# This is a categorical emphasis, NOT a sentiment, so it deliberately avoids the
+# four reserved colours above; `reverse` inverts fg/bg, so it stands out against
+# any base colour and in either terminal theme.
+MATCH = "reverse"
+
 # --- where a tool resolved --------------------------------------------------
 # Found (host or managed) is neutral -- the status column already carries the
 # good/bad signal; only a missing source is danger (the same red as a missing

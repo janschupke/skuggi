@@ -68,6 +68,35 @@ def redact_secrets(text: str, secrets: Iterable[str] = ()) -> str:
     return _BEARER.sub(lambda m: f"{m.group('kind')} {REDACTED}", text)
 
 
+def highlight(text: str, query: str, *, base: str, match: str) -> str:
+    """Rich markup for `text` in style `base`, each hit of `query` in `match`.
+
+    Every case-insensitive occurrence of `query` is repainted `match` so a
+    search hit is visible in the listing (the `cmd` cheatsheet uses this to show
+    WHY an entry matched). `text` is escaped so a literal ``[`` in it cannot open
+    a spurious tag; an empty `query` simply paints the whole string `base`.
+    """
+    from rich.markup import escape  # noqa: PLC0415 -- keep this module import-light
+
+    # Escape ONCE over the whole string (slicing first would split a `[tag]`
+    # across segments and defeat the escape, and would mishandle a trailing
+    # backslash); then locate/wrap on the already-safe string. A matched region
+    # therefore never contains a bracket, so wrapping it stays balanced markup.
+    safe = escape(text)
+    if not query:
+        return f"[{base}]{safe}[/{base}]"
+    low, needle = safe.lower(), query.lower()
+    span = len(query)
+    out: list[str] = []
+    i = 0
+    while (j := low.find(needle, i)) != -1:
+        out.append(safe[i:j])
+        out.append(f"[{match}]{safe[j : j + span]}[/{match}]")
+        i = j + span
+    out.append(safe[i:])
+    return f"[{base}]{''.join(out)}[/{base}]"
+
+
 def labeled(label: str, body: str, *, heading: bool = False) -> str:
     """A labelled section, or '' when the body is blank.
 

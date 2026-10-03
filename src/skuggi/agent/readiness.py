@@ -46,6 +46,7 @@ class Readiness:
     autonomous: bool
     mode: str
     warnings: tuple[str, ...]
+    stale_configs: tuple[str, ...] = ()
 
     @property
     def pending(self) -> tuple[PendingStep, ...]:
@@ -70,6 +71,7 @@ def from_core(core: AgentCore) -> Readiness:
         autonomous=core.autonomous,
         mode=core.mode,
         warnings=tuple(core.warnings),
+        stale_configs=core.stale_configs(),
     )
 
 
@@ -93,4 +95,10 @@ def render_banner_notes(readiness: Readiness, surface: verbs.Surface) -> list[st
         f"{step.message} -- run {verbs.cmd(step.invocation, surface)}"
         for step in readiness.pending
     ]
+    if readiness.stale_configs:
+        names = ", ".join(readiness.stale_configs)
+        notes.append(
+            f"{len(readiness.stale_configs)} config file(s) behind the packaged "
+            f"templates ({names}) -- run {verbs.cmd('reconcile', surface)}"
+        )
     return notes

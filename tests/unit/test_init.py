@@ -67,6 +67,23 @@ def test_is_idempotent(tmp_path: Path) -> None:
     assert any("already present" in line for line in lines)
 
 
+def test_notes_a_config_that_drifted_from_its_template(tmp_path: Path) -> None:
+    config_dir, data_dir = _homes(tmp_path)
+    config_dir.mkdir()
+    # An existing config that differs from the packaged template -- seeding leaves
+    # it untouched, so init must flag it so the operator can reconcile.
+    (config_dir / "tools.json").write_text('{"tools": []}', encoding="utf-8")
+    lines = initialise(config_dir=config_dir, data_dir=data_dir, migrate_from=None)
+    assert any("differ from the packaged templates" in line for line in lines)
+    assert any("tools.json" in line and "config home" not in line for line in lines)
+
+
+def test_no_drift_note_for_a_fresh_seed(tmp_path: Path) -> None:
+    config_dir, data_dir = _homes(tmp_path)
+    lines = initialise(config_dir=config_dir, data_dir=data_dir, migrate_from=None)
+    assert not any("differ from the packaged templates" in line for line in lines)
+
+
 # --- migration --------------------------------------------------------------
 
 

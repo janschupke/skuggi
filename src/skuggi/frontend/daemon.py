@@ -439,6 +439,7 @@ class Daemon:
             "login": self._login,
             "ingest": self._ingest,
             "update": self._update,
+            "reconcile": self._reconcile,
             "clear": self._clear,
         }.get(verb)
         if handler is None:  # pragma: no cover -- KNOWN guards this in _dispatch
@@ -818,6 +819,13 @@ class Daemon:
 
     def _update(self, _arg: str) -> Iterator[str]:
         yield from self.core.self_update()
+
+    def _reconcile(self, arg: str) -> Iterator[str]:
+        yield from self._emit(
+            dispatch.present_reconcile(
+                dispatch.run_reconcile(self.core, arg), self._surface()
+            )
+        )
 
     def _clear(self, _arg: str) -> Iterator[str]:
         yield "clear is only available in skuggi-repl\n"

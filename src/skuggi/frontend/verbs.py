@@ -213,6 +213,12 @@ VERBS: tuple[Verb, ...] = (
         "update skuggi (git pull --ff-only, then refresh this install)",
         group="system",
     ),
+    Verb(
+        "reconcile",
+        "update installed config from the packaged templates (diff/overwrite)",
+        "[list | diff <file> | overwrite <file>]",
+        group="system",
+    ),
     Verb("clear", "clear the screen", group="system"),
     Verb("help", "show this command reference", "[<verb>]", group="system"),
     Verb("exit", "leave skuggi", group="system"),

@@ -25,7 +25,7 @@ from rich.table import Table
 from skuggi.agent import protocol, readiness
 from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.agent.state import AgentState
-from skuggi.common import palette
+from skuggi.common import palette, text
 from skuggi.common.paths import ensure_parent
 from skuggi.config.config import Settings
 from skuggi.engagement.engagement import EngagementConfig
@@ -134,6 +134,7 @@ class Tui:
             "clear": self._cmd_clear,
             "ingest": self._cmd_ingest,
             "update": self._cmd_update,
+            "reconcile": self._cmd_reconcile,
         }
         # Noun routers for the grouping verbs; each is drift-checked against
         # `verbs.noun_names(<verb>)` so a new noun cannot be half-wired.
@@ -556,7 +557,7 @@ class Tui:
         sub, _, rest = arg.partition(" ")
         sub, rest = sub.strip(), rest.strip()
         if not sub or sub == "list":
-            self._cheatsheet(self.core.commands.commands)
+            self._cheatsheet(self.core.commands.commands, "")
             return
         if sub in cmdflow.ADD_ARGS:
             self._cmd_alias_add()
@@ -577,18 +578,21 @@ class Tui:
                 f"-- try {verbs.cmd('cmd list', 'repl')}"
             )
             return
-        self._cheatsheet(matches)
+        self._cheatsheet(matches, arg.strip())
 
-    def _cheatsheet(self, aliases: tuple[CommandAlias, ...]) -> None:
+    def _cheatsheet(self, aliases: tuple[CommandAlias, ...], query: str) -> None:
+        """List `aliases`, highlighting `query` wherever it matched (name/desc)."""
         if not aliases:
             self.console.print("[dim]no command aliases configured[/dim]")
             return
         for a in aliases:
-            self.console.print(
-                f"[cyan]{a.name}[/cyan]  {render_alias(a, self.registry)}"
-            )
+            name = text.highlight(a.name, query, base="cyan", match=palette.MATCH)
+            self.console.print(f"{name}  {render_alias(a, self.registry)}")
             if a.description:
-                self.console.print(f"    [dim]{a.description}[/dim]")
+                desc = text.highlight(
+                    a.description, query, base="dim", match=palette.MATCH
+                )
+                self.console.print(f"    {desc}")
 
     def _resolve_cmd(self, name: str) -> None:
         self._emit(dispatch.present_cmd_plan(self.core.cmds.plan(name), "repl"))
@@ -829,6 +833,11 @@ class Tui:
     def _cmd_update(self, _arg: str) -> None:
         for line in self.core.self_update():
             self.console.print(line.rstrip())
+
+    def _cmd_reconcile(self, arg: str) -> None:
+        self._emit(
+            dispatch.present_reconcile(dispatch.run_reconcile(self.core, arg), "repl")
+        )
 
     def _cmd_clear(self, _arg: str) -> None:
         self.console.clear()

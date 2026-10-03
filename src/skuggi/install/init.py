@@ -134,6 +134,24 @@ def initialise(
     else:
         lines.append("harness config already present; nothing seeded.")
 
+    # Seeding never overwrites, so a config file that already exists can fall
+    # behind a newer packaged template (e.g. a tool gaining an output
+    # convention). Note any such drift here -- reconciling is the operator's
+    # explicit choice, made from the REPL where the diff can be read first.
+    from skuggi.install import reconcile  # noqa: PLC0415 -- avoid an import cycle
+
+    behind = reconcile.drifted(config_dir)
+    if behind:
+        lines.append("")
+        lines.append(
+            f"{len(behind)} config file(s) differ from the packaged templates: "
+            + ", ".join(behind)
+        )
+        lines.append(
+            "  review with `reconcile diff <file>`, update with "
+            "`reconcile overwrite <file>` (a timestamped backup is saved)."
+        )
+
     lines.append("")
     lines.append("Next: run `skuggi` and `/setup` to configure a model provider")
     lines.append("(skuggi stores credentials in its own config, not your shell).")

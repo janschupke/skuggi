@@ -23,6 +23,7 @@ from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import ThreatModel
 from skuggi.frontend import render, verbs
 from skuggi.frontend.render import Styled
+from skuggi.install import reconcile
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
@@ -760,6 +761,143 @@ def present_status(readiness_now: Readiness, surface: verbs.Surface) -> Styled:
     else:
         lines.append(render.success("ready"))
     return lines
+
+
+# ----- config reconcile -----------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class ReconcileList:
+    """The status of every reconcilable config file (``reconcile`` / ``list``)."""
+
+    items: tuple[reconcile.FileStatus, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileDiff:
+    """The diff `name` -> packaged template (`text` empty when up to date)."""
+
+    name: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileOverwritten:
+    """`name` was overwritten from its template; `backup` is the saved copy."""
+
+    name: str
+    backup: Path | None
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileUnknown:
+    """`name` is not a reconcilable config file."""
+
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileUsage:
+    """No/!unrecognised subcommand -- the front-end shows the usage line."""
+
+
+ReconcileOutcome = (
+    ReconcileList
+    | ReconcileDiff
+    | ReconcileOverwritten
+    | ReconcileUnknown
+    | ReconcileUsage
+)
+
+
+def run_reconcile(core: AgentCore, arg: str) -> ReconcileOutcome:
+    """Parse ``reconcile [list | diff <file> | overwrite <file>]`` and act.
+
+    ``overwrite`` is the only mutating path; it backs up the current file and
+    reloads the in-memory config (both inside ``core.reconcile_overwrite``).
+    """
+    sub, _, rest = arg.partition(" ")
+    sub, rest = sub.strip().lower(), rest.strip()
+    if not sub or sub == "list":
+        return ReconcileList(core.reconcile_status())
+    if sub not in {"diff", "overwrite"} or not rest:
+        return ReconcileUsage()
+    if not reconcile.is_known(rest):
+        return ReconcileUnknown(rest)
+    if sub == "diff":
+        return ReconcileDiff(rest, core.reconcile_diff(rest))
+    return ReconcileOverwritten(rest, core.reconcile_overwrite(rest))
+
+
+_RECONCILE_STYLE = {
+    "up_to_date": render.success,
+    "drifted": render.warning,
+    "missing": render.info,
+}
+
+
+def _diff_line(line: str) -> render.Line:
+    """Colour a unified-diff line: additions green, removals red, hunks dim."""
+    if line.startswith("+") and not line.startswith("+++"):
+        return render.success(line)
+    if line.startswith("-") and not line.startswith("---"):
+        return render.danger(line)
+    if line.startswith(("@@", "+++", "---")):
+        return render.info(line)
+    return render.plain(line)
+
+
+def present_reconcile(  # noqa: PLR0911 -- one return per outcome
+    outcome: ReconcileOutcome, surface: verbs.Surface
+) -> Styled:
+    """Render a ``reconcile`` outcome identically on both surfaces."""
+    match outcome:
+        case ReconcileUsage():
+            return [
+                render.warning(
+                    "usage: "
+                    + verbs.cmd(
+                        "reconcile [list | diff <file> | overwrite <file>]", surface
+                    )
+                )
+            ]
+        case ReconcileUnknown(name):
+            choices = ", ".join(reconcile.known_names())
+            return [
+                render.danger(f"unknown config file {name!r}; choose one of: {choices}")
+            ]
+        case ReconcileList(items):
+            lines: Styled = [render.heading("installed config vs packaged templates:")]
+            lines += [
+                _RECONCILE_STYLE[s.state](f"  {s.name:<16} {s.state}") for s in items
+            ]
+            if any(s.state == "drifted" for s in items):
+                lines.append(
+                    render.info(
+                        "update a drifted file: "
+                        + verbs.cmd("reconcile overwrite <file>", surface)
+                        + " (a backup is saved)"
+                    )
+                )
+            return lines
+        case ReconcileDiff(name, text):
+            if not text:
+                return [
+                    render.success(f"{name} is up to date with the packaged template")
+                ]
+            lines = [render.heading(f"{name}: installed -> packaged")]
+            lines += [_diff_line(ln) for ln in text.splitlines()]
+            lines.append(
+                render.info(
+                    "apply with "
+                    + verbs.cmd(f"reconcile overwrite {name}", surface)
+                    + " (a backup is saved)"
+                )
+            )
+            return lines
+        case ReconcileOverwritten(name, backup):
+            done = render.success(f"{name} updated from the packaged template")
+            if backup is not None:
+                return [done, render.info(f"backup saved: {backup}")]
+            return [done]
 
 
 # ----- sessions -------------------------------------------------------------
