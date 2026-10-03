@@ -79,6 +79,14 @@ function _skuggi_record {{
 }}
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _skuggi_record
+autoload -Uz compinit
+(( $+functions[compdef] )) || compinit -C
+function _skuggi_complete {{
+  local out
+  out="$("$_skuggi_client" --complete "${{(@)words[2,CURRENT-1]}}" 2>/dev/null)"
+  compadd -- ${{(f)out}}
+}}
+compdef _skuggi_complete /skuggi
 """
 
 _BASH_HOOK = """\
@@ -101,6 +109,14 @@ function _skuggi_record {{
   _skuggi_last="$cmd"
 }}
 PROMPT_COMMAND="_skuggi_record${{PROMPT_COMMAND:+; $PROMPT_COMMAND}}"
+_skuggi_complete() {{
+  local cur prev out
+  cur="${{COMP_WORDS[COMP_CWORD]}}"
+  prev=( "${{COMP_WORDS[@]:1:COMP_CWORD-1}}" )
+  out="$("$_skuggi_client" --complete "${{prev[@]}}" 2>/dev/null)"
+  COMPREPLY=( $(compgen -W "$out" -- "$cur") )
+}}
+complete -F _skuggi_complete /skuggi
 """
 
 

@@ -123,12 +123,19 @@ def _reply(*frames: dict[str, object]) -> bytes:
     return "".join(json.dumps(f) + "\n" for f in frames).encode()
 
 
+# The daemon's "your turn" frame: emitted before every chat prompt. No `ready`
+# here, so `attach_over` uses the injected `prompt_in` rather than building a
+# prompt_toolkit session (which would need a real terminal).
+_PROMPT_FRAME = _reply({"prompt": {"engagement": None, "autonomous": False}})
+
+
 class _FakeConn:
     """A scripted duplex socket: each sent input line buffers a canned reply.
 
     ``sendall`` eagerly queues the whole reply for the following ``recv``, so
     ``attach_over`` drives a full request/response cycle single-threaded without
-    a deadlock.
+    a deadlock. The attach op and each input are followed by a daemon prompt
+    frame, mirroring the real "your turn" handshake the client awaits.
     """
 
     def __init__(self, replies: dict[str, bytes]) -> None:
@@ -138,8 +145,10 @@ class _FakeConn:
     def sendall(self, data: bytes) -> None:
         msg = json.loads(data)
         if msg.get("op") == "attach":
+            self._inbox += _PROMPT_FRAME  # the first "your turn"
             return
         self._inbox += self._replies.get(str(msg.get("text", "")), b"")
+        self._inbox += _PROMPT_FRAME  # the next turn's "your turn"
 
     def recv(self, _n: int) -> bytes:
         chunk, self._inbox = self._inbox[:_n], self._inbox[_n:]

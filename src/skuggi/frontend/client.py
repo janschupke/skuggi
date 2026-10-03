@@ -107,6 +107,34 @@ def record(sock_path: str, text: str) -> int:  # pragma: no cover -- real socket
     return 0
 
 
+def complete(sock_path: str, words: list[str]) -> int:  # pragma: no cover -- socket
+    """Print the daemon's completion candidates for `words`, one per line.
+
+    Called by the ``/skuggi`` shell completion hook. Fails open (a dead daemon
+    just yields no candidates) so TAB never errors in the operator's shell.
+    """
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(2.0)
+            conn.connect(sock_path)
+            conn.sendall(
+                (json.dumps({"op": "complete", "words": words}) + "\n").encode()
+            )
+            for line in _iter_lines(conn):
+                try:
+                    resp = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                cands = resp.get("candidates")
+                if isinstance(cands, list) and cands:
+                    sys.stdout.write("\n".join(str(c) for c in cands) + "\n")
+                if resp.get("end"):
+                    break
+    except OSError:
+        return 0
+    return 0
+
+
 def _iter_lines(conn: socket.socket) -> Iterator[bytes]:
     """Yield newline-delimited frames from `conn` as they arrive.
 
@@ -171,7 +199,118 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
         return 1
 
 
-_PROMPT = "🐐 > "
+_SHIELD = "🐐"
+
+
+def _prompt_str(ctx: dict[str, object]) -> str:
+    """Build the chat prompt from a daemon prompt-context frame.
+
+    ``🐐 [<engagement>]! >`` -- the engagement name appears only when one is
+    loaded, and ``!`` marks armed autonomous execution (mirrors ``tui._prompt``).
+    """
+    eng = ctx.get("engagement")
+    auto = "!" if ctx.get("autonomous") else ""
+    if isinstance(eng, str) and eng:
+        return f"{_SHIELD} [{eng}]{auto} > "
+    return f"{_SHIELD}{auto} > "
+
+
+def _await_prompt(frames: Iterator[bytes]) -> dict[str, object] | None:
+    """Read daemon frames until the "your turn" (``prompt``) frame; ``None`` at EOF.
+
+    The daemon emits one ``{"prompt": {...}}`` before every chat prompt (the first
+    also carries ``ready`` with the history path + completion tree). Any other
+    frame before it is ignored here -- a turn's own frames are consumed by
+    ``_stream_turn`` before this is next called.
+    """
+    for line in frames:
+        try:
+            resp = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "prompt" in resp:
+            ctx = dict(resp["prompt"]) if isinstance(resp["prompt"], dict) else {}
+            if isinstance(resp.get("ready"), dict):
+                ctx["ready"] = resp["ready"]
+            return ctx
+    return None
+
+
+def _make_session(ready: dict[str, object]) -> object:  # pragma: no cover -- terminal
+    """Build the prompt_toolkit session: file history, completion, Ctrl-C binding.
+
+    Imported lazily so the fire-and-forget ``--record``/``--complete`` paths never
+    pay for prompt_toolkit. History is the daemon-resolved ``.repl_history`` in the
+    data home (internal to skuggi, never the host shell's). Completion is the
+    daemon's nested verb/noun/cmd vocabulary. Ctrl-C clears a typed draft silently
+    and only leaves the hint for an empty prompt.
+    """
+    from prompt_toolkit import PromptSession  # noqa: PLC0415 -- keep ptk off hot paths
+    from prompt_toolkit.completion import NestedCompleter  # noqa: PLC0415
+    from prompt_toolkit.history import FileHistory  # noqa: PLC0415
+    from prompt_toolkit.key_binding import KeyBindings  # noqa: PLC0415
+
+    history = None
+    hist_path = ready.get("history_path")
+    if isinstance(hist_path, str) and hist_path:
+        try:
+            # os over pathlib: this client stays dependency-thin (json/os/socket).
+            os.makedirs(os.path.dirname(hist_path), exist_ok=True)  # noqa: PTH103, PTH120
+            history = FileHistory(hist_path)
+        except OSError:
+            history = None
+    completer = None
+    tree = ready.get("tree")
+    if isinstance(tree, dict):
+        completer = NestedCompleter.from_nested_dict(tree)
+
+    bindings = KeyBindings()
+
+    @bindings.add("c-c")
+    def _(event: object) -> None:
+        buf = event.current_buffer  # type: ignore[attr-defined]
+        if buf.text:  # a typed draft: cancel it silently, stay at the prompt
+            buf.reset()
+        else:  # empty prompt: propagate so the caller shows the exit hint
+            event.app.exit(exception=KeyboardInterrupt)  # type: ignore[attr-defined]
+
+    return PromptSession(history=history, completer=completer, key_bindings=bindings)
+
+
+def _prompt_turn(
+    session: object | None,
+    prompt_in: Callable[[str], str | None],
+    prompt: str,
+    out: TextIO,
+) -> str | None:
+    """Read one operator line for this turn; ``None`` to leave (EOF or blank).
+
+    Reads via the prompt_toolkit `session` when present (history, completion, the
+    Ctrl-C binding), else the injected `prompt_in` (one-shot / tests). Ctrl-C on a
+    draft is swallowed by the session's key binding; Ctrl-C at an empty prompt
+    raises ``KeyboardInterrupt``, caught here to print the hint and re-prompt
+    without leaving -- so the daemon need not re-announce the turn.
+    """
+    while True:
+        try:
+            if session is not None:  # pragma: no cover -- real terminal
+                raw: str | None = str(session.prompt(prompt))  # type: ignore[attr-defined]
+            else:
+                raw = prompt_in(prompt)
+        except KeyboardInterrupt:  # empty-prompt Ctrl-C stays put
+            out.write("\ntype exit to leave\n")
+            out.flush()
+            continue
+        except EOFError:  # pragma: no cover -- Ctrl-D leaves the session
+            out.write("\n")
+            return None
+        if raw is None:  # prompt_in EOF
+            return None
+        stripped = raw.strip()
+        if not stripped:  # a blank submit leaves (hands the shell back)
+            return None
+        return stripped
+
 
 # Verbs that drive an interactive round-trip and so need an attach session rather
 # than a one-shot request.
@@ -309,17 +448,15 @@ def attach_over(
     """
     conn.sendall((json.dumps({"op": "attach"}) + "\n").encode())
     frames = _iter_lines(conn)
+    session: object | None = None
     while True:
-        try:
-            line = prompt_in(_PROMPT)
-        except KeyboardInterrupt:  # Ctrl-C at the prompt stays put
-            out.write("\ntype exit to leave\n")
-            out.flush()
-            continue
-        if line is None:  # EOF (Ctrl-D) leaves the session
+        ctx = _await_prompt(frames)  # the daemon's "your turn" + engagement context
+        if ctx is None:  # the daemon closed the connection
             break
-        line = line.strip()
-        if not line:
+        if session is None and isinstance(ctx.get("ready"), dict):
+            session = _make_session(ctx["ready"])  # type: ignore[arg-type]
+        line = _prompt_turn(session, prompt_in, _prompt_str(ctx), out)
+        if line is None:  # EOF or blank submit -> leave
             break
         conn.sendall((json.dumps(build_message(line)) + "\n").encode())
         spinner = _Spinner()
@@ -424,6 +561,8 @@ def main() -> int:  # pragma: no cover -- console entry point
     args = sys.argv[1:]
     if args and args[0] == "--record":  # shell hook logging a free-typed command
         return record(sock_path, " ".join(args[1:]))
+    if args and args[0] == "--complete":  # shell hook asking for TAB candidates
+        return complete(sock_path, args[1:])
     if not args:  # bare `/skuggi` -> attach an interactive loop to the warm daemon
         return attach(sock_path, _stdin_prompt, sys.stdout)
     if _is_interactive(args):
