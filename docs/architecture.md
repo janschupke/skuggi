@@ -104,7 +104,13 @@ keeps two logs, deliberately apart:
   session ([transcript.py](../src/skuggi/persistence/transcript.py)); the `/replay` verb
   views any session (`replay list` enumerates them). The outward-facing report
   ([reports.py](../src/skuggi/persistence/reports.py)) reads only `commands`/`findings`, so
-  it never leaks prompts.
+  it never leaks prompts — and only **approved** findings, since each finding carries
+  an `author` + a `draft`/`approved`/`rejected` `status` that the operator sets.
+  CVSS scores are frozen per finding: the stored vector is threat-model-free and the
+  environmental score is tagged with a `threat_model_versions` version, so a
+  mid-engagement model change flags findings outdated (and `findings rescore`
+  recomputes them) rather than silently shifting recorded numbers. Reports are
+  revisioned — timestamped, non-overwriting, each with a unified `.diff` vs the prior.
 - The **harness-interaction audit** — the `audit` table logs `/skuggi` control
   verbs, filtered CLI noise, and the private `/review` critique. It is kept
   *separate* from the timeline and is never part of a client-facing report.

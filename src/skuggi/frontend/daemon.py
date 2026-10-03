@@ -386,7 +386,14 @@ class Daemon:
             yield f"unknown alias {name!r}\n"
 
     def _report(self, arg: str) -> Iterator[str]:
-        result = self.core.journal.write_report(pdf=arg.strip().lower() == "pdf")
+        first, _, rest = arg.strip().partition(" ")
+        if first.lower() == "note":
+            if not rest.strip():
+                yield "usage: report note <text>\n"
+                return
+            yield f"changelog: {self.core.journal.add_report_note(rest)}\n"
+            return
+        result = self.core.journal.write_report(pdf=first.lower() == "pdf")
         for line in reports.report_written_lines(result):
             yield f"{line}\n"
 

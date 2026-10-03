@@ -40,3 +40,24 @@ anti-pattern this audit removes. ATT&CK is therefore an *optional* classifier
 (strong default in red-team engagements) and may additionally drive an
 adversary-emulation engagement, but a finding gets a technique id only when one
 genuinely applies.
+
+## Follow-on audit: finding lifecycle, score staleness, report versioning
+
+A second pass hardened the finding/report data model:
+
+- **No review state → draft/approved/rejected + author.** Findings were recorded and
+  reported immediately. Now every finding (agent or operator) is born `draft`, the
+  operator approves/rejects (with a reason), and **only approved findings reach a
+  report**. The LLM critic still approves the *turn*, not findings — review is the
+  operator's. A rejection reason is fed back to the agent so it stops re-asserting it.
+- **Threat model baked into the score → versioned + rescorable.** The engagement
+  threat model was merged into each finding's stored vector, so a later change could
+  not be reflected. Now the stored vector is the worker's **intrinsic** one; the
+  threat model is overlaid only to derive the environmental score and tagged with a
+  **version**. A change is logged (`threat_model_versions`), affected findings are
+  flagged outdated, and `findings rescore` recomputes them — recorded scores are
+  immutable except on that explicit action.
+- **Reports: timestamped but no revision trail → diff + changelog.** Reports were
+  already timestamped and non-overwriting; each is now numbered, cites the previous
+  revision, and emits a unified `.diff` (the revision notes), with an optional manual
+  `report note` changelog.

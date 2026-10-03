@@ -376,6 +376,25 @@ adversary-emulation) and the classification **taxonomies** to tag with; an optio
 classification moved from the LLM to deterministic code. You can also record a scored
 finding by hand: `/skuggi add finding CVSS:3.1/AV:N/... <title>`.
 
+**Review lifecycle.** Every finding — the agent's and the operator's — is born
+`draft`; only **approved** findings reach a report. Review with `/skuggi findings`
+(the listing shows author and status), then `findings approve <id>` or
+`findings reject <id> <reason>`. A rejected finding's reason is fed back to the agent
+so it stops re-asserting it.
+
+**Threat model, during the engagement.** The CVSS Environmental requirements can be
+set up front or during the PTES Threat Modeling phase with
+`engagement threat-model <conf> <int> <avail> [| note]` (the agent advises; the
+operator applies). Each change is versioned and logged; findings scored under an
+earlier version are flagged ⚠ outdated in the listing, and `findings rescore [all|<id>]`
+refreshes them from their stored base vector — recorded scores change only on that
+explicit action.
+
+**Report revisions.** Reports are timestamped and never overwritten; each `/skuggi
+report` is a new revision that cites the previous one and writes a unified `.diff`
+beside it (the revision notes). `report note <text>` adds a line to the engagement's
+`reports/CHANGELOG.md`.
+
 ### PDF reports
 
 Markdown is the canonical artifact; a styled, client-ready PDF is derived from

@@ -74,7 +74,9 @@ VERBS: tuple[Verb, ...] = (
         "[approve <id> | reject <id> <reason>]",
     ),
     Verb(
-        "report", "write an engagement report (add 'pdf' for a styled PDF too)", "[pdf]"
+        "report",
+        "write an engagement report, or add a changelog note",
+        "[pdf | note <text>]",
     ),
     Verb("visualize", "build an interactive HTML dashboard of the whole engagement"),
     Verb("replay", "reconstruct & view a session transcript", "[list | <session>]"),

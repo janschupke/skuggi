@@ -147,12 +147,13 @@ def test_cli_honours_out_html_and_title(
 
 def _seed(led: Ledger) -> None:
     led.start_session("s1", engagement_name="acme ext", mode="pentest")
-    led.record_finding(
+    fid = led.record_finding(
         session_id="s1",
         title="SSH exposed",
         severity="high",
         description="Port 22 open",
     )
+    led.set_finding_status(fid, "approved")  # only approved findings reach a report
 
 
 def test_write_report_pdf_flag_returns_both_paths(

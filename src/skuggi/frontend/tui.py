@@ -567,7 +567,15 @@ class Tui:
             )
 
     def _cmd_report(self, arg: str) -> None:
-        result = self.core.journal.write_report(pdf=arg.strip().lower() == "pdf")
+        first, _, rest = arg.strip().partition(" ")
+        if first.lower() == "note":
+            if not rest.strip():
+                self.console.print("usage: report note <text>")
+                return
+            path = self.core.journal.add_report_note(rest)
+            self.console.print(f"[green]changelog: {path}[/green]")
+            return
+        result = self.core.journal.write_report(pdf=first.lower() == "pdf")
         for line in reports.report_written_lines(result):
             self.console.print(f"[green]{line}[/green]")
 

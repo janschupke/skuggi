@@ -10,6 +10,7 @@ the harness writes.
 
 from __future__ import annotations
 
+import difflib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -117,6 +118,10 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
     engagement: EngagementConfig | None = None,
     generated_label: str | None = None,
     refs: _Refs | None = None,
+    revision: int = 1,
+    previous: str | None = None,
+    excluded: int = 0,
+    changelog: bool = False,
 ) -> str:
     """Compose the full Markdown report for one session.
 
@@ -124,19 +129,26 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
     ``_local_stamp``); the stored ledger values stay UTC. ``generated_label`` is
     the single "generated at" stamp: ``write_report`` computes it once and passes
     the same value to the PDF footer so the two artifacts never disagree. When
-    omitted it is computed here (standalone/direct callers).
+    omitted it is computed here (standalone/direct callers). ``revision`` /
+    ``previous`` / ``excluded`` / ``changelog`` drive the revision header;
+    ``findings`` here are already the approved ones (``excluded`` counts the rest).
     """
     if generated_label is None:
         generated_label = _local_stamp(now_iso(), engagement)
     zone = engagement.timezone if engagement is not None else "UTC"
+    prior = f"; previous: `{previous}`" if previous else ""
+    dropped = f" ({excluded} draft/rejected excluded)" if excluded else ""
+    changes = "\n- Changelog: `CHANGELOG.md`" if changelog else ""
     header = (
         f"# Engagement report: {session.engagement_name}\n\n"
         f"- Session: `{session.session_id}`\n"
         f"- Mode: {session.mode}\n"
         f"- Started: {_local_stamp(session.started_at, engagement)}\n"
         f"- Generated: {generated_label}\n"
+        f"- Revision: {revision}{prior}\n"
         f"- Times shown in: {zone}\n"
-        f"- Commands: {len(commands)} · Findings: {len(findings)}"
+        f"- Commands: {len(commands)} · Approved findings: {len(findings)}{dropped}"
+        f"{changes}"
     )
     scope = engagement.describe() if engagement is not None else ""
     return join_blocks(
@@ -177,8 +189,17 @@ def write_report(
         msg = f"no session recorded for {session_id!r}"
         raise ValueError(msg)
     commands = ledger.commands_for(session_id)
-    findings = ledger.findings_for(session_id)
+    # A report contains only approved findings; the rest are counted, not shown.
+    findings = ledger.approved_findings_for(session_id)
+    excluded = len(ledger.findings_for(session_id)) - len(findings)
     refs = {f.id: ledger.finding_refs_for(f.id) for f in findings}
+
+    reports_dir = ensure_dir(reports_dir)
+    prefix = f"{_slug(session.engagement_name)}-{session_id[:8]}-"
+    # Sort by write time, not name, so the ordering is robust to stamp collisions.
+    prior = sorted(reports_dir.glob(f"{prefix}*.md"), key=lambda p: p.stat().st_mtime)
+    changelog_path = reports_dir / "CHANGELOG.md"
+
     # One generated-at stamp, shared by the Markdown body and the PDF footer, so a
     # later PDF re-render cannot disagree with the document it renders.
     generated_label = _local_stamp(now_iso(), engagement)
@@ -189,13 +210,21 @@ def write_report(
         engagement=engagement,
         generated_label=generated_label,
         refs=refs,
+        revision=len(prior) + 1,
+        previous=prior[-1].name if prior else None,
+        excluded=excluded,
+        changelog=changelog_path.exists(),
     )
 
-    reports_dir = ensure_dir(reports_dir)
-    stamp = file_stamp()
-    base = reports_dir / f"{_slug(session.engagement_name)}-{session_id[:8]}-{stamp}"
+    base = reports_dir / f"{prefix}{file_stamp()}"
     md_path = base.with_suffix(".md")
+    if md_path.exists():  # a second report in the same clock second -- keep both
+        base = reports_dir / f"{prefix}{file_stamp()}-r{len(prior) + 1}"
+        md_path = base.with_suffix(".md")
     md_path.write_text(body, encoding="utf-8")
+    # A unified diff against the previous revision -- the report's revision notes.
+    if prior:
+        _write_diff(prior[-1], md_path, body)
     if not pdf:
         return md_path
 
@@ -210,13 +239,42 @@ def write_report(
     return md_path, pdf_path
 
 
+def _write_diff(previous: Path, new_md: Path, new_body: str) -> Path:
+    """Write a unified diff of the previous report vs the new one (revision notes)."""
+    old_body = previous.read_text(encoding="utf-8")
+    diff = difflib.unified_diff(
+        old_body.splitlines(keepends=True),
+        new_body.splitlines(keepends=True),
+        fromfile=previous.name,
+        tofile=new_md.name,
+    )
+    diff_path = new_md.with_suffix(".diff")
+    diff_path.write_text("".join(diff), encoding="utf-8")
+    return diff_path
+
+
+def append_changelog(reports_dir: Path, note: str) -> Path:
+    """Append a timestamped operator note to the engagement's report changelog."""
+    reports_dir = ensure_dir(reports_dir)
+    path = reports_dir / "CHANGELOG.md"
+    header = "" if path.exists() else "# Report changelog\n\n"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(f"{header}- {now_iso()} — {note.strip()}\n")
+    return path
+
+
 def report_written_lines(result: Path | tuple[Path, Path]) -> list[str]:
     """Describe what :func:`write_report` produced, for either front-end.
 
     Keeps the "report written / pdf written" wording identical across the REPL
-    and the daemon instead of each formatting the ``Path | tuple`` return.
+    and the daemon instead of each formatting the ``Path | tuple`` return. A sibling
+    ``.diff`` (the revision notes vs the previous report) is reported when present.
     """
+    md_path = result[0] if isinstance(result, tuple) else result
+    lines = [f"report written: {md_path}"]
     if isinstance(result, tuple):
-        md_path, pdf_path = result
-        return [f"report written: {md_path}", f"pdf written: {pdf_path}"]
-    return [f"report written: {result}"]
+        lines.append(f"pdf written: {result[1]}")
+    diff_path = md_path.with_suffix(".diff")
+    if diff_path.exists():
+        lines.append(f"revision diff: {diff_path}")
+    return lines

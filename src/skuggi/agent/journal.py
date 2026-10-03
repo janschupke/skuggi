@@ -165,6 +165,10 @@ class Journal:
             pdf=pdf,
         )
 
+    def add_report_note(self, text: str) -> Path:
+        """Append a timestamped note to the report changelog; return its path."""
+        return reports.append_changelog(self._core.reports_dir, text)
+
     def write_visualization(self) -> Path:
         """Write the engagement's interactive HTML dashboard and return its path.
 

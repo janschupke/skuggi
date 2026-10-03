@@ -11,7 +11,12 @@ from skuggi.common.execution import CommandResult
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.persistence import pdf as pdf_mod
 from skuggi.persistence.ledger import FindingRefInput, Ledger, open_ledger
-from skuggi.persistence.reports import _local_stamp, render_report, write_report
+from skuggi.persistence.reports import (
+    _local_stamp,
+    append_changelog,
+    render_report,
+    write_report,
+)
 
 
 def _engagement(timezone: str = "Europe/Helsinki") -> EngagementConfig:
@@ -41,7 +46,7 @@ def _seed(led: Ledger) -> None:
         status="executed",
         result=result,
     )
-    led.record_finding(
+    high = led.record_finding(
         session_id="s1",
         title="SSH exposed",
         severity="high",
@@ -49,13 +54,16 @@ def _seed(led: Ledger) -> None:
         evidence="22/tcp open",
         command_id=cid,
     )
-    led.record_finding(
+    low = led.record_finding(
         session_id="s1",
         title="Banner leak",
         severity="low",
         description="Server banner reveals version",
         command_id=cid,
     )
+    # A report shows only approved findings, so approve both for the content tests.
+    led.set_finding_status(high, "approved")
+    led.set_finding_status(low, "approved")
 
 
 def test_render_groups_findings_by_severity(tmp_path: Path) -> None:
@@ -173,16 +181,69 @@ def test_write_report_without_a_session_raises(tmp_path: Path) -> None:
 def test_report_renders_cvss_and_linked_classifications(tmp_path: Path) -> None:
     with open_ledger(tmp_path / "l.db") as led:
         led.start_session("s1", engagement_name="acme ext", mode="pentest")
-        led.record_finding(
+        fid = led.record_finding(
             session_id="s1",
             title="Reflected XSS",
             description="unencoded reflection",
             cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",  # 6.1
             refs=[FindingRefInput("wstg", "WSTG-CLNT-01", is_primary=True)],
         )
+        led.set_finding_status(fid, "approved")
         result = write_report("s1", led, tmp_path / "reports")
     body = (result if isinstance(result, Path) else result[0]).read_text()
     assert "CVSS 3.1 6.1 (MEDIUM)" in body
     assert "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N" in body
     # The classification is a Markdown link, primary marked with a star.
     assert "[WSTG-CLNT-01*](https://owasp.org/" in body
+
+
+def test_report_excludes_non_approved_and_versions_revisions(tmp_path: Path) -> None:
+    reports_dir = tmp_path / "reports"
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme ext", mode="pentest")
+        keep = led.record_finding(
+            session_id="s1", title="real", severity="high", description="d"
+        )
+        led.record_finding(
+            session_id="s1", title="draft one", severity="low", description="d"
+        )
+        led.set_finding_status(keep, "approved")
+
+        first = write_report("s1", led, reports_dir)
+        assert isinstance(first, Path)
+        body = first.read_text()
+        assert "real" in body
+        assert "draft one" not in body  # only approved reach the report
+        assert "1 draft/rejected excluded" in body
+        assert "Revision: 1" in body
+        assert not first.with_suffix(".diff").exists()  # nothing to diff against yet
+
+        # A second report is a new revision with a diff against the first.
+        led.set_finding_status(
+            led.record_finding(
+                session_id="s1", title="added later", severity="medium", description="d"
+            ),
+            "approved",
+        )
+        second = write_report("s1", led, reports_dir)
+        assert isinstance(second, Path)
+        assert second != first
+        body2 = second.read_text()
+        assert "Revision: 2" in body2
+        assert first.name in body2  # cites the previous report
+        diff = second.with_suffix(".diff")
+        assert diff.exists()
+        assert "added later" in diff.read_text()
+
+
+def test_report_changelog_note(tmp_path: Path) -> None:
+    reports_dir = tmp_path / "reports"
+    path = append_changelog(reports_dir, "re-scoped after client call")
+    assert path.name == "CHANGELOG.md"
+    assert "re-scoped after client call" in path.read_text()
+    # A subsequent report references the changelog in its header.
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme ext", mode="pentest")
+        out = write_report("s1", led, reports_dir)
+    assert isinstance(out, Path)
+    assert "Changelog: `CHANGELOG.md`" in out.read_text()
