@@ -70,6 +70,10 @@ from skuggi.engagement.engagement import EngagementConfig, check_command, parse_
 from skuggi.frameworks import cvss
 from skuggi.persistence.ledger import FindingRefInput, Ledger
 from skuggi.persistence.vectorstore import Store, format_hits
+from skuggi.security.policy import RedactionPolicy
+from skuggi.security.redaction import redact
+from skuggi.security.tripwire import scrub
+from skuggi.security.vault import SecretVault
 from skuggi.tooling.registry import ToolRegistry
 
 log = get_logger(__name__)
@@ -97,6 +101,13 @@ class GraphDeps:
     engagement: EngagementConfig | None = None
     ledger: Ledger | None = None
     registry: ToolRegistry | None = None
+    # The data-plane boundary. ``redaction_policy`` says what to scrub and which
+    # in-scope identifiers to leave alone; ``vault`` makes the scrub reversible
+    # (a discovered secret becomes a placeholder here, rehydrated for a tool at
+    # execution). Both ``None`` in agent-only mode, where a default policy still
+    # masks one-way so RAG/history cannot leak a secret into a request.
+    redaction_policy: RedactionPolicy | None = None
+    vault: SecretVault | None = None
     session_id: str = ""
     thread_id: Callable[[], str] = field(default=lambda: "")
     turn_id: Callable[[], int | None] = field(default=lambda: None)
@@ -120,6 +131,17 @@ class GraphDeps:
 
 
 # --- prompt assembly --------------------------------------------------------
+
+
+def _redactor(deps: GraphDeps) -> Callable[[str], str]:
+    """A redact function bound to this session's policy and vault.
+
+    With a vault each secret becomes a reversible ``«KIND:id»`` placeholder;
+    without one (agent-only mode) a default policy still masks one-way, so no
+    request can carry a raw secret even when no engagement is loaded.
+    """
+    policy = deps.redaction_policy or RedactionPolicy()
+    return lambda text: redact(text, policy, deps.vault)
 
 
 def last_user_text(messages: Sequence[BaseMessage]) -> str:
@@ -184,24 +206,38 @@ def engagement_brief(engagement: EngagementConfig) -> EngagementBrief:
 
 
 def _finding_briefs(deps: GraphDeps) -> tuple[FindingBrief, ...]:
-    """The most recent findings recorded this session, for a request."""
+    """The most recent findings recorded this session, for a request.
+
+    The title is model-facing, so it is redacted: the ledger stores a finding's
+    text raw (operator/report-facing), but a title echoed back into a prompt must
+    not reintroduce a secret the evidence happened to contain.
+    """
     if deps.ledger is None or not deps.session_id:
         return ()
+    clean = _redactor(deps)
     rows = deps.ledger.findings_for(deps.session_id)[-deps.findings_limit :]
     return tuple(
         FindingBrief(
-            id=r.id, severity=r.severity, title=r.title, command_id=r.command_id
+            id=r.id, severity=r.severity, title=clean(r.title), command_id=r.command_id
         )
         for r in rows
     )
 
 
-def _summarize_result(result: execution.CommandResult) -> str:
-    """A bounded summary of a command's output for the worker's next request."""
+def _summarize_result(
+    result: execution.CommandResult, clean: Callable[[str], str]
+) -> str:
+    """A bounded summary of a command's output for the worker's next request.
+
+    ``clean`` redacts the captured output before it becomes model-facing: scan
+    output is the single largest source of discovered secrets/PII, so it is
+    scrubbed (and any secret vaulted) *before* truncation, so a secret cannot
+    survive by sitting past the cap.
+    """
     parts = [result.stdout.strip()]
     if result.stderr.strip():
         parts.append("stderr: " + result.stderr.strip())
-    text = "\n".join(p for p in parts if p)
+    text = clean("\n".join(p for p in parts if p))
     if not text:
         return f"exit={result.exit_code} (no output)"
     return f"exit={result.exit_code}\n{text[:_OUTPUT_SUMMARY_CAP]}"
@@ -227,6 +263,8 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
 ) -> CompiledStateGraph[AgentState]:
     """Compile the agent graph."""
     work_dir = (deps.cwd or Path.cwd()).resolve()
+    policy = deps.redaction_policy or RedactionPolicy()
+    clean = _redactor(deps)
 
     def history(state: AgentState, *, divisor: int = 1) -> str:
         return render_history(
@@ -242,13 +280,19 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
             engagement_brief(deps.engagement) if deps.engagement is not None else None
         )
         commands = list(state.get("commands", []))[-deps.commands_limit :]
+        # Redact every free-text field that originates outside the harness
+        # before it is assembled into a request: the operator's prompt and
+        # history (an accidental paste), the operator's preferences, and the
+        # retrieved context. Command summaries and finding titles are already
+        # redacted at their own ingress; findings/engagement/phase/plan are
+        # harness-structured. ``ask`` then applies the egress net over the whole.
         return RequestContext(
-            request=last_user_text(state["messages"]),
+            request=clean(last_user_text(state["messages"])),
             phase=state.get("phase", "recon"),
             engagement=brief,
-            history=history(state, divisor=divisor),
-            preferences=deps.preferences,
-            retrieved_context=state.get("context") or "",
+            history=clean(history(state, divisor=divisor)),
+            preferences=clean(deps.preferences),
+            retrieved_context=clean(state.get("context") or ""),
             findings=_finding_briefs(deps),
             recent_commands=tuple(commands),
             **extra,  # type: ignore[arg-type]
@@ -257,9 +301,14 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
     def ask[T: (PlannerResponse, WorkerResponse, CriticResponse)](
         system: str, ctx: RequestContext, schema: type[T]
     ) -> T:
+        # The egress net: every model-bound request is assembled here, so this
+        # is the one place to re-scan the whole block. Ingress redaction already
+        # masked the free-text fields; ``scrub`` masks-and-logs anything that
+        # only a detector sees in the assembled context (defence in depth), so a
+        # detector gap degrades to an over-mask, never a disclosure.
         prompt: list[BaseMessage] = [
             SystemMessage(content=system),
-            HumanMessage(content=render_request(ctx)),
+            HumanMessage(content=scrub(render_request(ctx), policy)),
         ]
         llm = deps.llm
         if llm is None:  # defensive: core.turn builds the model before streaming
@@ -291,7 +340,9 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
         if deps.store is None:
             return {}
         hits = deps.store.search(last_user_text(state["messages"]), k=deps.retrieve_k)
-        return {"context": format_hits(hits)} if hits else {}
+        # Redact before the snippet is stored in graph state, so a secret in an
+        # ingested document never lands in the checkpoint either.
+        return {"context": clean(format_hits(hits))} if hits else {}
 
     def work_node(state: AgentState) -> WorkerUpdate:
         ctx = context(state, plan=tuple(state.get("plan") or ()))
@@ -452,7 +503,7 @@ def _run_or_propose(
         status="executed",
         command=command,
         exit_code=result.exit_code,
-        summary=_summarize_result(result),
+        summary=_summarize_result(result, _redactor(deps)),
     )
     return cid, brief, True
 

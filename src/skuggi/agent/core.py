@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
@@ -61,6 +62,8 @@ from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence import memory, preferences
 from skuggi.persistence.vectorstore import Store
 from skuggi.providers import providers
+from skuggi.security.policy import RedactionPolicy
+from skuggi.security.vault import SecretVault, open_vault
 from skuggi.tooling.commands import CommandRegistry
 from skuggi.tooling.registry import ToolRegistry
 
@@ -132,6 +135,9 @@ class AgentCore:
         self.saver = self._saver_ctx.__enter__()
         self._ledger_ctx = ledger_mod.open_ledger(self._ledger_path())
         self.ledger = self._ledger_ctx.__enter__()
+        # The per-engagement secret vault (reversible redaction). Opened with the
+        # ledger and torn down with it on a reload; None in agent-only mode.
+        self._vault_ctx, self.vault = self._open_vault()
         self.ledger.start_session(
             self.session_id,
             engagement_name=self.engagement.name if self.engagement else "(none)",
@@ -205,6 +211,39 @@ class AgentCore:
             return self.workspace.ledger_path
         return self.settings.sqlite_path.parent / "ledger.db"
 
+    def _open_vault(
+        self,
+    ) -> tuple[AbstractContextManager[SecretVault] | None, SecretVault | None]:
+        """Open the engagement's secret vault, or (None, None) in agent-only mode.
+
+        The vault only makes sense with a workspace: it stores secrets *this
+        engagement* discovered, next to its ledger. Agent-only mode has nowhere
+        to scope it and no commands to run, so redaction there is one-way.
+        """
+        if self.workspace is None:
+            return None, None
+        ctx = open_vault(self.workspace.vault_path)
+        return ctx, ctx.__enter__()
+
+    def _redaction_policy(self) -> RedactionPolicy:
+        """The redaction policy for this session, allow-listing in-scope identifiers.
+
+        The agent has to reason about its own targets, so the engagement's name,
+        hosts, networks and resolved primary target pass through un-redacted;
+        everything else a detector flags is scrubbed.
+        """
+        if self.engagement is None:
+            return RedactionPolicy()
+        allow: set[str] = {
+            self.engagement.name,
+            *self.engagement.allowed_hosts,
+            *(str(net) for net in self.engagement.target_networks),
+        }
+        target = self.engagement.resolve_target()
+        if target:
+            allow.add(target)
+        return RedactionPolicy.from_scope(allow=allow)
+
     @property
     def reports_dir(self) -> Path:
         """Where ``write_report`` writes -- the workspace, or ./data as fallback."""
@@ -234,6 +273,8 @@ class AgentCore:
             engagement=self.engagement,
             ledger=self.ledger,
             registry=self.registry,
+            redaction_policy=self._redaction_policy(),
+            vault=self.vault,
             session_id=self.session_id,
             thread_id=lambda: self.thread_id,
             turn_id=lambda: self._current_turn_event_id,
@@ -252,8 +293,10 @@ class AgentCore:
         return build_graph(self._deps(), self.saver)
 
     def close(self) -> None:
-        """Close the ledger, preferences and checkpointer connections."""
+        """Close the ledger, vault, preferences and checkpointer connections."""
         self._prefs_ctx.__exit__(None, None, None)
+        if self._vault_ctx is not None:
+            self._vault_ctx.__exit__(None, None, None)
         self._ledger_ctx.__exit__(None, None, None)
         self._saver_ctx.__exit__(None, None, None)
 
@@ -448,6 +491,10 @@ class AgentCore:
         self._ledger_ctx.__exit__(None, None, None)
         self._ledger_ctx = ledger_mod.open_ledger(self._ledger_path())
         self.ledger = self._ledger_ctx.__enter__()
+        # Swap the vault to the new engagement's, mirroring the ledger reload.
+        if self._vault_ctx is not None:
+            self._vault_ctx.__exit__(None, None, None)
+        self._vault_ctx, self.vault = self._open_vault()
         self.session_id = str(uuid.uuid4())
         self.ledger.start_session(self.session_id, engagement_name=name, mode=self.mode)
 

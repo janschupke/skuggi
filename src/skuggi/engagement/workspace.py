@@ -107,6 +107,16 @@ class Workspace:
         return self.root / self.layout.ledger_file
 
     @property
+    def vault_path(self) -> Path:
+        """The per-engagement secret vault (reversible redaction placeholders).
+
+        A dotfile at the workspace root, deliberately not a ``layout`` field: it
+        is harness security plumbing, not an engagement artefact the operator
+        browses, and it must never be swept into a report or the dashboard.
+        """
+        return self.root / ".vault.db"
+
+    @property
     def reports_dir(self) -> Path:
         """Where Markdown reports are written."""
         return self.root / self.layout.reports

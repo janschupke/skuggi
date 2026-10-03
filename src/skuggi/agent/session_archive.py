@@ -14,6 +14,8 @@ from skuggi.agent import prompts
 from skuggi.common.text import join_blocks, labeled
 from skuggi.persistence import transcript as transcript_mod
 from skuggi.providers import providers
+from skuggi.security.redaction import redact
+from skuggi.security.tripwire import scrub
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
@@ -88,9 +90,18 @@ class SessionArchive:
         sid, timeline = self._render(session_ref, max_output=_REVIEW_OUTPUT_CAP)
         if sid is None:
             return timeline  # the "no session" message
-        prompt = join_blocks(
-            prompts.REVIEW_INSTRUCTION,
-            labeled("Session timeline", timeline, heading=True),
+        # ``review`` is the one archive path that is model-facing (``replay``/
+        # ``transcript`` stay raw for the operator's own eyes). Redact the
+        # timeline -- raw command output and finding text -- before it reaches
+        # the model, then apply the egress net over the whole prompt.
+        policy = core._redaction_policy()  # noqa: SLF001 -- sub-component reads the core
+        timeline = redact(timeline, policy, core.vault)
+        prompt = scrub(
+            join_blocks(
+                prompts.REVIEW_INSTRUCTION,
+                labeled("Session timeline", timeline, heading=True),
+            ),
+            policy,
         )
         llm = (
             core._ensure_llm()  # noqa: SLF001 -- sub-component drives the core's model kernel
