@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 from skuggi.common.execution import CommandResult
-from skuggi.persistence.ledger import open_ledger
+from skuggi.frameworks import cvss
+from skuggi.persistence.ledger import FindingRefInput, open_ledger
 
 
 def test_command_and_finding_round_trip(tmp_path: Path) -> None:
@@ -192,3 +193,80 @@ def test_migration_adds_turn_event_id_to_a_legacy_ledger(tmp_path: Path) -> None
         )
         assert led.commands_for("s1")[0].turn_event_id is None
         assert led.command(cid) is not None
+
+
+def test_cvss_finding_stores_full_breakdown_and_refs(tmp_path: Path) -> None:
+    vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"  # reflected XSS, 6.1
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        fid = led.record_finding(
+            session_id="s1",
+            title="Reflected XSS in /search",
+            description="user input reflected unencoded",
+            cvss_vector=vector,  # no severity passed -> derived from CVSS
+            refs=[
+                FindingRefInput("wstg", "WSTG-CLNT-01", is_primary=True),
+                FindingRefInput("attack", "T1189"),
+            ],
+        )
+        [finding] = led.findings_for("s1")
+        assert finding.id == fid
+        assert finding.severity == "medium"  # derived from the 6.1 band
+        assert finding.cvss_version == "3.1"
+        assert finding.cvss_base == 6.1
+        assert finding.cvss_score == 6.1
+        assert finding.cvss_severity == "medium"
+        # Reproducible from the stored row alone -- no turn context.
+        assert cvss.score(finding.cvss_vector).overall == finding.cvss_score  # type: ignore[arg-type]
+
+        refs = led.finding_refs_for(fid)
+        assert [(r.framework, r.ref_id, r.is_primary) for r in refs] == [
+            ("wstg", "WSTG-CLNT-01", 1),  # primary first
+            ("attack", "T1189", 0),
+        ]
+        wstg = refs[0]
+        assert wstg.title  # resolved from the vendored taxonomy
+        assert wstg.url.startswith("https://owasp.org/")
+
+
+def test_finding_without_severity_or_vector_is_rejected(tmp_path: Path) -> None:
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        with pytest.raises(ValueError, match="severity or a cvss_vector"):
+            led.record_finding(session_id="s1", title="x", description="d")
+
+
+def test_migrates_a_pre_cvss_ledger(tmp_path: Path) -> None:
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(str(path))
+    conn.executescript(
+        """
+        CREATE TABLE sessions (session_id TEXT PRIMARY KEY, engagement_name TEXT
+            NOT NULL, mode TEXT NOT NULL, started_at TEXT NOT NULL);
+        CREATE TABLE findings (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT
+            NOT NULL, command_id INTEGER, title TEXT NOT NULL, severity TEXT NOT NULL,
+            description TEXT NOT NULL, evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL);
+        INSERT INTO sessions VALUES ('s1', 'e', 'pentest', 't');
+        INSERT INTO findings (session_id, title, severity, description, evidence,
+            created_at) VALUES ('s1', 'old finding', 'low', 'd', '', 't');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    # Opening it migrates in place: the old row reads back with NULL cvss fields,
+    # and new CVSS findings + refs work against the upgraded DB.
+    with open_ledger(path) as led:
+        [old] = led.findings_for("s1")
+        assert old.title == "old finding"
+        assert old.severity == "low"
+        assert old.cvss_vector is None
+        assert old.cvss_score is None
+        new = led.record_finding(
+            session_id="s1",
+            title="new",
+            description="d",
+            cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        )
+        assert led.finding(new).cvss_score == 9.8  # type: ignore[union-attr]
