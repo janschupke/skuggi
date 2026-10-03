@@ -101,6 +101,7 @@ class Tui:
         self.console = console or Console()
         self.core = AgentCore(settings)
 
+        cancel_bindings, self._cancel_state = menu.cancel_bindings()
         self.session: PromptSession[str] = session or PromptSession(
             history=InMemoryHistory(),
             completer=NestedCompleter.from_nested_dict(
@@ -110,6 +111,7 @@ class Tui:
             ),
             complete_style=CompleteStyle.READLINE_LIKE,
             complete_while_typing=False,
+            key_bindings=cancel_bindings,
         )
 
         # Surface any config-degrade warnings at construction (tests read these
@@ -244,8 +246,9 @@ class Tui:
                     line = self.session.prompt(self._prompt())
                 except EOFError:  # Ctrl-D leaves the REPL
                     break
-                except KeyboardInterrupt:  # Ctrl-C at an idle prompt stays put
-                    self.console.print("[dim]type exit to leave[/dim]")
+                except KeyboardInterrupt:  # Ctrl-C abandons the line, like a shell
+                    if not self._cancel_state.get("had_text"):  # empty -> hint only
+                        self.console.print("[dim]type exit to leave[/dim]")
                     continue
                 except OSError as e:
                     self.console.print(f"[red]input error:[/red] {e}")

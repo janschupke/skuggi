@@ -236,48 +236,45 @@ def _await_prompt(frames: Iterator[bytes]) -> dict[str, object] | None:
     return None
 
 
-def _make_session(ready: dict[str, object]) -> object:  # pragma: no cover -- terminal
-    """Build the prompt_toolkit session: completion, history, Ctrl-C binding.
+def _make_session(  # pragma: no cover -- real terminal
+    ready: dict[str, object],
+) -> tuple[object, dict[str, bool]]:
+    """Build the prompt session + its Ctrl-C state (completion, history, cancel).
 
     Imported lazily so the fire-and-forget ``--record``/``--complete`` paths never
     pay for prompt_toolkit. Standard-CLI behavior: Tab completes (fill the single/
     common prefix, a second Tab lists columns) via ``READLINE_LIKE`` -- nothing
     floats, nothing appears until Tab, and the arrow keys stay on history. History
-    is in-memory and per-session (never written to disk). Ctrl-C clears a typed
-    draft silently and only leaves the hint for an empty prompt.
+    is in-memory and per-session (never written to disk). Ctrl-C abandons the line
+    like a shell (leaves it on screen, new line, fresh prompt); the returned
+    ``state`` lets the caller show the exit hint only on an empty prompt.
     """
     from prompt_toolkit import PromptSession  # noqa: PLC0415 -- keep ptk off hot paths
     from prompt_toolkit.completion import NestedCompleter  # noqa: PLC0415
     from prompt_toolkit.history import InMemoryHistory  # noqa: PLC0415
-    from prompt_toolkit.key_binding import KeyBindings  # noqa: PLC0415
     from prompt_toolkit.shortcuts import CompleteStyle  # noqa: PLC0415
+
+    from skuggi.frontend import menu  # noqa: PLC0415 -- lazy; keep ptk off hot paths
 
     completer = None
     tree = ready.get("tree")
     if isinstance(tree, dict):
         completer = NestedCompleter.from_nested_dict(tree)
 
-    bindings = KeyBindings()
-
-    @bindings.add("c-c")
-    def _(event: object) -> None:
-        buf = event.current_buffer  # type: ignore[attr-defined]
-        if buf.text:  # a typed draft: cancel it silently, stay at the prompt
-            buf.reset()
-        else:  # empty prompt: propagate so the caller shows the exit hint
-            event.app.exit(exception=KeyboardInterrupt)  # type: ignore[attr-defined]
-
-    return PromptSession(
+    bindings, state = menu.cancel_bindings()
+    session: PromptSession[str] = PromptSession(
         history=InMemoryHistory(),
         completer=completer,
         complete_style=CompleteStyle.READLINE_LIKE,
         complete_while_typing=False,
         key_bindings=bindings,
     )
+    return session, state
 
 
 def _prompt_turn(
     session: object | None,
+    state: dict[str, bool] | None,
     prompt_in: Callable[[str], str | None],
     prompt: str,
     out: TextIO,
@@ -285,10 +282,11 @@ def _prompt_turn(
     """Read one operator line for this turn; ``None`` to leave (EOF or blank).
 
     Reads via the prompt_toolkit `session` when present (history, completion, the
-    Ctrl-C binding), else the injected `prompt_in` (one-shot / tests). Ctrl-C on a
-    draft is swallowed by the session's key binding; Ctrl-C at an empty prompt
-    raises ``KeyboardInterrupt``, caught here to print the hint and re-prompt
-    without leaving -- so the daemon need not re-announce the turn.
+    Ctrl-C binding), else the injected `prompt_in` (one-shot / tests). Ctrl-C
+    abandons the line like a shell -- prompt_toolkit leaves the draft on screen
+    and drops to a new line -- and we re-prompt; the ``type exit to leave`` hint
+    shows only when the line was empty (`state["had_text"]` False, or no state on
+    the `prompt_in` fallback), so a cancelled draft stays silent.
     """
     while True:
         try:
@@ -296,9 +294,10 @@ def _prompt_turn(
                 raw: str | None = str(session.prompt(prompt))  # type: ignore[attr-defined]
             else:
                 raw = prompt_in(prompt)
-        except KeyboardInterrupt:  # empty-prompt Ctrl-C stays put
-            out.write("\ntype exit to leave\n")
-            out.flush()
+        except KeyboardInterrupt:
+            if not (state and state.get("had_text")):  # empty prompt -> hint
+                out.write("type exit to leave\n")
+                out.flush()
             continue
         except EOFError:  # pragma: no cover -- Ctrl-D leaves the session
             out.write("\n")
@@ -448,13 +447,14 @@ def attach_over(
     conn.sendall((json.dumps({"op": "attach"}) + "\n").encode())
     frames = _iter_lines(conn)
     session: object | None = None
+    state: dict[str, bool] | None = None
     while True:
         ctx = _await_prompt(frames)  # the daemon's "your turn" + engagement context
         if ctx is None:  # the daemon closed the connection
             break
         if session is None and isinstance(ctx.get("ready"), dict):
-            session = _make_session(ctx["ready"])  # type: ignore[arg-type]
-        line = _prompt_turn(session, prompt_in, _prompt_str(ctx), out)
+            session, state = _make_session(ctx["ready"])  # type: ignore[arg-type]
+        line = _prompt_turn(session, state, prompt_in, _prompt_str(ctx), out)
         if line is None:  # EOF or blank submit -> leave
             break
         conn.sendall((json.dumps(build_message(line)) + "\n").encode())

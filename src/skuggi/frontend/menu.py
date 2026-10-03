@@ -47,6 +47,26 @@ _STYLE = Style.from_dict(
 )
 
 
+def cancel_bindings() -> tuple[KeyBindings, dict[str, bool]]:
+    """A Ctrl-C binding that aborts the line like a shell, for a ``PromptSession``.
+
+    Mirrors prompt_toolkit's default Ctrl-C (abandon the line, leaving the typed
+    text on screen, and move to a new line) but first records whether the buffer
+    held text, so the caller can show the ``type exit to leave`` hint only on an
+    empty prompt. Returns the bindings plus the mutable ``{"had_text": bool}`` the
+    caller reads after catching ``KeyboardInterrupt``.
+    """
+    state = {"had_text": False}
+    bindings = KeyBindings()
+
+    @bindings.add("c-c")
+    def _(event: KeyPressEvent) -> None:
+        state["had_text"] = bool(event.current_buffer.text)
+        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
+
+    return bindings, state
+
+
 def select(
     prompt: str,
     options: Sequence[str],
