@@ -58,7 +58,11 @@ from skuggi.engagement.engagement import (
     ThreatModel,
     parse_command,
 )
-from skuggi.engagement.workspace import Workspace, WorkspaceLayout
+from skuggi.engagement.workspace import (
+    Workspace,
+    WorkspaceLayout,
+    list_engagements,
+)
 from skuggi.install import envfile
 from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
@@ -172,17 +176,41 @@ class AgentCore:
             return WorkspaceLayout()
 
     def _open_workspace(self) -> Workspace | None:
-        if not self.settings.engagement:
+        name = self._resolve_engagement_name()
+        if name is None:
             # Descriptive only; the front-end appends a grammar-correct hint to
             # create one (an env var is not the operator-facing answer).
             log.info("no engagement selected; running agent-only")
             self.warnings.append("no engagement selected; running agent-only")
             return None
+        # Remember the resolved name so the rest of the core sees it (discovery
+        # may have adopted it from disk without a configured value).
+        if self.settings.engagement != name:
+            self.settings = self.settings.model_copy(update={"engagement": name})
         ws = Workspace.for_engagement(
-            self.settings.engagements_dir, self.settings.engagement, layout=self.layout
+            self.settings.engagements_dir, name, layout=self.layout
         )
         ws.ensure()
         return ws
+
+    def _resolve_engagement_name(self) -> str | None:
+        """Which engagement to load: the configured one, else a sole discovered one.
+
+        A configured/persisted name whose directory is gone (e.g. skuggi launched
+        from a different cwd) is ignored and falls back to discovery, since
+        ``engagements_dir`` is cwd-relative. Returns ``None`` for agent-only
+        (nothing configured and not exactly one engagement on disk).
+        """
+        configured = self.settings.engagement
+        engagements_dir = self.settings.engagements_dir
+        if configured:
+            scope = Workspace.for_engagement(
+                engagements_dir, configured, layout=self.layout
+            ).scope_path
+            if scope.is_file():
+                return configured
+        discovered = list_engagements(engagements_dir, self.layout)
+        return discovered[0] if len(discovered) == 1 else None
 
     def _load_scope(self) -> EngagementConfig | None:
         if self.workspace is None:
@@ -551,6 +579,11 @@ class AgentCore:
         Raises ``ConfigError`` if the scope is missing or invalid.
         """
         self.settings = self.settings.model_copy(update={"engagement": name})
+        # Persist so the engagement survives a restart (the next `Settings()`
+        # reads it from config.json), mirroring provider/model persistence. The
+        # workspace stays cwd-relative, so boot also falls back to on-disk
+        # discovery when the persisted name does not resolve in the launch cwd.
+        write_config(config_path(), {"engagement": name})
         self.workspace = self._open_workspace()
         if self.workspace is None:  # pragma: no cover -- name is always truthy here
             msg = f"could not open workspace for engagement {name!r}"

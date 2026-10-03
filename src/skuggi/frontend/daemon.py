@@ -32,12 +32,12 @@ from skuggi.agent import protocol, readiness
 from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.common import palette
 from skuggi.common.logs import get_logger
-from skuggi.config.config import PROVIDERS
-from skuggi.frontend import cmdflow, configflow, dispatch, setup, verbs, wizard
+from skuggi.frontend import cmdflow, configflow, dispatch, render, setup, verbs, wizard
 from skuggi.frontend.prompter import Prompter
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import finding_line
-from skuggi.tooling.commands import CommandAlias, render
+from skuggi.tooling.commands import CommandAlias
+from skuggi.tooling.commands import render as render_alias
 from skuggi.tooling.doctor import (
     PROBING_MSG,
     ToolFilter,
@@ -68,6 +68,11 @@ class Daemon:
         """This connection's command grammar (set per-attach; default shell)."""
         surface: verbs.Surface = getattr(self._local, "surface", "shell")
         return surface
+
+    def _emit(self, lines: render.Styled) -> Iterator[str]:
+        """Yield presenter output as plain text frames (styling is REPL-only)."""
+        for line in lines:
+            yield render.to_plain(line) + "\n"
 
     def _cmd(self, invocation: str) -> str:
         """A command hint formatted for this connection's surface."""
@@ -392,7 +397,11 @@ class Daemon:
             for chunk in self._control(verb, rest):
                 yield {"chunk": chunk}
         else:
-            yield {"chunk": f"unknown verb: {verb!r} (try 'help' or 'ask <prompt>')\n"}
+            yield {
+                "chunk": "".join(
+                    self._emit(dispatch.present_unknown(verb, self._surface()))
+                )
+            }
         yield {"end": True, "exit": False}
 
     def _agent(self, text: str) -> Iterator[str]:
@@ -464,6 +473,7 @@ class Daemon:
                 "model": self._show_model,
                 "engagement": self._show_engagement,
                 "db": self._show_db,
+                "sessions": self._show_sessions,
                 "tools": self._show_tools,
                 "memory": self._show_memory,
                 "notes": self._notes,
@@ -518,33 +528,22 @@ class Daemon:
             return
         matches = self.core.cmds.search(arg.strip())  # otherwise substring search
         if not matches:
-            yield f"no cheatsheet entry matches {arg.strip()!r}\n"
+            hint = self._cmd("cmd list")
+            yield f"no cheatsheet entry matches {arg.strip()!r} -- try {hint}\n"
             return
         yield from self._cheat_list(matches)
 
     def _cheat_resolve(self, name: str) -> Iterator[str]:
-        plan = self.core.cmds.plan(name)
-        if not plan.known:
-            yield plan.note + "\n"
-            return
-        yield f"$ {plan.raw}\n"  # the rendered raw command, always shown
-        if plan.verdict is not None and not plan.verdict.allowed:
-            yield f"OUT OF SCOPE: {plan.note}\n"
-            return
-        if plan.verdict is None:
-            yield plan.note + "\n"
-        else:
-            yield (
-                f"{plan.note} -- recorded proposed (cmd:{plan.command_id}); "
-                "submit it yourself\n"
-            )
+        yield from self._emit(
+            dispatch.present_cmd_plan(self.core.cmds.plan(name), self._surface())
+        )
 
     def _cheat_list(self, aliases: tuple[CommandAlias, ...]) -> Iterator[str]:
         if not aliases:
             yield "no command aliases configured\n"
             return
         for a in aliases:
-            rendered = render(a, self.core.registry)
+            rendered = render_alias(a, self.core.registry)
             yield f"  {a.name:<16} {rendered}  -- {a.description}\n"
 
     def _cheat_remove(self, name: str) -> Iterator[str]:
@@ -560,7 +559,9 @@ class Daemon:
         first, _, rest = arg.strip().partition(" ")
         if first.lower() == "note":
             if not rest.strip():
-                yield "usage: report note <text>\n"
+                yield from self._emit(
+                    dispatch.usage("report note <text>", self._surface())
+                )
                 return
             yield f"changelog: {self.core.journal.add_report_note(rest)}\n"
             return
@@ -587,44 +588,33 @@ class Daemon:
     def _review(self, arg: str) -> Iterator[str]:
         yield self.core.archive.review(arg.strip() or None) + "\n"
 
-    def _render_memory(self, outcome: dispatch.MemoryOutcome) -> Iterator[str]:
-        """Render a memory outcome (shared by show/add/remove memory)."""
-        match outcome:
-            case dispatch.MemoryUsage():  # pragma: no cover -- callers pre-validate
-                pass
-            case dispatch.MemoryAdded(row):
-                yield f"remembered [{row.id}] {row.text}\n"
-            case dispatch.MemoryAlreadyKnown():
-                yield "already remembered\n"
-            case dispatch.MemoryForgotten():
-                yield "forgotten\n"
-            case dispatch.MemoryMissing(ref):
-                yield f"no preference {ref}\n"
-            case dispatch.MemoryCleared(count):
-                yield f"cleared {count} preference(s)\n"
-            case dispatch.MemoryList(rows):
-                if not rows:
-                    yield "(nothing remembered yet)\n"
-                for row in rows:
-                    yield f"  [{row.id}] {row.text} ({row.source})\n"
-
     def _show_memory(self, _rest: str) -> Iterator[str]:
-        yield from self._render_memory(dispatch.run_memory(self.core, ""))
+        yield from self._emit(
+            dispatch.present_memory(dispatch.run_memory(self.core, ""))
+        )
 
     def _add_memory(self, rest: str) -> Iterator[str]:
         if not rest:
-            yield f"usage: {self._cmd('add memory <entry>')}\n"
+            yield from self._emit(dispatch.usage("add memory <entry>", self._surface()))
             return
-        yield from self._render_memory(dispatch.run_memory(self.core, f"add {rest}"))
+        yield from self._emit(
+            dispatch.present_memory(dispatch.run_memory(self.core, f"add {rest}"))
+        )
 
     def _remove_memory(self, rest: str) -> Iterator[str]:
         if rest == "all":
-            yield from self._render_memory(dispatch.run_memory(self.core, "clear"))
+            yield from self._emit(
+                dispatch.present_memory(dispatch.run_memory(self.core, "clear"))
+            )
             return
         if not rest.isdigit():
-            yield f"usage: {self._cmd('remove memory <id> | all')}\n"
+            yield from self._emit(
+                dispatch.usage("remove memory <id> | all", self._surface())
+            )
             return
-        yield from self._render_memory(dispatch.run_memory(self.core, f"forget {rest}"))
+        yield from self._emit(
+            dispatch.present_memory(dispatch.run_memory(self.core, f"forget {rest}"))
+        )
 
     # ----- show <noun> -------------------------------------------------------
 
@@ -632,19 +622,16 @@ class Daemon:
         yield self.core.config.summary() + "\n"
 
     def _show_provider(self, _rest: str) -> Iterator[str]:
-        r = readiness.from_core(self.core)
-        state = (
-            "configured"
-            if r.provider_configured
-            else f"not configured -- run {self._cmd('set provider')}"
+        yield from self._emit(
+            dispatch.present_show_provider(
+                readiness.from_core(self.core), self._surface()
+            )
         )
-        yield f"provider {r.provider} -- {state}\n"
-        if r.provider_note:
-            yield f"note: {r.provider_note}\n"
 
     def _show_model(self, _rest: str) -> Iterator[str]:
-        r = readiness.from_core(self.core)
-        yield f"model {r.model} on provider {r.provider}\n"
+        yield from self._emit(
+            dispatch.present_show_model(readiness.from_core(self.core))
+        )
 
     def _show_engagement(self, _rest: str) -> Iterator[str]:
         described = self.core.describe_engagement()
@@ -674,28 +661,21 @@ class Daemon:
         yield from self._render_findings()
 
     def _show_threads(self, _rest: str) -> Iterator[str]:
-        ids = self.core.list_threads()
-        if not ids:
-            yield "(no threads)\n"
-            return
-        yield "".join(
-            f"  {tid}{' *' if tid == self.core.thread_id else ''}\n" for tid in ids
+        yield from self._emit(
+            dispatch.present_threads(
+                self.core.ledger.thread_summaries(), self.core.thread_id
+            )
+        )
+
+    def _show_sessions(self, _rest: str) -> Iterator[str]:
+        yield from self._emit(
+            dispatch.present_sessions(dispatch.run_sessions(self.core))
         )
 
     def _show_status(self, _rest: str) -> Iterator[str]:
-        r = dispatch.run_status(self.core)
-        auto = "ON" if r.autonomous else "off"
-        yield (
-            f"mode={r.mode}  provider={r.provider}  model={r.model}  "
-            f"engagement={r.engagement or '(none)'}  autonomous={auto}\n"
+        yield from self._emit(
+            dispatch.present_status(dispatch.run_status(self.core), self._surface())
         )
-        if r.provider_note:
-            yield f"note: {r.provider_note}\n"
-        notes = readiness.render_banner_notes(r, self._surface())
-        for note in notes:
-            yield f"{note}\n"
-        if not notes:
-            yield "ready\n"
 
     def _engagement(self, arg: str) -> Iterator[str]:
         first = arg.split(maxsplit=1)[0] if arg.split() else ""
@@ -718,13 +698,9 @@ class Daemon:
         )
 
     def _scaffold(self) -> Iterator[str]:
-        match dispatch.run_scaffold(Path.cwd()):
-            case dispatch.Scaffolded(path):
-                yield f"scaffolded -> {path}\n"
-            case dispatch.ScaffoldExists(path):
-                yield f"exists: {path} -- not overwritten\n"
-            case dispatch.ScaffoldError(message):
-                yield f"scaffold failed: {message}\n"
+        yield from self._emit(
+            dispatch.present_scaffold(dispatch.run_scaffold(Path.cwd()))
+        )
 
     def _config(self, arg: str) -> Iterator[str]:
         text = self.core.config.line(arg)
@@ -766,29 +742,26 @@ class Daemon:
         )
 
     def _install(self, binary: str) -> Iterator[str]:
-        match dispatch.run_install(self.core, binary):
-            case dispatch.InstallUnknown(name):
-                yield f"unknown tool: {name!r}\n"
-            case dispatch.Installed(name, version, source):
-                yield f"installed {name} ({version or '?'}) via {source}\n"
-            case dispatch.InstallFailed(name):
-                yield f"install failed or unavailable for {name}\n"
+        yield f"installing {binary}...\n"
+        yield from self._emit(
+            dispatch.present_install(dispatch.run_install(self.core, binary))
+        )
 
     def _mode(self, arg: str) -> Iterator[str]:
         try:
             self.core.set_mode(arg)
         except ValueError as e:
-            yield f"{e}\n"
+            yield from self._emit(dispatch.present_error(str(e)))
             return
-        yield f"mode: {self.core.mode}\n"
+        yield from self._emit(dispatch.present_mode(self.core.mode))
 
     def _autonomous(self, arg: str) -> Iterator[str]:
         try:
             state = self.core.set_autonomous(parse_toggle(arg))
         except ValueError as e:
-            yield f"{e}\n"
+            yield from self._emit(dispatch.present_error(str(e)))
             return
-        yield f"autonomous execution is now {'ON' if state else 'off'}\n"
+        yield from self._emit(dispatch.present_autonomous(state))
 
     def _set_provider(self, arg: str) -> Iterator[str]:
         if not arg:
@@ -796,44 +769,28 @@ class Daemon:
             # `set provider` there, so a direct one-shot just points at it.
             yield f"set provider is interactive -- run {self._cmd('set provider')}\n"
             return
-        match dispatch.run_provider(self.core, arg):
-            case dispatch.ProviderUsage():  # pragma: no cover -- arg is non-empty here
-                yield f"usage: {self._cmd('set provider')} <{'|'.join(PROVIDERS)}>\n"
-            case dispatch.ProviderUnknown(message):
-                yield f"{message}\n"
-            case dispatch.ProviderNoCredential(provider):
-                yield (
-                    f"{provider} isn't configured -- "
-                    f"run {self._cmd('set provider')} to add a key\n"
-                )
-            case dispatch.ProviderError(message):
-                yield f"provider error: {message}\n"
-            case dispatch.ProviderSwitched(provider, model):
-                yield f"switched to {provider}/{model or '(default)'}\n"
+        yield from self._emit(
+            dispatch.present_provider(
+                dispatch.run_provider(self.core, arg), self._surface()
+            )
+        )
 
     def _set_model(self, arg: str) -> Iterator[str]:
         if not arg:
             yield f"set model is interactive -- run {self._cmd('set model')}\n"
             return
-        match dispatch.run_model(self.core, arg):
-            case dispatch.ModelUsage():  # pragma: no cover -- arg is non-empty here
-                yield f"usage: {self._cmd('set model <name>')}\n"
-            case dispatch.ModelNoCredential(provider):
-                yield (
-                    f"can't switch model: {provider} isn't configured -- "
-                    f"run {self._cmd('set provider')} first\n"
-                )
-            case dispatch.ModelError(message):
-                yield f"provider error: {message}\n"
-            case dispatch.ModelSwitched(provider, model):
-                yield f"switched to {provider}/{model}\n"
+        yield from self._emit(
+            dispatch.present_model(dispatch.run_model(self.core, arg), self._surface())
+        )
 
     def _set_thread(self, arg: str) -> Iterator[str]:
         if arg in ("new", ""):
-            yield f"new thread: {self.core.new_thread()}\n"
+            yield from self._emit(
+                dispatch.present_thread("new", self.core.new_thread())
+            )
         else:
             self.core.set_thread(arg)
-            yield f"switched to thread: {arg}\n"
+            yield from self._emit(dispatch.present_thread("switch", arg))
 
     def _history(self, arg: str) -> Iterator[str]:
         count = int(arg) if arg.isdigit() else 20
@@ -853,9 +810,11 @@ class Daemon:
 
     def _ingest(self, arg: str) -> Iterator[str]:
         if not arg:
-            yield "usage: ingest <path>\n"
+            yield from self._emit(dispatch.usage("ingest <path>", self._surface()))
             return
-        yield f"indexed {self.core.ingest(Path(arg))} chunk(s)\n"
+        yield from self._emit(
+            [render.info(f"indexed {self.core.ingest(Path(arg))} chunk(s)")]
+        )
 
     def _update(self, _arg: str) -> Iterator[str]:
         yield from self.core.self_update()
@@ -873,26 +832,14 @@ class Daemon:
             yield from self._add_record(f"{noun} {rest.strip()}".strip())
             return
         options = " | ".join(n.name for n in verbs.nouns_of("add"))
-        yield f"usage: {self._cmd(f'add <{options}>')}\n"
+        yield from self._emit(dispatch.usage(f"add <{options}>", self._surface()))
 
     def _add_record(self, arg: str) -> Iterator[str]:
-        match dispatch.run_add(self.core, arg):
-            case dispatch.AddUsage(form):
-                yield f"usage: add {form}\n"
-            case dispatch.NoEngagement(kind):
-                yield (
-                    f"no engagement loaded -- run {self._cmd('engagement setup')} "
-                    f"to record {kind}s\n"
-                )
-            case dispatch.BadSeverity(value, allowed):
-                choices = ", ".join(allowed)
-                yield f"unknown severity {value!r}; choose one of: {choices}\n"
-            case dispatch.AddedNote(path):
-                yield f"noted -> {path}\n"
-            case dispatch.AddedLoot(path):
-                yield f"loot recorded -> {path}\n"
-            case dispatch.FindingRecorded(row):
-                yield "recorded " + finding_line(row) + "\n"
+        outcome = dispatch.run_add(self.core, arg)
+        if isinstance(outcome, dispatch.FindingRecorded):
+            yield "recorded " + finding_line(outcome.row) + "\n"
+            return
+        yield from self._emit(dispatch.present_add(outcome, self._surface()))
 
     def _notes(self, _arg: str) -> Iterator[str]:
         text = self.core.journal.notes()
@@ -914,10 +861,7 @@ class Daemon:
         if message is not None:
             yield message + "\n"
             return
-        yield (
-            f"usage: {self._cmd('findings approve <id> | reject <id> <reason>')} -- "
-            f"list with {self._cmd('show findings')}\n"
-        )
+        yield from self._emit(dispatch.present_findings_usage(self._surface()))
 
     def _render_findings(self) -> Iterator[str]:
         rows = self.core.journal.findings()

@@ -54,7 +54,7 @@ def test_only_agent_path_verbs_are_engagement() -> None:
 def test_help_sections_are_grouped_and_cover_every_verb() -> None:
     sections = verbs.help_sections()
     titles = [title for title, _ in sections]
-    assert any("Inspect" in t for t in titles)
+    assert any("Commands" in t for t in titles)
     listed = {inv.split()[0] for _, rows in sections for inv, _ in rows}
     assert listed == verbs.KNOWN  # every verb appears exactly once, grouped
 

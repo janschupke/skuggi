@@ -26,10 +26,7 @@ Category = Literal["engagement", "control"]
 # so the two concerns never get conflated.
 Group = Literal[
     "agent",
-    "read",
-    "configure",
-    "record",
-    "remove",
+    "state",
     "engagement",
     "review",
     "system",
@@ -94,7 +91,7 @@ VERBS: tuple[Verb, ...] = (
     Verb(
         "cmd",
         "search the command cheatsheet; resolve one to scope-check it",
-        "[list | <query> | <name> | add | edit <name> | rm <name>]",
+        "<query|list|add|edit|rm>",
         category="engagement",
         group="agent",
     ),
@@ -102,18 +99,15 @@ VERBS: tuple[Verb, ...] = (
         "show",
         "inspect state",
         "<what>",
-        group="read",
+        group="state",
         nouns=(
             Noun("config", "app settings"),
             Noun("provider", "active provider + credential status"),
             Noun("model", "active model"),
             Noun("engagement", "scope summary"),
             Noun("db", "session ledger stats"),
-            Noun(
-                "tools",
-                "recognized tools / host status",
-                "[all|scoped|installed|missing]",
-            ),
+            Noun("sessions", "past sessions with activity counts"),
+            Noun("tools", "recognized tools / host status", "[filter]"),
             Noun("memory", "remembered operator preferences"),
             Noun("notes", "engagement notes"),
             Noun("loot", "captured loot"),
@@ -128,7 +122,7 @@ VERBS: tuple[Verb, ...] = (
         "set",
         "change config / session state",
         "<what>",
-        group="configure",
+        group="state",
         nouns=(
             Noun("provider", "switch provider (interactive with no name)", "[<name>]"),
             Noun("model", "switch model (interactive with no name)", "[<name>]"),
@@ -147,7 +141,7 @@ VERBS: tuple[Verb, ...] = (
         "record engagement data",
         "<what>",
         category="engagement",
-        group="record",
+        group="state",
         nouns=(
             Noun("note", "record a note", "<text>"),
             Noun("loot", "record a loot item", "<text>"),
@@ -159,19 +153,19 @@ VERBS: tuple[Verb, ...] = (
         "remove",
         "delete records",
         "<what>",
-        group="remove",
+        group="state",
         nouns=(Noun("memory", "forget a preference, or all of them", "<id> | all"),),
     ),
     Verb(
         "engagement",
         "run setup, scaffold a scope file, or set the threat model",
-        "[setup | scaffold | threat-model <conf> <int> <avail>]",
+        "<setup|scaffold|threat-model>",
         group="engagement",
     ),
     Verb(
         "findings",
         "review a finding (approve / reject / rescore)",
-        "[approve <id> | reject <id> <reason> | rescore [all|<id>]]",
+        "<approve|reject|rescore>",
         group="review",
     ),
     Verb(
@@ -237,20 +231,14 @@ _BY_NAME: dict[str, Verb] = {v.name: v for v in VERBS}
 # Grouping verbs that route on a noun, in help subheading order.
 _GROUP_ORDER: tuple[Group, ...] = (
     "agent",
-    "read",
-    "configure",
-    "record",
-    "remove",
+    "state",
     "engagement",
     "review",
     "system",
 )
 _GROUP_TITLES: dict[Group, str] = {
     "agent": "Agent",
-    "read": "Inspect  (show <what>)",
-    "configure": "Configure  (set <what>)",
-    "record": "Record  (add <what>)",
-    "remove": "Remove  (remove <what>)",
+    "state": "Commands",
     "engagement": "Engagement",
     "review": "Findings & reporting",
     "system": "Harness",

@@ -20,13 +20,6 @@ from skuggi.providers import providers
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
 
-# The chatgpt provider has no native structured output; this note explains the
-# JSON-contract fallback. Centralized here so the banner and `show status` agree.
-_CHATGPT_NOTE = (
-    "the chatgpt provider has no native structured output, so responses use the "
-    "JSON-contract fallback"
-)
-
 
 @dataclass(frozen=True, slots=True)
 class PendingStep:
@@ -53,7 +46,6 @@ class Readiness:
     autonomous: bool
     mode: str
     warnings: tuple[str, ...]
-    provider_note: str | None
 
     @property
     def pending(self) -> tuple[PendingStep, ...]:
@@ -78,7 +70,15 @@ def from_core(core: AgentCore) -> Readiness:
         autonomous=core.autonomous,
         mode=core.mode,
         warnings=tuple(core.warnings),
-        provider_note=_CHATGPT_NOTE if provider == "chatgpt" else None,
+    )
+
+
+def glance(readiness: Readiness) -> str:
+    """The one-line status glance, identical across the banner and `show status`."""
+    return (
+        f"mode {readiness.mode} · provider {readiness.provider} "
+        f"· model {readiness.model} · engagement {readiness.engagement or '(none)'} "
+        f"· autonomous {'ON' if readiness.autonomous else 'off'}"
     )
 
 

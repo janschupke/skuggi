@@ -21,11 +21,13 @@ from skuggi.common import palette
 from skuggi.common.paths import packaged_template
 from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import ThreatModel
+from skuggi.frontend import render, verbs
+from skuggi.frontend.render import Styled
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
     from skuggi.agent.readiness import Readiness
-    from skuggi.persistence.ledger import FindingRow, SessionRow
+    from skuggi.persistence.ledger import FindingRow, SessionRow, ThreadSummary
     from skuggi.persistence.preferences import PreferenceRow
 
 # The packaged scope template and the name it scaffolds to in the cwd.
@@ -563,3 +565,305 @@ def run_replay(core: AgentCore, arg: str, *, current_id: str | None) -> ReplayOu
         rows = core.archive.sessions()
         return ReplayList(rows, current_id) if rows else ReplayEmpty()
     return ReplayTranscript(core.archive.transcript(a or None))
+
+
+# ===== presenters ===========================================================
+# One place for every verb's WORDING. A presenter takes the already-computed
+# result and returns a list of styled `render.Line`s; each front-end only styles
+# them (Rich in the REPL, plain over the socket), so the two surfaces can no
+# longer say different things for the same command. `surface` is threaded through
+# only where a command hint is embedded (via `verbs.cmd`). Structural outputs
+# (severity-painted finding lines, Markdown journals, Rich tables) are NOT lines;
+# they keep dedicated per-surface paths over shared content.
+
+
+def usage(invocation: str, surface: verbs.Surface) -> Styled:
+    """A single ``usage: <command>`` line, phrased for `surface`."""
+    return [render.warning(f"usage: {verbs.cmd(invocation, surface)}")]
+
+
+def empty(kind: str) -> Styled:
+    """A single ``(no <kind> yet)`` empty-state line (uniform across verbs)."""
+    return [render.info(f"(no {kind} yet)")]
+
+
+def present_provider(outcome: ProviderOutcome, surface: verbs.Surface) -> Styled:
+    """Render the result of switching provider."""
+    match outcome:
+        case ProviderUsage():
+            return usage("set provider <name>", surface)
+        case ProviderUnknown(message):
+            return [render.danger(message)]
+        case ProviderNoCredential(provider):
+            fix = verbs.cmd("set provider", surface)
+            return [
+                render.warning(f"{provider} isn't configured -- run {fix} to add a key")
+            ]
+        case ProviderError(message):
+            return [render.danger(f"provider error: {message}")]
+        case ProviderSwitched(provider, model):
+            return [render.info(f"switched to {provider}/{model or '(default)'}")]
+
+
+def present_model(outcome: ModelOutcome, surface: verbs.Surface) -> Styled:
+    """Render the result of switching model."""
+    match outcome:
+        case ModelUsage():
+            return usage("set model <name>", surface)
+        case ModelNoCredential(provider):
+            fix = verbs.cmd("set provider", surface)
+            return [
+                render.warning(
+                    f"can't switch model: {provider} isn't configured "
+                    f"-- run {fix} first"
+                )
+            ]
+        case ModelError(message):
+            return [render.danger(f"provider error: {message}")]
+        case ModelSwitched(provider, model):
+            return [render.info(f"switched to {provider}/{model}")]
+
+
+def present_memory(outcome: MemoryOutcome) -> Styled:  # noqa: PLR0911 -- one return per outcome
+    """Render a memory outcome (callers pre-validate, so no usage case)."""
+    match outcome:
+        case MemoryUsage():  # pragma: no cover -- callers validate before calling
+            return []
+        case MemoryAdded(row):
+            return [render.success(f"remembered [{row.id}] {row.text}")]
+        case MemoryAlreadyKnown():
+            return [render.info("already remembered")]
+        case MemoryForgotten():
+            return [render.info("forgotten")]
+        case MemoryMissing(ref):
+            return [render.warning(f"no preference {ref}")]
+        case MemoryCleared(count):
+            return [render.info(f"cleared {count} preference(s)")]
+        case MemoryList(rows):
+            if not rows:
+                return empty("memories")
+            return [render.plain(f"[{r.id}] {r.text} ({r.source})") for r in rows]
+
+
+def present_add(outcome: AddOutcome, surface: verbs.Surface) -> Styled:
+    """Render note/loot/usage add outcomes.
+
+    A recorded FINDING is NOT handled here (the front-end paints its severity via
+    ``finding_line``); callers branch on ``FindingRecorded`` before calling.
+    """
+    match outcome:
+        case AddUsage(form):
+            return usage(f"add {form}", surface)
+        case NoEngagement(kind):
+            fix = verbs.cmd("engagement setup", surface)
+            return [
+                render.warning(f"no engagement loaded -- run {fix} to record {kind}s")
+            ]
+        case BadSeverity(value, allowed):
+            choices = ", ".join(allowed)
+            return [
+                render.danger(f"unknown severity {value!r}; choose one of: {choices}")
+            ]
+        case AddedNote(path):
+            return [render.success(f"noted {path}")]
+        case AddedLoot(path):
+            return [render.success(f"loot recorded {path}")]
+        case FindingRecorded():  # pragma: no cover -- caller renders findings
+            return []
+
+
+def present_install(outcome: InstallOutcome) -> Styled:
+    """Render a ``doctor install`` outcome."""
+    match outcome:
+        case InstallUnknown(binary):
+            return [render.danger(f"unknown tool: {binary!r}")]
+        case Installed(binary, version, source):
+            return [
+                render.success(f"installed {binary} ({version or '?'}) via {source}")
+            ]
+        case InstallFailed(binary):
+            return [render.danger(f"install failed or unavailable for {binary}")]
+
+
+def present_scaffold(outcome: ScaffoldOutcome) -> Styled:
+    """Render an ``engagement scaffold`` outcome."""
+    match outcome:
+        case Scaffolded(path):
+            return [render.success(f"scaffolded {path}")]
+        case ScaffoldExists(path):
+            return [render.warning(f"{path} already exists -- not overwritten")]
+        case ScaffoldError(message):
+            return [render.danger(f"scaffold failed: {message}")]
+
+
+def present_mode(mode: str) -> Styled:
+    """Render a mode switch."""
+    return [render.info(f"mode: {mode}")]
+
+
+def present_autonomous(state: bool) -> Styled:
+    """Render an autonomous toggle, keeping the scope warning on BOTH surfaces."""
+    if state:
+        return [
+            render.danger(
+                "autonomous execution is now ON -- proposed commands will "
+                "EXECUTE within scope"
+            )
+        ]
+    return [render.plain("autonomous execution is now off")]
+
+
+def present_thread(action: str, value: str) -> Styled:
+    """Render a thread action (``new`` -> value is the id; else a switch)."""
+    if action == "new":
+        return [render.info(f"new thread: {value}")]
+    return [render.info(f"switched to thread: {value}")]
+
+
+def present_error(message: str) -> Styled:
+    """A single error line (e.g. a ValueError from set mode/autonomous/thread)."""
+    return [render.danger(message)]
+
+
+def present_cmd_plan(plan: object, surface: verbs.Surface) -> Styled:  # noqa: ARG001
+    """Render a resolved ``cmd`` plan (rendered command + scope verdict).
+
+    `plan` is a ``commandbook.RunPlan``; typed loosely to avoid importing the
+    agent layer here. Never fires an agent turn -- it only presents.
+    """
+    from skuggi.agent.commandbook import RunPlan  # noqa: PLC0415 -- avoid import cycle
+
+    assert isinstance(plan, RunPlan)  # noqa: S101
+    if not plan.known:
+        return [render.warning(plan.note)]
+    lines: Styled = [render.heading(f"$ {plan.raw}")]
+    if plan.verdict is not None and not plan.verdict.allowed:
+        lines.append(render.danger(f"OUT OF SCOPE: {plan.note}"))
+    elif plan.verdict is None:
+        lines.append(render.warning(plan.note))
+    else:
+        lines.append(
+            render.success(
+                f"{plan.note} -- recorded proposed (cmd:{plan.command_id}); "
+                "submit it yourself"
+            )
+        )
+    return lines
+
+
+def present_status(readiness_now: Readiness, surface: verbs.Surface) -> Styled:
+    """Render ``show status``: the shared glance plus pending steps (or 'ready')."""
+    lines: Styled = [render.plain(readiness.glance(readiness_now))]
+    notes = readiness.render_banner_notes(readiness_now, surface)
+    if notes:
+        lines += [render.info(note) for note in notes]
+    else:
+        lines.append(render.success("ready"))
+    return lines
+
+
+# ----- sessions -------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class SessionCount:
+    """A session row with derived activity counts, for ``show sessions``."""
+
+    session_id: str
+    started_at: str
+    mode: str
+    turns: int
+    commands: int
+    findings: int
+    current: bool
+
+
+def run_sessions(core: AgentCore) -> list[SessionCount]:
+    """Every session in this engagement's ledger with turn/command/finding counts."""
+    current = core.session_id
+    out: list[SessionCount] = []
+    for row in core.archive.sessions():
+        events = core.ledger.events_for(row.session_id)
+        out.append(
+            SessionCount(
+                session_id=row.session_id,
+                started_at=row.started_at,
+                mode=row.mode,
+                turns=sum(1 for ev in events if ev.kind == "prompt"),
+                commands=len(core.ledger.commands_for(row.session_id)),
+                findings=len(core.ledger.findings_for(row.session_id)),
+                current=row.session_id == current,
+            )
+        )
+    return out
+
+
+def present_sessions(rows: list[SessionCount]) -> Styled:
+    """Render ``show sessions`` as one compact line per session."""
+    if not rows:
+        return empty("sessions")
+    lines: Styled = []
+    for s in rows:
+        mark = " *" if s.current else ""
+        lines.append(
+            render.plain(
+                f"{s.session_id[:8]}  {s.started_at}  {s.mode}  "
+                f"{s.turns}t {s.commands}c {s.findings}f{mark}"
+            )
+        )
+    return lines
+
+
+def _snippet(text: str, width: int = 48) -> str:
+    """A one-line, length-capped snippet of `text` for a list row."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= width else flat[: width - 1] + "…"
+
+
+def present_threads(rows: list[ThreadSummary], current: str) -> Styled:
+    """Render ``show threads`` so each thread is recognisable and resumable."""
+    if not rows:
+        return empty("threads")
+    lines: Styled = []
+    for t in rows:
+        mark = " *" if t.thread_id == current else ""
+        label = _snippet(t.first_prompt) if t.first_prompt else "(no prompts yet)"
+        lines.append(
+            render.plain(
+                f"{t.thread_id[:8]}  {t.turns}t  {t.last_activity}  {label}{mark}"
+            )
+        )
+    return lines
+
+
+def present_show_provider(readiness_now: Readiness, surface: verbs.Surface) -> Styled:
+    """Render ``show provider`` (active provider + whether it's configured)."""
+    if readiness_now.provider_configured:
+        state = "configured"
+    else:
+        state = f"not configured -- run {verbs.cmd('set provider', surface)}"
+    return [render.plain(f"provider {readiness_now.provider} -- {state}")]
+
+
+def present_show_model(readiness_now: Readiness) -> Styled:
+    """Render ``show model`` (active model and its provider)."""
+    return [
+        render.plain(
+            f"model {readiness_now.model} on provider {readiness_now.provider}"
+        )
+    ]
+
+
+def present_findings_usage(surface: verbs.Surface) -> Styled:
+    """Render the ``findings`` review usage + a pointer to the listing."""
+    return [
+        render.warning(
+            f"usage: {verbs.cmd('findings <approve|reject|rescore>', surface)}"
+        ),
+        render.info(f"list findings with {verbs.cmd('show findings', surface)}"),
+    ]
+
+
+def present_unknown(verb: str, surface: verbs.Surface) -> Styled:
+    """Render an unknown-command error, pointing at help (same on both surfaces)."""
+    return [
+        render.danger(f"unknown command: {verb!r} -- try {verbs.cmd('help', surface)}")
+    ]

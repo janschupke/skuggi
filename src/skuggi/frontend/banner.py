@@ -22,6 +22,7 @@ from skuggi.frontend import verbs
 _VERBS: tuple[tuple[str, str], ...] = (
     ("", "opens a chat loop"),
     ("ask <prompt>", "asks once"),
+    ("show status", "readiness glance"),
     ("help", "lists verbs"),
     ("exit", "leaves"),
 )
@@ -38,15 +39,9 @@ def render_startup_banner(
     pending next steps; ``unsupported_shell`` is the shell's name when it cannot
     take the hook, else ``None``.
     """
-    scope = readiness.engagement or "(none)"
     lines: list[str] = [
         f"{palette.SHIELD} [bold]skuggi shell[/bold]",
-        "  "
-        + palette.paint(
-            f"provider {readiness.provider} · model {readiness.model} "
-            f"· engagement {scope}",
-            palette.INFO,
-        ),
+        "  " + palette.paint(readiness_mod.glance(readiness), palette.INFO),
         "",
     ]
 

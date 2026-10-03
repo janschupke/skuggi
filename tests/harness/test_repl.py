@@ -119,7 +119,7 @@ def test_bare_thread_is_also_new(tui: tuple[Tui, io.StringIO]) -> None:
 def test_thread_list_is_empty_before_any_turn(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
     app.dispatch("/show threads")
-    assert "(no threads)" in _out(buffer)
+    assert "(no threads yet)" in _out(buffer)
 
 
 def test_thread_switch_sets_the_id(tui: tuple[Tui, io.StringIO]) -> None:
@@ -152,7 +152,7 @@ def test_help_renders_grouped_sections(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
     app.dispatch("/help")
     out = _out(buffer)
-    assert "Inspect" in out  # a group subheading
+    assert "Commands" in out  # a group subheading
     assert "/show" in out  # the grouping verb, collapsed to one row
 
 
@@ -255,7 +255,7 @@ def test_replay_review_and_control_audit(
 def test_memory_add_list_and_forget(tui: tuple[Tui, io.StringIO]) -> None:
     app, buffer = tui
     app.dispatch("/show memory")  # nothing yet
-    assert "nothing remembered yet" in _out(buffer)
+    assert "(no memories yet)" in _out(buffer)
 
     app.dispatch("/add memory Prefer ffuf over gobuster")
     assert "remembered" in _out(buffer)
@@ -348,7 +348,7 @@ def test_show_status_lists_pending_without_engagement(
     app, buffer = tui  # the repl fixture has no engagement loaded
     app.dispatch("/show status")
     out = _out(buffer)
-    assert "engagement=" in out
+    assert "engagement " in out
     assert "scope an engagement" in out  # a pending next step
 
 

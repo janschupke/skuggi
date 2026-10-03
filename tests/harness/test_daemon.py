@@ -87,8 +87,8 @@ def test_slash_add_usage_and_bad_severity(daemon: Daemon) -> None:
     bare = _chunks(daemon, {"op": "input", "text": "/add"})
     assert "note" in bare  # the noun list
     assert "memory" in bare
-    assert "usage: add note" in _chunks(daemon, {"op": "input", "text": "/add note"})
-    assert "usage: add finding" in _chunks(
+    assert "add note" in _chunks(daemon, {"op": "input", "text": "/add note"})
+    assert "add finding" in _chunks(
         daemon, {"op": "input", "text": "/add finding high"}
     )
     bad = _chunks(daemon, {"op": "input", "text": "/add finding spicy bad one"})
@@ -160,7 +160,7 @@ def test_slash_autonomous_toggles(daemon: Daemon) -> None:
 
 def test_slash_help_and_unknown(daemon: Daemon) -> None:
     assert "/skuggi" in _chunks(daemon, {"op": "input", "text": "/help"})
-    assert "unknown verb" in _chunks(daemon, {"op": "input", "text": "/bogus"})
+    assert "unknown command" in _chunks(daemon, {"op": "input", "text": "/bogus"})
 
 
 def test_verb_first_without_slash(daemon: Daemon) -> None:
@@ -227,7 +227,7 @@ def test_history_and_trace(daemon: Daemon) -> None:
 
 
 def test_ingest_usage_and_index(daemon: Daemon, tmp_path: Path) -> None:
-    assert "usage: ingest" in _chunks(daemon, {"op": "input", "text": "ingest"})
+    assert "ingest <path>" in _chunks(daemon, {"op": "input", "text": "ingest"})
     doc = tmp_path / "note.md"
     doc.write_text("hello world", encoding="utf-8")
     assert "indexed" in _chunks(daemon, {"op": "input", "text": f"ingest {doc}"})
@@ -474,7 +474,7 @@ def test_review_routes_to_the_core(
 
 
 def test_memory_add_list_and_forget(daemon: Daemon) -> None:
-    assert "nothing remembered yet" in _chunks(
+    assert "(no memories yet)" in _chunks(
         daemon, {"op": "input", "text": "show memory"}
     )
     added = _chunks(
@@ -537,7 +537,7 @@ def test_agent_relays_a_multiline_error_in_full(
 
 
 def test_show_status_db_config(daemon: Daemon) -> None:
-    assert "engagement=test-eng" in _chunks(
+    assert "engagement test-eng" in _chunks(
         daemon, {"op": "input", "text": "show status"}
     )
     assert "skuggi session ended" in _chunks(daemon, {"op": "input", "text": "show db"})

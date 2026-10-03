@@ -19,7 +19,6 @@ def _readiness(**over: Any) -> Readiness:
         "autonomous": False,
         "mode": "pentest",
         "warnings": (),
-        "provider_note": None,
     }
     fields.update(over)
     return Readiness(**fields)

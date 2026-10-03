@@ -215,7 +215,10 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
     # highlight=False: the banners carry their own deliberate palette styling;
     # Rich's auto-highlighter would otherwise repaint every "/skuggi" and digit.
     console = Console(highlight=False)
-    core = guard_boot(lambda: AgentCore(Settings()))
+    # The warm agent (graph + llm + ledger + registry) takes a beat to build;
+    # a spinner means the shell never looks hung before the banner appears.
+    with console.status("starting skuggi…", spinner="dots"):
+        core = guard_boot(lambda: AgentCore(Settings()))
 
     shell_path = os.environ.get("SHELL", shutil.which("bash") or "/bin/sh")
     # A stray Ctrl+C must never tear the harness down; the child shell owns the

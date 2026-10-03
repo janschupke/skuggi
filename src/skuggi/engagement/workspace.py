@@ -49,6 +49,27 @@ def safe_engagement_name(name: str) -> str:
     return slug
 
 
+def list_engagements(
+    engagements_dir: Path, layout: WorkspaceLayout | None = None
+) -> list[str]:
+    """On-disk engagement segment names under `engagements_dir` (sorted).
+
+    A directory counts only if it holds a scope file, so an empty or half-created
+    folder is ignored. Used to auto-adopt the sole engagement at boot when none is
+    configured; a missing `engagements_dir` yields ``[]``. The names are already
+    safe slugs, so ``Workspace.for_engagement`` re-slugifies them to themselves.
+    """
+    resolved = layout or WorkspaceLayout()
+    root = engagements_dir.expanduser()
+    if not root.is_dir():
+        return []
+    return sorted(
+        child.name
+        for child in root.iterdir()
+        if child.is_dir() and (child / resolved.scope_file).is_file()
+    )
+
+
 class WorkspaceLayout(BaseModel):
     """The configurable folder structure of an engagement workspace."""
 

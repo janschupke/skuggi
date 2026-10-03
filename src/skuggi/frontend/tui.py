@@ -27,13 +27,23 @@ from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.agent.state import AgentState
 from skuggi.common import palette
 from skuggi.common.paths import ensure_parent
-from skuggi.config.config import PROVIDERS, Settings
+from skuggi.config.config import Settings
 from skuggi.engagement.engagement import EngagementConfig
-from skuggi.frontend import cmdflow, configflow, dispatch, menu, setup, verbs, wizard
+from skuggi.frontend import (
+    cmdflow,
+    configflow,
+    dispatch,
+    menu,
+    render,
+    setup,
+    verbs,
+    wizard,
+)
 from skuggi.frontend.prompter import Prompter
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import Ledger, finding_line
-from skuggi.tooling.commands import CommandAlias, render
+from skuggi.tooling.commands import CommandAlias
+from skuggi.tooling.commands import render as render_alias
 from skuggi.tooling.doctor import (
     PROBING_MSG,
     ToolFilter,
@@ -44,7 +54,7 @@ from skuggi.tooling.doctor import (
 from skuggi.tooling.registry import ToolRegistry
 
 if TYPE_CHECKING:
-    from skuggi.frontend.dispatch import MemoryOutcome
+    pass
 
 # The filters ``show tools`` accepts, for argument validation.
 _TOOL_FILTERS: frozenset[str] = frozenset({"all", "scoped", "installed", "missing"})
@@ -133,6 +143,7 @@ class Tui:
             "model": self._show_model,
             "engagement": self._show_engagement,
             "db": self._show_db,
+            "sessions": self._show_sessions,
             "tools": self._show_tools,
             "memory": self._show_memory,
             "notes": self._show_notes,
@@ -247,22 +258,17 @@ class Tui:
 
     def _banner(self) -> None:
         self.console.rule("[bold]skuggi[/bold]")
-        self._print_glance(readiness.from_core(self.core))
+        self.console.print(
+            palette.paint(
+                readiness.glance(readiness.from_core(self.core)), palette.INFO
+            )
+        )
         self.console.print("type /help for commands\n")
 
-    def _print_glance(self, r: readiness.Readiness) -> None:
-        """The one-line mode/provider/model/engagement/autonomous status glance."""
-        engagement = r.engagement or "[red](none)[/red]"
-        autonomous = palette.paint("ON", palette.DANGER) if r.autonomous else "off"
-        self.console.print(
-            f"mode=[cyan]{r.mode}[/cyan]  "
-            f"provider=[cyan]{r.provider}[/cyan]  "
-            f"model=[cyan]{r.model}[/cyan]  "
-            f"engagement=[cyan]{engagement}[/cyan]  "
-            f"autonomous={autonomous}"
-        )
-        if r.provider_note:
-            self.console.print(f"[yellow]note:[/yellow] {r.provider_note}")
+    def _emit(self, lines: render.Styled) -> None:
+        """Print presenter output, painting each line per its semantic style."""
+        for line in lines:
+            self.console.print(render.to_markup(line))
 
     def _status(self, node: str, text: str) -> None:
         if not text:
@@ -289,7 +295,7 @@ class Tui:
             self.core.note_interaction(verb, rest)  # control verb -> audit log
         handler = self._commands.get(verb)
         if handler is None:
-            self.console.print(f"[red]unknown command:[/red] /{verb}")
+            self._emit(dispatch.present_unknown(verb, "repl"))
             return None
         return handler(rest)
 
@@ -355,25 +361,9 @@ class Tui:
         if not arg:
             self._run_setup()
             return
-        match dispatch.run_provider(self.core, arg):
-            case dispatch.ProviderUsage():
-                self.console.print(
-                    f"[yellow]usage:[/yellow] {verbs.cmd('set provider', 'repl')} "
-                    f"<{'|'.join(PROVIDERS)}>"
-                )
-            case dispatch.ProviderUnknown(message):
-                self.console.print(f"[red]{message}[/red]")
-            case dispatch.ProviderNoCredential(provider):
-                self.console.print(
-                    f"[yellow]{provider} isn't configured[/yellow] -- run "
-                    f"{verbs.cmd('set provider', 'repl')} to add a key"
-                )
-            case dispatch.ProviderError(message):
-                self.console.print(f"[red]provider error:[/red] {message}")
-            case dispatch.ProviderSwitched(provider, model):
-                self.console.print(
-                    f"[dim]switched to[/dim] {provider}/{model or '(default)'}"
-                )
+        self._emit(
+            dispatch.present_provider(dispatch.run_provider(self.core, arg), "repl")
+        )
 
     def _set_model(self, arg: str) -> None:
         """Switch model; with no name, pick one from the provider's curated list."""
@@ -386,28 +376,15 @@ class Tui:
                 lambda text: self.console.print(f"[dim]{text}[/dim]"),
             )
             return
-        match dispatch.run_model(self.core, arg):
-            case dispatch.ModelUsage():
-                self.console.print(
-                    f"[yellow]usage:[/yellow] {verbs.cmd('set model <name>', 'repl')}"
-                )
-            case dispatch.ModelNoCredential(provider):
-                self.console.print(
-                    f"[yellow]can't switch model:[/yellow] {provider} isn't "
-                    f"configured -- run {verbs.cmd('set provider', 'repl')} first"
-                )
-            case dispatch.ModelError(message):
-                self.console.print(f"[red]provider error:[/red] {message}")
-            case dispatch.ModelSwitched(provider, model):
-                self.console.print(f"[dim]switched to[/dim] {provider}/{model}")
+        self._emit(dispatch.present_model(dispatch.run_model(self.core, arg), "repl"))
 
     def _set_mode(self, arg: str) -> None:
         try:
             self.core.set_mode(arg)
         except ValueError as e:
-            self.console.print(f"[red]{e}[/red]")
+            self._emit(dispatch.present_error(str(e)))
             return
-        self.console.print(f"[dim]mode:[/dim] {self.mode}")
+        self._emit(dispatch.present_mode(self.mode))
 
     def _cmd_engagement(self, arg: str) -> None:
         first = arg.split(maxsplit=1)[0] if arg.split() else ""
@@ -429,15 +406,7 @@ class Tui:
 
     def _engagement_scaffold(self) -> None:
         """Copy the packaged scope template into the cwd for the operator to edit."""
-        match dispatch.run_scaffold(Path.cwd()):
-            case dispatch.Scaffolded(path):
-                self.console.print(f"[green]scaffolded[/green] [dim]{path}[/dim]")
-            case dispatch.ScaffoldExists(path):
-                self.console.print(
-                    f"[yellow]exists[/yellow] [dim]{path}[/dim] -- not overwritten"
-                )
-            case dispatch.ScaffoldError(message):
-                self.console.print(f"[red]scaffold failed:[/red] {message}")
+        self._emit(dispatch.present_scaffold(dispatch.run_scaffold(Path.cwd())))
 
     def _ask(self, prompt: str) -> str | None:
         """Prompt the operator for one line; None on EOF / Ctrl-C (an abort)."""
@@ -521,23 +490,16 @@ class Tui:
         try:
             state = self.core.set_autonomous(parse_toggle(arg))
         except ValueError as e:
-            self.console.print(f"[yellow]{e}[/yellow]")
+            self._emit(dispatch.present_error(str(e)))
             return
-        if state:
-            self.console.print(
-                palette.paint("autonomous execution is now ON", palette.DANGER)
-                + " -- proposed commands will EXECUTE within scope"
-            )
-        else:
-            self.console.print("autonomous execution is now off")
+        self._emit(dispatch.present_autonomous(state))
 
     def _set_thread(self, arg: str) -> None:
         if arg in ("new", ""):
-            new_id = self.core.new_thread()
-            self.console.print(f"[dim]new thread:[/dim] {new_id}")
+            self._emit(dispatch.present_thread("new", self.core.new_thread()))
         else:
             self.core.set_thread(arg)
-            self.console.print(f"[dim]switched to thread:[/dim] {arg}")
+            self._emit(dispatch.present_thread("switch", arg))
 
     def _run_setup(self) -> None:
         """Guided provider + credential setup (the app owns the credentials)."""
@@ -619,28 +581,14 @@ class Tui:
             self.console.print("[dim]no command aliases configured[/dim]")
             return
         for a in aliases:
-            self.console.print(f"[cyan]{a.name}[/cyan]  {render(a, self.registry)}")
+            self.console.print(
+                f"[cyan]{a.name}[/cyan]  {render_alias(a, self.registry)}"
+            )
             if a.description:
                 self.console.print(f"    [dim]{a.description}[/dim]")
 
     def _resolve_cmd(self, name: str) -> None:
-        plan = self.core.cmds.plan(name)
-        if not plan.known:
-            self.console.print(f"[yellow]{plan.note}[/yellow]")
-            return
-        self.console.print(f"[bold]$ {plan.raw}[/bold]")  # the rendered raw command
-        if plan.verdict is not None and not plan.verdict.allowed:
-            self.console.print(
-                palette.paint(f"OUT OF SCOPE: {plan.note}", palette.DANGER)
-            )
-            return
-        if plan.verdict is None:
-            self.console.print(f"[yellow]{plan.note}[/yellow]")
-        else:
-            self.console.print(
-                f"[green]{plan.note}[/green] -- recorded proposed "
-                f"(cmd:{plan.command_id}); submit it yourself"
-            )
+        self._emit(dispatch.present_cmd_plan(self.core.cmds.plan(name), "repl"))
 
     def _cmd_alias_add(self) -> None:
         cmdflow.run_cmd_editor(
@@ -675,58 +623,41 @@ class Tui:
     # ----- add <noun> --------------------------------------------------------
 
     def _add_record(self, noun: str, rest: str) -> None:
-        """Record a note, loot item or finding (one grammar, per-case rendering)."""
-        match dispatch.run_add(self.core, f"{noun} {rest}".strip()):
-            case dispatch.AddUsage(form):
-                self.console.print(
-                    f"[yellow]usage:[/yellow] {verbs.cmd(f'add {form}', 'repl')}"
-                )
-            case dispatch.NoEngagement(kind):
-                self.console.print(
-                    f"[yellow]no engagement loaded[/yellow] -- run "
-                    f"{verbs.cmd('engagement setup', 'repl')} to record {kind}s"
-                )
-            case dispatch.BadSeverity(value, allowed):
-                self.console.print(
-                    f"[red]unknown severity[/red] {value!r}; "
-                    f"choose one of: {', '.join(allowed)}"
-                )
-            case dispatch.AddedNote(path):
-                self.console.print(f"[green]noted[/green] [dim]{path}[/dim]")
-            case dispatch.AddedLoot(path):
-                self.console.print(f"[green]loot recorded[/green] [dim]{path}[/dim]")
-            case dispatch.FindingRecorded(row):
-                self.console.print(
-                    "[green]recorded[/green] "
-                    + finding_line(
-                        row,
-                        lambda text, sev: palette.paint(
-                            text, palette.severity_style(sev)
-                        ),
-                    )
-                )
+        """Record a note, loot item or finding (finding keeps its severity colour)."""
+        outcome = dispatch.run_add(self.core, f"{noun} {rest}".strip())
+        if not isinstance(outcome, dispatch.FindingRecorded):
+            self._emit(dispatch.present_add(outcome, "repl"))
+            return
+        self.console.print(
+            "[green]recorded[/green] "
+            + finding_line(
+                outcome.row,
+                lambda text, sev: palette.paint(text, palette.severity_style(sev)),
+            )
+        )
 
     def _add_memory(self, rest: str) -> None:
         """Remember an operator preference (``add memory <entry>``)."""
         if not rest:
-            self.console.print(
-                f"[yellow]usage:[/yellow] {verbs.cmd('add memory <entry>', 'repl')}"
-            )
+            self._emit(dispatch.usage("add memory <entry>", "repl"))
             return
-        self._render_memory(dispatch.run_memory(self.core, f"add {rest}"))
+        self._emit(
+            dispatch.present_memory(dispatch.run_memory(self.core, f"add {rest}"))
+        )
 
     # ----- remove <noun> -----------------------------------------------------
 
     def _remove_memory(self, rest: str) -> None:
         """Forget one preference (``remove memory <id>``) or every one (``all``)."""
         if rest == "all":
-            self._render_memory(dispatch.run_memory(self.core, "clear"))
+            self._emit(dispatch.present_memory(dispatch.run_memory(self.core, "clear")))
             return
         if not rest.isdigit():
-            usage = verbs.cmd("remove memory <id> | all", "repl")
-            self.console.print(f"[yellow]usage:[/yellow] {usage}")
+            self._emit(dispatch.usage("remove memory <id> | all", "repl"))
             return
-        self._render_memory(dispatch.run_memory(self.core, f"forget {rest}"))
+        self._emit(
+            dispatch.present_memory(dispatch.run_memory(self.core, f"forget {rest}"))
+        )
 
     # ----- show <noun> -------------------------------------------------------
 
@@ -734,22 +665,12 @@ class Tui:
         self.console.print(self.core.config.summary())
 
     def _show_provider(self, _rest: str) -> None:
-        r = readiness.from_core(self.core)
-        fix = verbs.cmd("set provider", "repl")
-        state = (
-            "[green]configured[/green]"
-            if r.provider_configured
-            else f"[yellow]not configured[/yellow] -- run {fix}"
+        self._emit(
+            dispatch.present_show_provider(readiness.from_core(self.core), "repl")
         )
-        self.console.print(f"provider [cyan]{r.provider}[/cyan] -- {state}")
-        if r.provider_note:
-            self.console.print(f"[yellow]note:[/yellow] {r.provider_note}")
 
     def _show_model(self, _rest: str) -> None:
-        r = readiness.from_core(self.core)
-        self.console.print(
-            f"model [cyan]{r.model}[/cyan] on provider [cyan]{r.provider}[/cyan]"
-        )
+        self._emit(dispatch.present_show_model(readiness.from_core(self.core)))
 
     def _show_engagement(self, _rest: str) -> None:
         eng = self.engagement
@@ -769,13 +690,10 @@ class Tui:
         self.console.print(dispatch.run_db_stats(self.core))
 
     def _show_status(self, _rest: str) -> None:
-        r = dispatch.run_status(self.core)
-        self._print_glance(r)
-        notes = readiness.render_banner_notes(r, "repl")
-        for note in notes:
-            self.console.print(f"[dim]{note}[/dim]")
-        if not notes:
-            self.console.print("[green]ready[/green]")
+        self._emit(dispatch.present_status(dispatch.run_status(self.core), "repl"))
+
+    def _show_sessions(self, _rest: str) -> None:
+        self._emit(dispatch.present_sessions(dispatch.run_sessions(self.core)))
 
     def _show_tools(self, rest: str) -> None:
         which = rest.strip().lower() or "all"
@@ -796,7 +714,7 @@ class Tui:
         self.console.print(doctor_table(filtered))
 
     def _show_memory(self, _rest: str) -> None:
-        self._render_memory(dispatch.run_memory(self.core, ""))
+        self._emit(dispatch.present_memory(dispatch.run_memory(self.core, "")))
 
     def _show_notes(self, _rest: str) -> None:
         text = self.core.journal.notes()
@@ -852,33 +770,25 @@ class Tui:
                 )
 
     def _show_threads(self, _rest: str) -> None:
-        ids = self.core.list_threads()
-        if not ids:
-            self.console.print("[dim](no threads)[/dim]")
-            return
-        for thread_id in ids:
-            marker = " *" if thread_id == self.thread_id else ""
-            self.console.print(f"  {thread_id}{marker}")
+        self._emit(
+            dispatch.present_threads(
+                self.core.ledger.thread_summaries(), self.thread_id
+            )
+        )
 
     def _cmd_findings(self, arg: str) -> None:
         """Review a finding (approve/reject/rescore); listing is `show findings`."""
         message = dispatch.run_findings(self.core, arg)
         if message is not None:
-            self.console.print(message)
+            self._emit([render.plain(message)])
             return
-        review = verbs.cmd(
-            "findings approve <id> | reject <id> <reason> | rescore", "repl"
-        )
-        self.console.print(
-            f"[yellow]usage:[/yellow] {review} "
-            f"-- list with {verbs.cmd('show findings', 'repl')}"
-        )
+        self._emit(dispatch.present_findings_usage("repl"))
 
     def _cmd_report(self, arg: str) -> None:
         first, _, rest = arg.strip().partition(" ")
         if first.lower() == "note":
             if not rest.strip():
-                self.console.print("usage: report note <text>")
+                self._emit(dispatch.usage("report note <text>", "repl"))
                 return
             path = self.core.journal.add_report_note(rest)
             self.console.print(f"[green]changelog: {path}[/green]")
@@ -913,33 +823,6 @@ class Tui:
             text = self.core.archive.review(arg.strip() or None)
         self.console.print(Markdown(text))
 
-    def _render_memory(self, outcome: MemoryOutcome) -> None:
-        """Render a memory outcome (shared by show/add/remove memory).
-
-        The callers validate their arguments, so ``MemoryUsage`` never reaches
-        here -- they phrase the new-grammar usage themselves.
-        """
-        match outcome:
-            case dispatch.MemoryUsage():  # pragma: no cover -- callers pre-validate
-                pass
-            case dispatch.MemoryAdded(row):
-                self.console.print(f"[green]remembered[/green] [{row.id}] {row.text}")
-            case dispatch.MemoryAlreadyKnown():
-                self.console.print("[dim]already remembered[/dim]")
-            case dispatch.MemoryForgotten():
-                self.console.print("[dim]forgotten[/dim]")
-            case dispatch.MemoryMissing(ref):
-                self.console.print(f"[yellow]no preference {ref}[/yellow]")
-            case dispatch.MemoryCleared(count):
-                self.console.print(f"[dim]cleared {count} preference(s)[/dim]")
-            case dispatch.MemoryList(rows):
-                if not rows:
-                    self.console.print("[dim](nothing remembered yet)[/dim]")
-                for row in rows:
-                    self.console.print(
-                        f"[cyan][{row.id}][/cyan] {row.text} [dim]({row.source})[/dim]"
-                    )
-
     def _cmd_update(self, _arg: str) -> None:
         for line in self.core.self_update():
             self.console.print(line.rstrip())
@@ -949,10 +832,9 @@ class Tui:
 
     def _cmd_ingest(self, arg: str) -> None:
         if not arg:
-            self.console.print("[red]usage:[/red] /ingest <path>")
+            self._emit(dispatch.usage("ingest <path>", "repl"))
             return
-        added = self.core.ingest(Path(arg))
-        self.console.print(f"[dim]indexed {added} chunk(s)[/dim]")
+        self._emit([render.info(f"indexed {self.core.ingest(Path(arg))} chunk(s)")])
 
     # ----- agent turn --------------------------------------------------------
 

@@ -289,6 +289,22 @@ class AuditRow:
     created_at: str
 
 
+@dataclass(frozen=True, slots=True)
+class ThreadSummary:
+    """A conversation thread, summarised for ``show threads`` (so it is actionable).
+
+    ``first_prompt`` is the thread's opening operator directive (a label to
+    recognise it by); ``turns`` counts prompts; ``last_activity`` is the most
+    recent event's timestamp. Derived from the ``events`` table -- the langgraph
+    checkpointer stores only the id.
+    """
+
+    thread_id: str
+    turns: int
+    first_prompt: str
+    last_activity: str
+
+
 def finding_line(
     row: FindingRow,
     paint: Callable[[str, str], str] | None = None,
@@ -623,6 +639,37 @@ class Ledger:
                 _select_sql("sessions", _SESSION_COLS, "ORDER BY started_at DESC")
             ).fetchall()
         return [SessionRow(*row) for row in rows]
+
+    def thread_summaries(self) -> list[ThreadSummary]:
+        """Per-thread summaries (first prompt, turn count, last activity).
+
+        Most-recently-active first. Built from the ``events`` table because the
+        langgraph checkpointer exposes only thread ids; this is what makes
+        ``show threads`` actionable for ``set thread``.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT thread_id, kind, text, created_at FROM events "
+                "WHERE thread_id IS NOT NULL ORDER BY id"
+            ).fetchall()
+        turns: dict[str, int] = {}
+        first: dict[str, str] = {}
+        last: dict[str, str] = {}
+        order: list[str] = []
+        for thread_id, kind, text, created_at in rows:
+            if thread_id not in turns:
+                turns[thread_id], first[thread_id] = 0, ""
+                order.append(thread_id)
+            last[thread_id] = created_at  # ordered by id -> last row wins
+            if kind == "prompt":
+                turns[thread_id] += 1
+                if not first[thread_id]:
+                    first[thread_id] = text
+        summaries = [
+            ThreadSummary(tid, turns[tid], first[tid], last[tid]) for tid in order
+        ]
+        summaries.sort(key=lambda s: s.last_activity, reverse=True)
+        return summaries
 
     def command(self, command_id: int) -> CommandRow | None:
         """One command row by id, or None."""
