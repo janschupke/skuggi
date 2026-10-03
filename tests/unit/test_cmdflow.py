@@ -78,3 +78,107 @@ def test_run_cmd_editor_cancelled_on_abort() -> None:
     )
     assert alias is None
     assert any("cancelled" in n for n in notes)
+
+
+# --- cmd suggest (LLM-proposed alias, gated confirm) ------------------------
+
+from skuggi.agent.grants import SessionGrants  # noqa: E402
+from skuggi.agent.protocol import CmdProposal  # noqa: E402
+from skuggi.frontend.cmdflow import run_cmd_suggest  # noqa: E402
+from skuggi.frontend.confirm import SESSION, Choose  # noqa: E402
+
+_PROPOSAL = CmdProposal(name="nmap-fast", argv=("nmap", "-F"))
+
+
+def _choose_const(answer: str | None) -> Choose:
+    return lambda _p, _o, _d: answer
+
+
+class _Saver:
+    def __init__(self) -> None:
+        self.saved: list[CmdProposal] = []
+
+    def __call__(self, proposal: CmdProposal) -> str:
+        self.saved.append(proposal)
+        return f"cmd added: {proposal.name}"
+
+
+def test_suggest_nothing_proposed() -> None:
+    notes: list[str] = []
+    save = _Saver()
+    run_cmd_suggest(
+        "x",
+        choose=_choose_const("yes"),
+        notify=notes.append,
+        propose=lambda _r: CmdProposal(),  # empty name/argv
+        preview=lambda _p: "unused",
+        apply=save,
+        grants=SessionGrants(),
+    )
+    assert save.saved == []
+    assert any("no alias proposed" in n for n in notes)
+
+
+def test_suggest_invalid_proposal_is_reported() -> None:
+    notes: list[str] = []
+    save = _Saver()
+
+    def boom(_p: CmdProposal) -> str:
+        msg = "bad label"
+        raise ConfigError(msg)
+
+    run_cmd_suggest(
+        "x",
+        choose=_choose_const("yes"),
+        notify=notes.append,
+        propose=lambda _r: _PROPOSAL,
+        preview=boom,
+        apply=save,
+        grants=SessionGrants(),
+    )
+    assert save.saved == []
+    assert any("invalid proposal" in n for n in notes)
+
+
+def test_suggest_declined_does_not_save() -> None:
+    save = _Saver()
+    run_cmd_suggest(
+        "x",
+        choose=_choose_const("no"),
+        notify=lambda _m: None,
+        propose=lambda _r: _PROPOSAL,
+        preview=lambda _p: "nmap -F ${target}",
+        apply=save,
+        grants=SessionGrants(),
+    )
+    assert save.saved == []
+
+
+def test_suggest_confirmed_saves_and_previews() -> None:
+    notes: list[str] = []
+    save = _Saver()
+    run_cmd_suggest(
+        "x",
+        choose=_choose_const("yes"),
+        notify=notes.append,
+        propose=lambda _r: _PROPOSAL,
+        preview=lambda _p: "nmap -F ${target}",
+        apply=save,
+        grants=SessionGrants(),
+    )
+    assert save.saved == [_PROPOSAL]
+    assert any("nmap -F ${target}" in n for n in notes)
+
+
+def test_suggest_session_grant_recorded() -> None:
+    grants = SessionGrants()
+    run_cmd_suggest(
+        "x",
+        choose=_choose_const(SESSION),
+        notify=lambda _m: None,
+        propose=lambda _r: _PROPOSAL,
+        preview=lambda _p: "nmap -F ${target}",
+        apply=_Saver(),
+        grants=grants,
+    )
+    assert grants.granted("cmd-edit")

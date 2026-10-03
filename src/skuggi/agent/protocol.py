@@ -341,6 +341,23 @@ class ScopeProposal(BaseModel):
     edits: tuple[ScopeEdit, ...] = ()
 
 
+class CmdProposal(BaseModel):
+    """The ``cmd suggest <request>`` verb's strict output: one proposed alias.
+
+    Validator-free so a stray field never fails the LLM call; the harness builds
+    and validates a real ``CommandAlias`` from it before anything is written (and
+    reports a rejection). An empty ``name``/``argv`` means "nothing proposed".
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str = ""
+    argv: tuple[str, ...] = ()
+    description: str = ""
+    tool: str = ""
+    label: str = ""
+
+
 class MemoryExtraction(BaseModel):
     """The automatic-memory extractor's strict output: durable directives only."""
 

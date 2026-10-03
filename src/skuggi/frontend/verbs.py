@@ -91,7 +91,7 @@ VERBS: tuple[Verb, ...] = (
     Verb(
         "cmd",
         "search the command cheatsheet; resolve one to scope-check it",
-        "<query|list|add|edit|rm>",
+        "<query|list|add|edit|rm|suggest>",
         category="engagement",
         group="agent",
     ),

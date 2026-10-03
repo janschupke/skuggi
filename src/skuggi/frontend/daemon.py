@@ -129,6 +129,10 @@ class Daemon:
             if self._is_cmd_editor(line):
                 self._attach_cmd_editor(line, read_line, emit)
                 continue
+            if self._is_cmd_suggest(line):
+                request = verbs.split_verb(line)[1].partition(" ")[2]
+                self._attach_cmd_suggest(request, read_line, emit)
+                continue
             if self._is_config_request(line):
                 # Drop the "set config" prefix; the request is the remaining tail.
                 request = verbs.split_verb(line)[1].partition(" ")[2]
@@ -388,6 +392,43 @@ class Daemon:
         emit({"end": True, "exit": False})
 
     @staticmethod
+    def _is_cmd_suggest(line: str) -> bool:
+        """Whether `line` is ``cmd suggest <request>`` (interactive)."""
+        verb, rest = verbs.split_verb(line)
+        parts = rest.split()
+        return (
+            verb == "cmd"
+            and bool(parts)
+            and parts[0] in cmdflow.SUGGEST_ARGS
+            and len(parts) > 1
+        )
+
+    def _attach_cmd_suggest(
+        self,
+        request: str,
+        read_line: Callable[[], str | None],
+        emit: Callable[[dict[str, object]], None],
+    ) -> None:
+        """Run the cmd-suggest confirm flow over the attach connection."""
+
+        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
+            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
+            return read_line()
+
+        self.core.note_interaction("cmd", f"suggest {request}")
+        with self._lock:
+            cmdflow.run_cmd_suggest(
+                request,
+                choose=choose,
+                notify=lambda text: emit({"chunk": text + "\n"}),
+                propose=self.core.cmds.propose,
+                preview=self.core.cmds.preview_proposal,
+                apply=self.core.cmds.apply_proposal,
+                grants=self.core.grants,
+            )
+        emit({"end": True, "exit": False})
+
+    @staticmethod
     def _is_scope_request(line: str) -> bool:
         """Whether `line` is a ``set scope <request>`` (always interactive)."""
         verb, rest = verbs.split_verb(line)
@@ -606,7 +647,7 @@ class Daemon:
         if sub in cmdflow.REMOVE_ARGS:
             yield from self._cheat_remove(rest)
             return
-        if sub in cmdflow.ADD_ARGS or sub in cmdflow.EDIT_ARGS:
+        if sub in (cmdflow.ADD_ARGS | cmdflow.EDIT_ARGS | cmdflow.SUGGEST_ARGS):
             hint = self._cmd("cmd " + sub + (f" {rest}" if rest else ""))
             yield f"cmd {sub} is interactive -- run {hint}\n"
             return

@@ -585,7 +585,7 @@ class Tui:
             grants=self.core.grants,
         )
 
-    def _cmd_cmd(self, arg: str) -> None:
+    def _cmd_cmd(self, arg: str) -> None:  # noqa: PLR0911 -- one return per cmd sub-command
         """Search the cheatsheet, resolve an exact alias, or edit the registry."""
         sub, _, rest = arg.partition(" ")
         sub, rest = sub.strip(), rest.strip()
@@ -600,6 +600,9 @@ class Tui:
             return
         if sub in cmdflow.REMOVE_ARGS:
             self._cmd_alias_remove(rest)
+            return
+        if sub in cmdflow.SUGGEST_ARGS:
+            self._cmd_suggest(rest)
             return
         if self.core.commands.alias_for(sub) is not None:  # exact name -> resolve
             self._resolve_cmd(sub)
@@ -629,6 +632,20 @@ class Tui:
 
     def _resolve_cmd(self, name: str) -> None:
         self._emit(dispatch.present_cmd_plan(self.core.cmds.plan(name), "repl"))
+
+    def _cmd_suggest(self, request: str) -> None:
+        if not request.strip():
+            self._emit(dispatch.usage("cmd suggest <request>", "repl"))
+            return
+        cmdflow.run_cmd_suggest(
+            request,
+            choose=self._choose,
+            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
+            propose=self.core.cmds.propose,
+            preview=self.core.cmds.preview_proposal,
+            apply=self.core.cmds.apply_proposal,
+            grants=self.core.grants,
+        )
 
     def _cmd_alias_add(self) -> None:
         cmdflow.run_cmd_editor(

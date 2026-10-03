@@ -14,18 +14,28 @@ from __future__ import annotations
 
 import shlex
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from skuggi.config.configs import ConfigError
+from skuggi.frontend.confirm import Choose, confirm_write
 from skuggi.tooling.commands import CommandAlias
+
+if TYPE_CHECKING:
+    from skuggi.agent.grants import SessionGrants
+    from skuggi.agent.protocol import CmdProposal
 
 Ask = Callable[[str], str | None]
 Notify = Callable[[str], None]
 Apply = Callable[[dict[str, object]], CommandAlias]
+Propose = Callable[[str], "CmdProposal"]
+Preview = Callable[["CmdProposal"], str]
+Save = Callable[["CmdProposal"], str]
 
 # Arguments to the `cmd` verb that open the editor rather than search/resolve.
 ADD_ARGS = frozenset({"add", "new"})
 EDIT_ARGS = frozenset({"edit"})
 REMOVE_ARGS = frozenset({"rm", "remove", "delete"})
+SUGGEST_ARGS = frozenset({"suggest"})
 
 
 def _yesno(answer: str) -> bool:
@@ -101,3 +111,36 @@ def run_cmd_editor(
             continue
         notify(f"saved alias '{alias.name}'")
         return alias
+
+
+def run_cmd_suggest(  # noqa: PLR0913 -- keyword-only collaborators + the request
+    request: str,
+    *,
+    choose: Choose,
+    notify: Notify,
+    propose: Propose,
+    preview: Preview,
+    apply: Save,
+    grants: SessionGrants,
+) -> None:
+    """Propose one cheatsheet alias, preview it, confirm, and save on a yes.
+
+    Unlike the guided editor above (which collects every field by hand), this
+    maps a natural-language request to a whole alias, shows the rendered command,
+    and gates the write through the shared confirm (capability ``cmd-edit``).
+    """
+    proposal = propose(request)
+    if not proposal.name or not proposal.argv:
+        notify("cmd: no alias proposed")
+        return
+    try:
+        rendered = preview(proposal)
+    except ConfigError as exc:
+        notify(f"cmd: invalid proposal -- {exc}")
+        return
+    notify(f"proposed alias '{proposal.name}':")
+    notify(f"  {rendered}")
+    if not confirm_write("cmd-edit", grants=grants, choose=choose, notify=notify):
+        notify("cmd unchanged")
+        return
+    notify(apply(proposal))

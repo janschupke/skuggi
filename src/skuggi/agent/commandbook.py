@@ -13,8 +13,11 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
+from skuggi.agent import prompts
+from skuggi.agent.protocol import CmdProposal, structured_invoke
 from skuggi.config.configs import ConfigError, write_commands
 from skuggi.engagement.engagement import (
     GuardVerdict,
@@ -186,3 +189,47 @@ class CommandBook:
             )
         )
         return True
+
+    # ----- natural-language suggestion (the `cmd suggest` verb) --------------
+
+    def propose(self, request: str) -> CmdProposal:
+        """Ask the LLM to propose one cheatsheet alias for `request`."""
+        core = self._core
+        existing = ", ".join(core.commands.names()) or "(none)"
+        return structured_invoke(
+            core._ensure_llm(),  # noqa: SLF001 -- sub-component drives the model kernel
+            CmdProposal,
+            [
+                SystemMessage(
+                    content=prompts.PROPOSE_CMD_INSTRUCTION.format(existing=existing)
+                ),
+                HumanMessage(content=request),
+            ],
+            native=core.settings.supports_structured_output(),
+        )
+
+    def preview_proposal(self, proposal: CmdProposal) -> str:
+        """The rendered command for a proposal. Raises ConfigError if invalid."""
+        alias = self._validate(_proposal_raw(proposal))
+        return render(alias, self._core.registry)
+
+    def apply_proposal(self, proposal: CmdProposal) -> str:
+        """Add the proposed alias, or update it if its name already exists."""
+        raw = _proposal_raw(proposal)
+        if self._core.commands.alias_for(proposal.name) is not None:
+            self.update(proposal.name, raw)
+            return f"cmd updated: {proposal.name}"
+        self.add(raw)
+        return f"cmd added: {proposal.name}"
+
+
+def _proposal_raw(proposal: CmdProposal) -> dict[str, object]:
+    """The CommandAlias dict for a proposal, dropping blank optional fields."""
+    raw: dict[str, object] = {"name": proposal.name, "argv": proposal.argv}
+    if proposal.description:
+        raw["description"] = proposal.description
+    if proposal.tool:
+        raw["tool"] = proposal.tool
+    if proposal.label:
+        raw["label"] = proposal.label
+    return raw

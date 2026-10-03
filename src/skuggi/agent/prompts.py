@@ -195,3 +195,12 @@ PROPOSE_SCOPE_INSTRUCTION = (
     "for -- never widen scope on your own. If nothing should change, return an "
     "empty list."
 )
+
+PROPOSE_CMD_INSTRUCTION = (
+    "You maintain a cheatsheet of reusable command aliases for a pentester. Given "
+    "the operator's request, propose ONE alias: a short `name`, the `argv` as a "
+    "list of the base command tokens (the target and an output path are appended "
+    "by the harness -- do NOT include them), an optional `description`, and "
+    "optionally `tool` and `label`. To refactor an existing alias, reuse its name. "
+    "Existing aliases: {existing}. If nothing is worth adding, leave the name empty."
+)
