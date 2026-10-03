@@ -18,7 +18,15 @@ from skuggi.common.clock import file_stamp, now_iso
 from skuggi.common.paths import ensure_dir
 from skuggi.common.text import join_blocks, labeled
 from skuggi.engagement.engagement import EngagementConfig
-from skuggi.persistence.ledger import CommandRow, FindingRow, Ledger, SessionRow
+from skuggi.persistence.ledger import (
+    CommandRow,
+    FindingRefRow,
+    FindingRow,
+    Ledger,
+    SessionRow,
+)
+
+_Refs = dict[int, list[FindingRefRow]]
 
 # Most-severe first; anything unrecognized sorts last under "other".
 _SEVERITY_ORDER = palette.severities()
@@ -58,9 +66,29 @@ def _command_log(
     return "\n".join(lines)
 
 
-def _findings(findings: list[FindingRow]) -> str:
+def _cvss_line(f: FindingRow) -> str:
+    """The CVSS score line for a finding, or empty when it carries no vector."""
+    if f.cvss_score is None or not f.cvss_vector:
+        return ""
+    band = (f.cvss_severity or "").upper()
+    return f"\n\nCVSS {f.cvss_version} {f.cvss_score} ({band}) — `{f.cvss_vector}`"
+
+
+def _refs_line(refs: list[FindingRefRow]) -> str:
+    """A finding's framework classifications as Markdown links, primary first."""
+    if not refs:
+        return ""
+    parts = []
+    for r in refs:
+        label = f"{r.ref_id}*" if r.is_primary else r.ref_id
+        parts.append(f"[{label}]({r.url})" if r.url else label)
+    return "\n\nClassified: " + ", ".join(parts)
+
+
+def _findings(findings: list[FindingRow], refs: _Refs | None = None) -> str:
     if not findings:
         return "_No findings recorded._"
+    refs = refs or {}
     by_sev: dict[str, list[FindingRow]] = {}
     for f in findings:
         by_sev.setdefault(f.severity, []).append(f)
@@ -74,18 +102,21 @@ def _findings(findings: list[FindingRow]) -> str:
         for f in group:
             src = f" _(from cmd:{f.command_id})_" if f.command_id is not None else ""
             out.append(f"\n**[{f.id}] {f.title}**{src}\n\n{f.description}")
+            out.append(_cvss_line(f))
+            out.append(_refs_line(refs.get(f.id, [])))
             if f.evidence:
                 out.append(f"\n```\n{f.evidence}\n```")
-    return "\n".join(out)
+    return "\n".join(p for p in out if p)
 
 
-def render_report(
+def render_report(  # noqa: PLR0913 -- a report is composed from its ledger parts
     session: SessionRow,
     commands: list[CommandRow],
     findings: list[FindingRow],
     *,
     engagement: EngagementConfig | None = None,
     generated_label: str | None = None,
+    refs: _Refs | None = None,
 ) -> str:
     """Compose the full Markdown report for one session.
 
@@ -111,7 +142,7 @@ def render_report(
     return join_blocks(
         header,
         labeled("Scope", f"```\n{scope}\n```" if scope else "", heading=True),
-        labeled("Findings", _findings(findings), heading=True),
+        labeled("Findings", _findings(findings, refs), heading=True),
         labeled("Command log", _command_log(commands, engagement), heading=True),
     )
 
@@ -147,6 +178,7 @@ def write_report(
         raise ValueError(msg)
     commands = ledger.commands_for(session_id)
     findings = ledger.findings_for(session_id)
+    refs = {f.id: ledger.finding_refs_for(f.id) for f in findings}
     # One generated-at stamp, shared by the Markdown body and the PDF footer, so a
     # later PDF re-render cannot disagree with the document it renders.
     generated_label = _local_stamp(now_iso(), engagement)
@@ -156,6 +188,7 @@ def write_report(
         findings,
         engagement=engagement,
         generated_label=generated_label,
+        refs=refs,
     )
 
     reports_dir = ensure_dir(reports_dir)

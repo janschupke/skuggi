@@ -10,7 +10,7 @@ import pytest
 from skuggi.common.execution import CommandResult
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.persistence import pdf as pdf_mod
-from skuggi.persistence.ledger import Ledger, open_ledger
+from skuggi.persistence.ledger import FindingRefInput, Ledger, open_ledger
 from skuggi.persistence.reports import _local_stamp, render_report, write_report
 
 
@@ -168,3 +168,21 @@ def test_write_report_without_a_session_raises(tmp_path: Path) -> None:
         pytest.raises(ValueError, match="no session"),
     ):
         write_report("missing", led, tmp_path / "reports")
+
+
+def test_report_renders_cvss_and_linked_classifications(tmp_path: Path) -> None:
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme ext", mode="pentest")
+        led.record_finding(
+            session_id="s1",
+            title="Reflected XSS",
+            description="unencoded reflection",
+            cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",  # 6.1
+            refs=[FindingRefInput("wstg", "WSTG-CLNT-01", is_primary=True)],
+        )
+        result = write_report("s1", led, tmp_path / "reports")
+    body = (result if isinstance(result, Path) else result[0]).read_text()
+    assert "CVSS 3.1 6.1 (MEDIUM)" in body
+    assert "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N" in body
+    # The classification is a Markdown link, primary marked with a star.
+    assert "[WSTG-CLNT-01*](https://owasp.org/" in body

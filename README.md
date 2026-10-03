@@ -268,7 +268,10 @@ start and never committed:
   "allowed_hosts": ["scanme.example.com"],
   "allowed_tools": ["nmap", "curl"],
   "allowed_methods": ["recon", "scan"],
-  "autonomous": false
+  "autonomous": false,
+  "methodology": "phases",
+  "taxonomies": ["wstg"],
+  "threat_model": { "confidentiality_requirement": "high" }
 }
 ```
 
@@ -325,11 +328,29 @@ the subcommand is the confirmation.
 
 The harness persists to a per-engagement SQLite **ledger**
 ([src/skuggi/persistence/ledger.py](src/skuggi/persistence/ledger.py), `engagements/<name>/ledger.db`),
-separate from the checkpointer, with `sessions`, `commands` and `findings`
-tables. A finding links to its session and (by default) to the most recent
-command, so it is always traceable. `/report` writes a Markdown report into the
-workspace's `reports/` with the scope, findings grouped by severity, and the
+separate from the checkpointer, with `sessions`, `commands`, `findings` and
+`finding_refs` tables. A finding links to its session and (by default) to the most
+recent command, so it is always traceable. `/report` writes a Markdown report into
+the workspace's `reports/` with the scope, findings grouped by severity, and the
 timestamped command log.
+
+### Framework-aware findings and deterministic CVSS
+
+Findings are **scored, not guessed**. The agent proposes a CVSS v3.1 *vector* (it
+assesses the metrics); `skuggi.frameworks.cvss` computes the base/temporal/
+environmental score deterministically — no model does the arithmetic, and the stored
+`(version, vector)` reconstructs every number on its own. Each finding can also carry
+classification IDs from the engagement's chosen **frameworks** — OWASP WSTG and MITRE
+ATT&CK ids, resolved to titles and links from a vendored, version-pinned snapshot
+([src/skuggi/frameworks/data/](src/skuggi/frameworks/data/)) that is refreshed only by
+a maintainer (`make frameworks`), so lookups stay offline and cannot drift.
+
+Each engagement selects a driving **methodology** (built-in phases, PTES, or ATT&CK
+adversary-emulation) and the classification **taxonomies** to tag with; an optional
+**threat model** (CVSS Environmental requirements) tailors scores to the asset. See
+[docs/audit-llm-vs-mechanism.md](docs/audit-llm-vs-mechanism.md) for why scoring and
+classification moved from the LLM to deterministic code. You can also record a scored
+finding by hand: `/skuggi add finding CVSS:3.1/AV:N/... <title>`.
 
 ### PDF reports
 
@@ -511,6 +532,9 @@ quality (`factuality`, `budget`, `latency`) — and hard-gates on regression aga
 - [evals/README.md](evals/README.md) — the local eval system: golden sets, the
   deterministic gate, the configurable model matrix, cross-model divergence, and
   the baseline.
+- [docs/audit-llm-vs-mechanism.md](docs/audit-llm-vs-mechanism.md) — why severity
+  (CVSS) and finding classification (WSTG/ATT&CK) are deterministic code, not LLM
+  judgement, and how the vendored framework data stays pinned and offline.
 - [docs/labs.md](docs/labs.md) — the practice range: 10 tiered engagement
   exercises (`labs/`) with planted loot, and the `labctl` wipe/restore workflow.
 - [docs/lab.md](docs/lab.md) — the frozen e2e fixture target

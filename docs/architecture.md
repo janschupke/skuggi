@@ -167,6 +167,12 @@ Files that can be read top-to-bottom in one sitting:
 - [vectorstore.py](../src/skuggi/persistence/vectorstore.py) — a lazily-loaded FAISS index;
   nothing is embedded until the first `ingest`, so the REPL boots without
   embedding credentials.
+- [frameworks/](../src/skuggi/frameworks/) — security-framework awareness, all offline and
+  model-free: `cvss.py` computes CVSS v3.1 scores deterministically from a vector;
+  `registry.py` resolves WSTG/ATT&CK/PTES ids against vendored, version-pinned data
+  (`data/`, refreshed only by `scripts/sync_frameworks.py`). The worker proposes a
+  vector + ids; the harness scores and classifies. See
+  [audit-llm-vs-mechanism.md](audit-llm-vs-mechanism.md).
 - [codex_chat.py](../src/skuggi/providers/codex_chat.py) — a `CodexTokenStore` (auth.json
   and the OAuth refresh) and a `CodexAuth` (`httpx.Auth`) under a thin
   `ChatOpenAI` subclass. See [codex-auth.md](codex-auth.md).
