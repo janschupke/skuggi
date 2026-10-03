@@ -195,7 +195,9 @@ class PlannerResponse(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    phase: Phase
+    # Phase advancement is owned by code (``clamp_phase``), not the model: the
+    # planner only *suggests* the next phase via ``advance_to``. There is no
+    # required ``phase`` field -- a provider that omits it must not fail the turn.
     advance_to: Phase | None = None
     steps: tuple[str, ...] = ()
     rationale: str = ""

@@ -2,23 +2,180 @@
   "dimension": "schema",
   "description": "Host-compatibility of a model's structured output: raw JSON must (in)validate against the protocol schema the harness parses it into. Oracle is <Schema>.model_validate; threshold 1.0.",
   "cases": [
-    {"id": "worker-advice-only", "schema_name": "WorkerResponse", "raw": {"summary": "no command warranted", "advice": "review the robots.txt entries manually", "stance": "cautious"}, "expect_valid": true},
-    {"id": "worker-command-and-finding", "schema_name": "WorkerResponse", "raw": {"command": "curl http://192.0.2.10/post.php?id=4", "summary": "reads the draft post", "findings": [{"title": "IDOR on posts", "severity": "high", "description": "post.php exposes draft id 4 with no auth check"}], "done": true}, "expect_valid": true},
-    {"id": "worker-bad-severity", "schema_name": "WorkerResponse", "raw": {"summary": "x", "findings": [{"title": "t", "severity": "urgent", "description": "d"}]}, "expect_valid": false},
-    {"id": "worker-bad-stance", "schema_name": "WorkerResponse", "raw": {"summary": "x", "stance": "reckless"}, "expect_valid": false},
-    {"id": "planner-valid", "schema_name": "PlannerResponse", "raw": {"phase": "recon", "steps": ["fingerprint the web host", "enumerate parameters"], "rationale": "start at recon"}, "expect_valid": true},
-    {"id": "planner-bad-phase", "schema_name": "PlannerResponse", "raw": {"phase": "pillage", "steps": []}, "expect_valid": false},
-    {"id": "critic-valid", "schema_name": "CriticResponse", "raw": {"approved": true, "reason": "scope respected"}, "expect_valid": true},
-    {"id": "critic-missing-approved", "schema_name": "CriticResponse", "raw": {"reason": "no verdict"}, "expect_valid": false},
-    {"id": "finding-valid", "schema_name": "FindingDraft", "raw": {"title": "SQLi", "severity": "critical", "description": "UNION-based on search.php", "evidence": "id,username,password rows"}, "expect_valid": true},
-    {"id": "finding-missing-title", "schema_name": "FindingDraft", "raw": {"severity": "low", "description": "d"}, "expect_valid": false},
-    {"id": "planner-advance-to", "schema_name": "PlannerResponse", "raw": {"phase": "recon", "advance_to": "enumeration", "steps": ["go"], "rationale": "r"}, "expect_valid": true},
-    {"id": "planner-bad-advance-to", "schema_name": "PlannerResponse", "raw": {"phase": "recon", "advance_to": "pillage"}, "expect_valid": false},
-    {"id": "critic-rejected", "schema_name": "CriticResponse", "raw": {"approved": false, "reason": "scope violation"}, "expect_valid": true},
-    {"id": "worker-info-severity-finding", "schema_name": "WorkerResponse", "raw": {"summary": "x", "findings": [{"title": "t", "severity": "info", "description": "d"}]}, "expect_valid": true},
-    {"id": "finding-medium-severity", "schema_name": "FindingDraft", "raw": {"title": "t", "severity": "medium", "description": "d"}, "expect_valid": true},
-    {"id": "worker-extra-field-ignored", "schema_name": "WorkerResponse", "raw": {"summary": "x", "bogus_field": 123}, "expect_valid": true},
-    {"id": "worker-empty-is-valid", "schema_name": "WorkerResponse", "raw": {}, "expect_valid": true},
-    {"id": "planner-empty-invalid", "schema_name": "PlannerResponse", "raw": {}, "expect_valid": false}
+    {
+      "id": "worker-advice-only",
+      "schema_name": "WorkerResponse",
+      "raw": {
+        "summary": "no command warranted",
+        "advice": "review the robots.txt entries manually",
+        "stance": "cautious"
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "worker-command-and-finding",
+      "schema_name": "WorkerResponse",
+      "raw": {
+        "command": "curl http://192.0.2.10/post.php?id=4",
+        "summary": "reads the draft post",
+        "findings": [
+          {
+            "title": "IDOR on posts",
+            "severity": "high",
+            "description": "post.php exposes draft id 4 with no auth check"
+          }
+        ],
+        "done": true
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "worker-bad-severity",
+      "schema_name": "WorkerResponse",
+      "raw": {
+        "summary": "x",
+        "findings": [
+          {
+            "title": "t",
+            "severity": "urgent",
+            "description": "d"
+          }
+        ]
+      },
+      "expect_valid": false
+    },
+    {
+      "id": "worker-bad-stance",
+      "schema_name": "WorkerResponse",
+      "raw": {
+        "summary": "x",
+        "stance": "reckless"
+      },
+      "expect_valid": false
+    },
+    {
+      "id": "planner-valid",
+      "schema_name": "PlannerResponse",
+      "raw": {
+        "steps": [
+          "fingerprint the web host",
+          "enumerate parameters"
+        ],
+        "rationale": "start at recon"
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "critic-valid",
+      "schema_name": "CriticResponse",
+      "raw": {
+        "approved": true,
+        "reason": "scope respected"
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "critic-missing-approved",
+      "schema_name": "CriticResponse",
+      "raw": {
+        "reason": "no verdict"
+      },
+      "expect_valid": false
+    },
+    {
+      "id": "finding-valid",
+      "schema_name": "FindingDraft",
+      "raw": {
+        "title": "SQLi",
+        "severity": "critical",
+        "description": "UNION-based on search.php",
+        "evidence": "id,username,password rows"
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "finding-missing-title",
+      "schema_name": "FindingDraft",
+      "raw": {
+        "severity": "low",
+        "description": "d"
+      },
+      "expect_valid": false
+    },
+    {
+      "id": "planner-advance-to",
+      "schema_name": "PlannerResponse",
+      "raw": {
+        "advance_to": "enumeration",
+        "steps": [
+          "go"
+        ],
+        "rationale": "r"
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "planner-bad-advance-to",
+      "schema_name": "PlannerResponse",
+      "raw": {
+        "advance_to": "pillage"
+      },
+      "expect_valid": false
+    },
+    {
+      "id": "critic-rejected",
+      "schema_name": "CriticResponse",
+      "raw": {
+        "approved": false,
+        "reason": "scope violation"
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "worker-info-severity-finding",
+      "schema_name": "WorkerResponse",
+      "raw": {
+        "summary": "x",
+        "findings": [
+          {
+            "title": "t",
+            "severity": "info",
+            "description": "d"
+          }
+        ]
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "finding-medium-severity",
+      "schema_name": "FindingDraft",
+      "raw": {
+        "title": "t",
+        "severity": "medium",
+        "description": "d"
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "worker-extra-field-ignored",
+      "schema_name": "WorkerResponse",
+      "raw": {
+        "summary": "x",
+        "bogus_field": 123
+      },
+      "expect_valid": true
+    },
+    {
+      "id": "worker-empty-is-valid",
+      "schema_name": "WorkerResponse",
+      "raw": {},
+      "expect_valid": true
+    },
+    {
+      "id": "planner-empty-valid",
+      "schema_name": "PlannerResponse",
+      "raw": {},
+      "expect_valid": true
+    }
   ]
 }

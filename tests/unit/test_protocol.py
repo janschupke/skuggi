@@ -184,7 +184,7 @@ class _NativeFake(BaseChatModel):
 
 
 def test_structured_invoke_native_uses_with_structured_output() -> None:
-    want = PlannerResponse(phase="recon", steps=("look",))
+    want = PlannerResponse(steps=("look",))
     llm = _NativeFake(obj=want)
     out = structured_invoke(
         llm, PlannerResponse, [HumanMessage(content="plan")], native=True

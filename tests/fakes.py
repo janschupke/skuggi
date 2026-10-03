@@ -130,7 +130,7 @@ class RoleScriptedChatModel(BaseChatModel):
     """
 
     planner_replies: list[PlannerResponse] = [
-        PlannerResponse(phase="recon", steps=("answer the question",))
+        PlannerResponse(steps=("answer the question",))
     ]
     worker_replies: list[WorkerResponse] = []
     critic_replies: list[CriticResponse] = [
@@ -171,7 +171,7 @@ class RoleScriptedChatModel(BaseChatModel):
         queue = queues[role]
         if not queue:
             return {
-                "planner": PlannerResponse(phase="recon"),
+                "planner": PlannerResponse(),
                 "worker": WorkerResponse(),
                 "critic": CriticResponse(approved=True),
             }[role]

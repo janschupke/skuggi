@@ -175,7 +175,7 @@ def test_max_revisions_cuts_the_loop_off() -> None:
 
 def test_planner_advances_the_phase_forward_only() -> None:
     model = RoleScriptedChatModel(
-        planner_replies=[PlannerResponse(phase="recon", advance_to="exploitation")],
+        planner_replies=[PlannerResponse(advance_to="exploitation")],
         worker_replies=[WorkerResponse(summary="ok")],
         critic_replies=[CriticResponse(approved=True)],
     )

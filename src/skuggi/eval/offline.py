@@ -50,7 +50,7 @@ class OfflineModel(BaseChatModel):
     so a schema-keyed lookup is enough -- no revision loop to desynchronise.
     """
 
-    planner: PlannerResponse = PlannerResponse(phase="recon")
+    planner: PlannerResponse = PlannerResponse()
     worker: WorkerResponse = WorkerResponse()
     critic: CriticResponse = CriticResponse(approved=True, reason="ok")
 
