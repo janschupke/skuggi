@@ -37,3 +37,20 @@ def test_planner_and_worker_carry_the_phase_stance_clause(mode: str) -> None:
     ps = prompt_set(mode)  # type: ignore[arg-type]
     assert "phase" in ps.planner
     assert "stance" in ps.worker
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_every_prompt_carries_the_skuggi_identity(mode: str) -> None:
+    """Without an identity the agent answers 'who are you?' as a generic assistant."""
+    ps = prompt_set(mode)  # type: ignore[arg-type]
+    for prompt in (ps.planner, ps.worker, ps.critic):
+        assert "skuggi" in prompt
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_planner_prompts_carry_the_triage_clause(mode: str) -> None:
+    """The planner must be told to triage answer-vs-plan (the latency fix)."""
+    planner = prompt_set(mode).planner  # type: ignore[arg-type]
+    assert "`action`" in planner
+    assert '"answer"' in planner
+    assert '"plan"' in planner
