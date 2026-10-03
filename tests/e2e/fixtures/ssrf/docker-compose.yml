@@ -1,0 +1,23 @@
+# Intentionally-vulnerable SSRF target for the L5 e2e layer. Loopback-only,
+# offline, no image build (stdlib server bind-mounted into the official python
+# image). Its own compose project + an auto-allocated default network, so it
+# never collides with the web+db fixture or the labs/ range.
+name: skuggi-e2e-ssrf
+
+services:
+  app:
+    image: python:3.12-alpine
+    container_name: skuggi-e2e-ssrf-app
+    command: ["python", "/app/server.py"]
+    working_dir: /app
+    volumes:
+      - ./server.py:/app/server.py:ro
+    # Only the edge :8080 is published; the internal :9000 is unreachable from
+    # the host, so reaching its secret proves the SSRF crossed the boundary.
+    ports:
+      - "127.0.0.1:${SSRF_PORT:-8084}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
