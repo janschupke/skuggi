@@ -38,6 +38,7 @@ from skuggi.frontend import (
     dispatch,
     installflow,
     render,
+    scopeflow,
     setup,
     verbs,
     wizard,
@@ -132,6 +133,10 @@ class Daemon:
                 # Drop the "set config" prefix; the request is the remaining tail.
                 request = verbs.split_verb(line)[1].partition(" ")[2]
                 self._attach_config(request, read_line, emit)
+                continue
+            if self._is_scope_request(line):
+                request = verbs.split_verb(line)[1].partition(" ")[2]
+                self._attach_scope(request, read_line, emit)
                 continue
             if self._is_install_missing(line):
                 self._attach_install_missing(read_line, emit)
@@ -383,6 +388,40 @@ class Daemon:
         emit({"end": True, "exit": False})
 
     @staticmethod
+    def _is_scope_request(line: str) -> bool:
+        """Whether `line` is a ``set scope <request>`` (always interactive)."""
+        verb, rest = verbs.split_verb(line)
+        if verb != "set":
+            return False
+        noun, _, tail = rest.partition(" ")
+        return noun == "scope" and bool(tail.strip())
+
+    def _attach_scope(
+        self,
+        request: str,
+        read_line: Callable[[], str | None],
+        emit: Callable[[dict[str, object]], None],
+    ) -> None:
+        """Run the scope-edit confirm flow over the attach connection."""
+
+        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
+            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
+            return read_line()
+
+        self.core.note_interaction("set", f"scope {request}")
+        with self._lock:
+            scopeflow.run_scope_request(
+                request,
+                choose=choose,
+                notify=lambda text: emit({"chunk": text + "\n"}),
+                propose=self.core.scope.propose,
+                preview=self.core.scope.preview,
+                apply=self.core.scope.apply,
+                grants=self.core.grants,
+            )
+        emit({"end": True, "exit": False})
+
+    @staticmethod
     def _is_install_missing(line: str) -> bool:
         """Whether `line` is ``doctor install missing`` (the gated install flow)."""
         verb, rest = verbs.split_verb(line)
@@ -539,6 +578,7 @@ class Daemon:
                 "mode": self._mode,
                 "autonomous": self._autonomous,
                 "config": self._config,
+                "scope": self._scope,
                 "thread": self._set_thread,
             },
         )
@@ -767,6 +807,14 @@ class Daemon:
             )
             return
         yield text + "\n"
+
+    def _scope(self, arg: str) -> Iterator[str]:
+        # A scope edit is always a natural-language request, so it needs the
+        # interactive confirm (diff -> approve); one-shot cannot round-trip.
+        yield (
+            f"editing scope is interactive -- run {self._cmd('set scope ' + arg)} "
+            f"in the chat loop\n"
+        )
 
     def _login(self, _arg: str) -> Iterator[str]:
         # Login only reports progress (no questions), so it runs here directly;

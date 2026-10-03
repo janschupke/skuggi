@@ -307,6 +307,40 @@ class ConfigProposal(BaseModel):
     edits: tuple[ConfigEdit, ...] = ()
 
 
+ScopeField = Literal[
+    "allowed_hosts",
+    "target_networks",
+    "allowed_tools",
+    "allowed_methods",
+    "autonomous_ceiling",
+]
+SCOPE_FIELDS: tuple[ScopeField, ...] = get_args(ScopeField)
+
+
+class ScopeEdit(BaseModel):
+    """One proposed edit to the engagement scope.
+
+    ``add``/``remove`` apply to the set-valued fields (hosts/networks/tools/
+    methods); ``set`` applies to a scalar (``autonomous_ceiling``). The value is
+    a single element/scalar as a string -- a host, a CIDR, a tool/method name, or
+    a risk-tier name -- re-validated by ``EngagementConfig`` before it is written.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    field: ScopeField
+    action: Literal["add", "remove", "set"]
+    value: str
+
+
+class ScopeProposal(BaseModel):
+    """The ``set scope <natural language>`` verb's strict output."""
+
+    model_config = ConfigDict(frozen=True)
+
+    edits: tuple[ScopeEdit, ...] = ()
+
+
 class MemoryExtraction(BaseModel):
     """The automatic-memory extractor's strict output: durable directives only."""
 

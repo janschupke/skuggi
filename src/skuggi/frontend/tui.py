@@ -36,6 +36,7 @@ from skuggi.frontend import (
     installflow,
     menu,
     render,
+    scopeflow,
     setup,
     verbs,
     wizard,
@@ -163,6 +164,7 @@ class Tui:
             "mode": self._set_mode,
             "autonomous": self._set_autonomous,
             "config": self._set_config,
+            "scope": self._set_scope,
             "thread": self._set_thread,
         }
         self._add_nouns: dict[str, Callable[[str], None]] = {
@@ -491,6 +493,20 @@ class Tui:
             notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
             propose=self.core.config.propose,
             apply=self.core.config.apply,
+            grants=self.core.grants,
+        )
+
+    def _set_scope(self, arg: str) -> None:
+        if not arg.strip():
+            self._emit(dispatch.usage("set scope <request>", "repl"))
+            return
+        scopeflow.run_scope_request(
+            arg,
+            choose=self._choose,
+            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
+            propose=self.core.scope.propose,
+            preview=self.core.scope.preview,
+            apply=self.core.scope.apply,
             grants=self.core.grants,
         )
 

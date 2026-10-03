@@ -38,6 +38,7 @@ from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.preferencebook import PreferenceBook
 from skuggi.agent.protocol import render_answer
+from skuggi.agent.scope_controller import ScopeController
 from skuggi.agent.session_archive import SessionArchive
 from skuggi.agent.state import AgentState
 from skuggi.agent.tooldoctor import ToolDoctor
@@ -175,6 +176,7 @@ class AgentCore:
         self.journal = Journal(self)
         self.memory = PreferenceBook(self)
         self.config = ConfigController(self)
+        self.scope = ScopeController(self)
 
     # ----- config + workspace ------------------------------------------------
 
@@ -676,6 +678,20 @@ class AgentCore:
             )
         self.graph = self._build()  # so GraphDeps carries the new threat model
         return self.ledger.record_threat_model(self._threat_model_snapshot(), note=note)
+
+    def apply_engagement_scope(self, engagement: EngagementConfig) -> None:
+        """Persist an edited scope in place and hot-reload it (like the threat model).
+
+        The caller (``ScopeController``) has already re-validated ``engagement``.
+        Edited in place -- no new session -- so this session's findings are not
+        orphaned; the graph is rebuilt so its guard/brief see the new scope.
+        """
+        self.engagement = engagement
+        if self.workspace is not None:
+            self.workspace.scope_path.write_text(
+                engagement.model_dump_json(indent=2), encoding="utf-8"
+            )
+        self.graph = self._build()
 
     # ----- self-update (the `update` verb) -----------------------------------
 

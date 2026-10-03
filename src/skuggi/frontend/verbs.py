@@ -134,6 +134,7 @@ VERBS: tuple[Verb, ...] = (
                 "set a setting, or a natural-language request",
                 "<key> <value> | <request>",
             ),
+            Noun("scope", "edit the engagement scope from a request", "<request>"),
             Noun("thread", "start or switch a conversation thread", "<id>|new"),
         ),
     ),

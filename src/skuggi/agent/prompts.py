@@ -183,3 +183,15 @@ PROPOSE_CONFIG_INSTRUCTION = (
     "{keys}. Never propose a secret. Return each change as a key/value `edit`; "
     "if nothing should change, return an empty list."
 )
+
+PROPOSE_SCOPE_INSTRUCTION = (
+    "You edit the authorization SCOPE of a pentest engagement. Given the "
+    "operator's request, return the edits as a list. Each edit names a `field` "
+    "(one of: {fields}), an `action`, and a single `value`. Use action `add` or "
+    "`remove` for the set-valued fields (allowed_hosts, target_networks, "
+    "allowed_tools, allowed_methods) with one host, CIDR, tool, or method per "
+    "edit; use action `set` for autonomous_ceiling with a tier name "
+    "(recon/active/intrusive/destructive). Propose ONLY what the operator asked "
+    "for -- never widen scope on your own. If nothing should change, return an "
+    "empty list."
+)
