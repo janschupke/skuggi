@@ -33,6 +33,7 @@ from skuggi.frontend import (
     cmdflow,
     configflow,
     dispatch,
+    installflow,
     menu,
     render,
     setup,
@@ -531,6 +532,9 @@ class Tui:
 
     def _cmd_doctor(self, arg: str) -> None:
         target = dispatch.doctor_install_target(arg)
+        if target == "missing":
+            self._install_missing()
+            return
         if target is not None:
             self._install_tool(target)
             return
@@ -554,6 +558,16 @@ class Tui:
                 self.console.print(
                     f"[red]install failed or unavailable[/red] for {name}"
                 )
+
+    def _install_missing(self) -> None:
+        """Install the missing scoped tools, gated by the shared confirm."""
+        installflow.run_install_missing(
+            choose=self._choose,
+            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
+            propose=self.core.doctor.propose_installs,
+            install=self.core.doctor.install,
+            grants=self.core.grants,
+        )
 
     def _cmd_cmd(self, arg: str) -> None:
         """Search the cheatsheet, resolve an exact alias, or edit the registry."""

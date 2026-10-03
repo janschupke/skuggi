@@ -32,7 +32,16 @@ from skuggi.agent import protocol, readiness
 from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.common import palette
 from skuggi.common.logs import get_logger
-from skuggi.frontend import cmdflow, configflow, dispatch, render, setup, verbs, wizard
+from skuggi.frontend import (
+    cmdflow,
+    configflow,
+    dispatch,
+    installflow,
+    render,
+    setup,
+    verbs,
+    wizard,
+)
 from skuggi.frontend.prompter import Prompter
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import finding_line
@@ -123,6 +132,9 @@ class Daemon:
                 # Drop the "set config" prefix; the request is the remaining tail.
                 request = verbs.split_verb(line)[1].partition(" ")[2]
                 self._attach_config(request, read_line, emit)
+                continue
+            if self._is_install_missing(line):
+                self._attach_install_missing(read_line, emit)
                 continue
             exit_session = False
             for resp in self.handle_request({"op": "input", "text": line}):
@@ -366,6 +378,34 @@ class Daemon:
                 notify=lambda text: emit({"chunk": text + "\n"}),
                 propose=self.core.config.propose,
                 apply=self.core.config.apply,
+                grants=self.core.grants,
+            )
+        emit({"end": True, "exit": False})
+
+    @staticmethod
+    def _is_install_missing(line: str) -> bool:
+        """Whether `line` is ``doctor install missing`` (the gated install flow)."""
+        verb, rest = verbs.split_verb(line)
+        return verb == "doctor" and dispatch.doctor_install_target(rest) == "missing"
+
+    def _attach_install_missing(
+        self,
+        read_line: Callable[[], str | None],
+        emit: Callable[[dict[str, object]], None],
+    ) -> None:
+        """Install the missing scoped tools over the attach connection."""
+
+        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
+            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
+            return read_line()
+
+        self.core.note_interaction("doctor", "install missing")
+        with self._lock:
+            installflow.run_install_missing(
+                choose=choose,
+                notify=lambda text: emit({"chunk": text + "\n"}),
+                propose=self.core.doctor.propose_installs,
+                install=self.core.doctor.install,
                 grants=self.core.grants,
             )
         emit({"end": True, "exit": False})
@@ -744,6 +784,11 @@ class Daemon:
 
     def _doctor(self, arg: str) -> Iterator[str]:
         target = dispatch.doctor_install_target(arg)
+        if target == "missing":
+            # Needs the confirm round-trip, so it runs only over the attach loop
+            # (intercepted in run_attached); a one-shot request cannot prompt.
+            yield "run `doctor install missing` from the interactive shell\n"
+            return
         if target is not None:
             yield from self._install(target)
             return

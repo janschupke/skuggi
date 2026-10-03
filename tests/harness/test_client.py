@@ -13,6 +13,7 @@ import pytest
 
 from skuggi.frontend import client
 from skuggi.frontend.client import (
+    _is_interactive,
     _stdin_prompt,
     _stream_turn,
     attach_once_over,
@@ -22,6 +23,23 @@ from skuggi.frontend.client import (
     record_over,
     run_over,
 )
+
+
+@pytest.mark.parametrize(
+    ("args", "interactive"),
+    [
+        ([], False),
+        (["engagement", "setup"], True),
+        (["config", "make it faster"], True),
+        (["set", "provider"], True),  # no value -> guided picker
+        (["set", "provider", "openai"], False),  # value given -> one-shot
+        (["doctor", "install", "missing"], True),  # batch install confirm
+        (["doctor", "install", "nmap"], False),  # naming the tool is the confirm
+        (["doctor"], False),
+    ],
+)
+def test_is_interactive(args: list[str], interactive: bool) -> None:
+    assert _is_interactive(args) is interactive
 
 
 def test_build_message() -> None:

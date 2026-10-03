@@ -190,6 +190,10 @@ def _is_interactive(args: list[str]) -> bool:
         return False
     if args[0] in _INTERACTIVE_VERBS:
         return True
+    # `doctor install missing` confirms a batch install; `doctor install <tool>`
+    # stays one-shot (naming the tool is the confirm).
+    if args[0] == "doctor" and args[1:3] == ["install", "missing"]:
+        return True
     return len(args) == 2 and args[0] == "set" and args[1] in {"provider", "model"}  # noqa: PLR2004 -- verb + noun, no value
 
 

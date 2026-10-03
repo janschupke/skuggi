@@ -7,13 +7,14 @@ of its own, so a registry reload is reflected without rewiring.
 
 from __future__ import annotations
 
+import platform
 from typing import TYPE_CHECKING
 
 from skuggi.tooling import probe
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
-    from skuggi.tooling.registry import RuntimeStatus, ToolStatus
+    from skuggi.tooling.registry import InstallPlan, RuntimeStatus, ToolStatus
 
 
 class ToolDoctor:
@@ -50,3 +51,35 @@ class ToolDoctor:
             source=core.settings.tool_source,
             managed_dir=core.settings.managed_tools_dir,
         )
+
+    def propose_installs(self) -> list[tuple[str, InstallPlan]]:
+        """Scoped-but-missing tools that are installable on this host.
+
+        The deterministic candidate set for the gated install flow (no LLM): the
+        engagement's scoped tools (by binary or method) that are absent AND have
+        an install command for an available installer. Each pairs the binary with
+        the exact, not-yet-run install plan so the flow can preview it. Empty with
+        no engagement.
+        """
+        core = self._core
+        engagement = core.engagement
+        if engagement is None:
+            return []
+        source = core.settings.tool_source
+        system = platform.system()
+        statuses = probe.probe_presence(
+            core.registry, source=source, managed_dir=core.settings.managed_tools_dir
+        )
+        out: list[tuple[str, InstallPlan]] = []
+        for status in statuses:
+            spec = status.spec
+            scoped = (
+                spec.binary in engagement.allowed_tools
+                or spec.method in engagement.allowed_methods
+            )
+            if status.found or not scoped:
+                continue
+            plan = probe.select_install(spec, source=source, system=system)
+            if plan is not None:
+                out.append((spec.binary, plan))
+        return out

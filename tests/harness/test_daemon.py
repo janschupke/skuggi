@@ -12,7 +12,7 @@ from skuggi.frontend.daemon import Daemon
 from skuggi.persistence import pdf as pdf_mod
 from skuggi.tooling import probe as probe_mod
 from skuggi.tooling.commands import CommandAlias, CommandRegistry
-from skuggi.tooling.registry import ToolRegistry, ToolSpec, ToolStatus
+from skuggi.tooling.registry import InstallPlan, ToolRegistry, ToolSpec, ToolStatus
 from tests.conftest import offline_settings, wire_offline_core
 
 
@@ -353,6 +353,29 @@ def test_engagement_setup_one_shot_guides_to_the_loop(daemon: Daemon) -> None:
 def test_cmd_add_one_shot_guides_to_the_loop(daemon: Daemon) -> None:
     out = _chunks(daemon, {"op": "input", "text": "cmd add"})
     assert "interactive" in out  # the editor needs the attach loop
+
+
+def test_attach_install_missing_prompts_and_can_cancel(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`doctor install missing` round-trips a confirm; declining installs nothing."""
+    plan = InstallPlan(
+        argv=("brew", "install", "nmap"), target="host", installer="brew"
+    )
+    monkeypatch.setattr(
+        daemon.core.doctor, "propose_installs", lambda: [("nmap", plan)]
+    )
+    installed: list[str] = []
+
+    def _fake_install(binary: str) -> None:
+        installed.append(binary)
+
+    monkeypatch.setattr(daemon.core.doctor, "install", _fake_install)
+    answers = iter(["doctor install missing", "no"])  # open the flow, decline
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(answers, None), emitted.append)
+    assert any("choose" in f for f in emitted)  # the confirm menu reached the client
+    assert installed == []  # declined -> no system write
 
 
 def test_attach_cmd_editor_adds_an_alias(daemon: Daemon) -> None:
