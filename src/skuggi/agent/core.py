@@ -38,6 +38,7 @@ from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.preferencebook import PreferenceBook
 from skuggi.agent.protocol import render_answer
+from skuggi.agent.reconcile_controller import ReconcileController
 from skuggi.agent.scope_controller import ScopeController
 from skuggi.agent.session_archive import SessionArchive
 from skuggi.agent.state import AgentState
@@ -178,6 +179,7 @@ class AgentCore:
         self.memory = PreferenceBook(self)
         self.config = ConfigController(self)
         self.scope = ScopeController(self)
+        self.reconciler = ReconcileController(self)
 
     # ----- config + workspace ------------------------------------------------
 
@@ -715,76 +717,33 @@ class AgentCore:
             )
         self.rebuild_graph()
 
-    # ----- self-update (the `update` verb) -----------------------------------
+    # ----- self-update + config reconcile (delegated to ReconcileController) --
 
     def self_update(self, runner: updater.UpdateRunner | None = None) -> Iterator[str]:
-        """Update the install in place: ``git pull --ff-only`` then a dependency sync.
-
-        Delegates to :func:`skuggi.install.update.perform_update` (``runner`` is
-        forwarded so the subprocess path stays injectable and testable), then
-        notes any config drift -- a pulled template may have moved ahead of the
-        installed copy, and an update is exactly the moment to surface that.
-        """
-        yield from updater.perform_update(runner)
-        behind = reconcile.drifted(self._config_dir)
-        if behind:
-            yield "\n"
-            yield (
-                f"{len(behind)} config file(s) differ from the packaged templates: "
-                + ", ".join(behind)
-                + "\n"
-            )
-            yield (
-                "  review with `reconcile diff <file>`, update with "
-                "`reconcile <file>` or `reconcile all` (a timestamped backup is "
-                "saved).\n"
-            )
-
-    # ----- config reconcile (the `reconcile` verb) --------------------------
-
-    @property
-    def _config_dir(self) -> Path:
-        """The config home holding tools.json/commands.json/… (per settings)."""
-        return self.settings.registry_path.parent
+        """Update the install in place, then surface any config drift (delegated)."""
+        yield from self.reconciler.self_update(runner)
 
     def reconcile_status(self) -> tuple[reconcile.FileStatus, ...]:
-        """How each installed config compares to its packaged template."""
-        return reconcile.status(self._config_dir)
+        """How each installed config compares to its packaged template (delegated)."""
+        return self.reconciler.reconcile_status()
 
     def stale_configs(self) -> tuple[str, ...]:
         """The installed config files that have fallen behind their template."""
-        return reconcile.drifted(self._config_dir)
+        return self.reconciler.stale_configs()
 
     def reconcile_structured_diff(self, name: str) -> configdiff.StructuredDiff:
-        """What an overwrite of `name` would change, per file type (empty = in sync)."""
-        return reconcile.structured_diff(self._config_dir, name)
+        """What an overwrite of `name` would change, per file type (delegated)."""
+        return self.reconciler.reconcile_structured_diff(name)
 
     def reconcile_overwrite(self, name: str) -> Path | None:
-        """Overwrite `name` from its template (backing up), then reload config.
-
-        The in-memory registries are rebuilt from disk so a subsequent ``cmd``
-        reflects the updated tool/alias output conventions without a restart;
-        the graph is rebuilt because it carries the tool registry.
-        """
-        backup = reconcile.overwrite(self._config_dir, name)
-        self._reload_after_reconcile()
-        return backup
+        """Overwrite `name` from its template, backing up and reloading (delegated)."""
+        return self.reconciler.reconcile_overwrite(name)
 
     def reconcile_overwrite_all(self) -> tuple[tuple[str, Path | None], ...]:
-        """Overwrite every drifted config from its template, reloading once.
+        """Overwrite every drifted config, reloading once (delegated)."""
+        return self.reconciler.reconcile_overwrite_all()
 
-        Returns ``(name, backup)`` for each file updated (empty when nothing had
-        drifted). The in-memory registries/graph are rebuilt a single time.
-        """
-        results = tuple(
-            (name, reconcile.overwrite(self._config_dir, name))
-            for name in reconcile.drifted(self._config_dir)
-        )
-        if results:
-            self._reload_after_reconcile()
-        return results
-
-    def _reload_after_reconcile(self) -> None:
+    def reload_registries(self) -> None:
         """Rebuild the registry/commands/graph from disk after a template write."""
         self.registry = self._load_registry()
         self.commands = self._load_commands()
