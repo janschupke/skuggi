@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from skuggi.agent.core import AgentCore, TurnEvent
+from skuggi.frontend import attach
 from skuggi.frontend.daemon import Daemon
 from skuggi.persistence import pdf as pdf_mod
 from skuggi.tooling import probe as probe_mod
@@ -688,11 +689,11 @@ def test_help_for_a_verb_lists_nouns(daemon: Daemon) -> None:
 
 
 def test_is_set_interactive_detects_no_value_forms() -> None:
-    assert Daemon._is_set_interactive("set provider")
-    assert Daemon._is_set_interactive("set model")
-    assert not Daemon._is_set_interactive("set provider openai")
-    assert not Daemon._is_set_interactive("set mode pentest")
-    assert not Daemon._is_set_interactive("show status")
+    assert attach.is_set_interactive("set provider")
+    assert attach.is_set_interactive("set model")
+    assert not attach.is_set_interactive("set provider openai")
+    assert not attach.is_set_interactive("set mode pentest")
+    assert not attach.is_set_interactive("show status")
 
 
 def test_attach_set_model_round_trips_a_choose_frame(daemon: Daemon) -> None:

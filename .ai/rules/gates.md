@@ -17,9 +17,9 @@ pytest                       # --cov-fail-under=90, branch coverage
 - **Size guards.** Function size/complexity is ruff's job: the `PLR09xx` family
   (branches/returns/args/statements) plus `C901` at `max-complexity = 15`. File
   length is [`scripts/check_file_size.py`](../../scripts/check_file_size.py) — a
-  1050-line cap, since ruff has no file-length rule. Over the cap? Split along a
+  1000-line cap, since ruff has no file-length rule. Over the cap? Split along a
   real seam (the way `dispatch.py` became outcomes/presenters and `daemon.py` shed
-  `daemon_server.py`), never raise the cap or cut a file arbitrarily.
+  `daemon_server.py` + `attach.py`), never raise the cap or cut a file arbitrarily.
 - **Coverage is branch-based and floored at 90%** (measured ~92%). A new branch
   needs a test; don't drop the floor.
 - **The gate is offline and isolated.** It never talks to a provider and never

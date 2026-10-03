@@ -7,16 +7,16 @@ module has a ceiling, past which it should be split along a real seam -- never a
 arbitrary part-1/part-2 cut. It runs inside ``make check`` and CI alongside
 ruff/mypy, and as a pre-commit hook.
 
-The cap is deliberately generous: it catches bloat, it does not force cosmetic
-splits. Two modules sit near it on purpose and have no clean module seam (splitting
-either would mean a mixin that re-introduces cross-module private access):
+The cap catches bloat; it does not force cosmetic splits. One module sits just
+under it on purpose: ``agent/core.py`` (``AgentCore``, the one session hub). Its
+bulk is state-mutating methods of a single object, so the only way to move them out
+is a mixin -- a class split across files, with a Protocol/base to satisfy mypy
+strict -- which buys a line count at the cost of indirection and re-introduces the
+cross-module private access the public-seam refactor removed. It stays whole.
 
-- ``agent/core.py``   -- ``AgentCore``, the one session hub.
-- ``frontend/daemon.py`` -- ``Daemon``, the wrapped-shell front-end.
-
-If one of those needs to grow past the cap, that is the signal to find a genuine
-seam (as the dispatch -> outcomes/presenters and daemon -> daemon_server splits
-did), not to raise the cap.
+If a file needs to grow past the cap, that is the signal to find a genuine seam
+(as ``dispatch.py`` -> ``outcomes``/``presenters`` and ``daemon.py`` ->
+``daemon_server``/``attach`` did), not to raise the cap.
 
 Usage:
     python scripts/check_file_size.py            # gate the tree
@@ -33,7 +33,7 @@ from pathlib import Path
 # The numbered practice labs hold deliberately-messy vulnerable app code and are
 # excluded from every gate, this one included.
 ROOTS = ("src/skuggi", "tests", "labs/_lib", "scripts")
-MAX_LINES = 1050
+MAX_LINES = 1000
 
 
 def _line_count(path: Path) -> int:

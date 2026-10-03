@@ -21,33 +21,25 @@ time.
 
 from __future__ import annotations
 
-import json
 import threading
-import zoneinfo
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import cast
 
-from skuggi.agent import protocol
 from skuggi.agent.core import AgentCore
-from skuggi.common import palette
 from skuggi.common.logs import get_logger
 from skuggi.frontend import (
+    attach,
     cmdflow,
     completion,
-    configflow,
     control,
     dispatch,
-    installflow,
     outcomes,
     presenters,
     render,
-    scopeflow,
-    setup,
     verbs,
     wizard,
 )
-from skuggi.frontend.prompter import Prompter
 from skuggi.install import reconcile
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import finding_line
@@ -184,30 +176,32 @@ class Daemon:
             line = read_line()
             if line is None:  # client disconnected
                 return
-            if self._is_wizard(line):
-                self._attach_wizard(read_line, emit)
+            if attach.is_wizard(line):
+                attach.attach_wizard(self.core, self._lock, read_line, emit)
                 continue
-            if self._is_set_interactive(line):
-                self._attach_set(line, read_line, emit)
+            if attach.is_set_interactive(line):
+                attach.attach_set(self.core, self._lock, line, read_line, emit)
                 continue
-            if self._is_cmd_editor(line):
-                self._attach_cmd_editor(line, read_line, emit)
+            if attach.is_cmd_editor(line):
+                attach.attach_cmd_editor(self.core, self._lock, line, read_line, emit)
                 continue
-            if self._is_cmd_suggest(line):
+            if attach.is_cmd_suggest(line):
                 request = verbs.split_verb(line)[1].partition(" ")[2]
-                self._attach_cmd_suggest(request, read_line, emit)
+                attach.attach_cmd_suggest(
+                    self.core, self._lock, request, read_line, emit
+                )
                 continue
-            if self._is_config_request(line):
+            if attach.is_config_request(self.core, line):
                 # Drop the "set config" prefix; the request is the remaining tail.
                 request = verbs.split_verb(line)[1].partition(" ")[2]
-                self._attach_config(request, read_line, emit)
+                attach.attach_config(self.core, self._lock, request, read_line, emit)
                 continue
-            if self._is_scope_request(line):
+            if attach.is_scope_request(line):
                 request = verbs.split_verb(line)[1].partition(" ")[2]
-                self._attach_scope(request, read_line, emit)
+                attach.attach_scope(self.core, self._lock, request, read_line, emit)
                 continue
-            if self._is_install_missing(line):
-                self._attach_install_missing(read_line, emit)
+            if attach.is_install_missing(line):
+                attach.attach_install_missing(self.core, self._lock, read_line, emit)
                 continue
             exit_session = False
             for resp in self.handle_request({"op": "input", "text": line}):
@@ -216,343 +210,6 @@ class Daemon:
                     exit_session = bool(resp.get("exit"))
             if exit_session:
                 return
-
-    @staticmethod
-    def _is_wizard(line: str) -> bool:
-        """Whether `line` opens the interactive engagement wizard."""
-        verb, rest = verbs.split_verb(line)
-        parts = rest.split()
-        return verb == "engagement" and bool(parts) and parts[0] in wizard.WIZARD_ARGS
-
-    def _engagement_catalog(self) -> wizard.Catalog:
-        """The option sources the wizard offers (zones, tools, enums)."""
-        tools = tuple(spec.binary for spec in self.core.registry.tools)
-        return wizard.Catalog(
-            timezones=tuple(sorted(zoneinfo.available_timezones())),
-            tools=tools,
-            methods=palette.methods(),
-            methodologies=protocol.METHODOLOGIES,
-            taxonomies=protocol.TAXONOMIES,
-            stances=protocol.STANCES,
-        )
-
-    def _attach_wizard(
-        self,
-        read_line: Callable[[], str | None],
-        emit: Callable[[dict[str, object]], None],
-    ) -> None:
-        """Run the engagement wizard over the attach connection.
-
-        Menus (``{"choose"}``) and the checklist (``{"multiselect"}``) round-trip
-        to the client, which renders prompt_toolkit widgets locally; autocomplete
-        is REPL-only and degrades to a plain ``{"ask"}`` prompt here. The step bar
-        and status lines ride ``{"chunk"}``. The turn closes with a non-exit
-        ``end`` frame.
-        """
-
-        def ask(prompt: str) -> str | None:
-            emit({"ask": prompt})
-            return read_line()
-
-        def ask_complete(
-            prompt: str, _candidates: Sequence[str], _default: str | None
-        ) -> str | None:
-            emit({"ask": prompt})  # autocomplete is REPL-only; label carries [current]
-            return read_line()
-
-        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
-            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
-            return read_line()
-
-        def multiselect(
-            prompt: str, options: Sequence[str], preselected: Sequence[str]
-        ) -> list[str] | None:
-            emit(
-                {
-                    "multiselect": {
-                        "prompt": prompt,
-                        "options": list(options),
-                        "preselected": list(preselected),
-                    }
-                }
-            )
-            line = read_line()
-            if line is None:
-                return None
-            try:
-                picks = json.loads(line)
-            except json.JSONDecodeError:
-                return None
-            return [str(p) for p in picks] if isinstance(picks, list) else None
-
-        def confirm(prompt: str, default: bool) -> bool | None:
-            emit(
-                {
-                    "choose": {
-                        "prompt": prompt,
-                        "options": ["yes", "no"],
-                        "default": "yes" if default else "no",
-                    }
-                }
-            )
-            line = read_line()
-            return None if line is None else line == "yes"
-
-        def notify(text: str) -> None:
-            emit({"chunk": text + "\n"})
-
-        def progress(step: int, total: int, label: str) -> None:
-            emit({"chunk": f"[{step}/{total}] {label}\n"})
-
-        prompter = Prompter(
-            ask=ask,
-            ask_complete=ask_complete,
-            choose=choose,
-            multiselect=multiselect,
-            confirm=confirm,
-            notify=notify,
-            progress=progress,
-        )
-        self.core.note_interaction("engagement", "setup")
-        with self._lock:
-            try:
-                wizard.run_wizard(
-                    prompter,
-                    self.core.create_engagement,
-                    self._engagement_catalog(),
-                    existing=self.core.engagement,
-                )
-            except Exception as exc:  # defensive: never kill the daemon thread
-                log.exception("engagement wizard failed")
-                emit({"chunk": f"engagement setup failed: {exc}\n"})
-        emit({"end": True, "exit": False})
-
-    @staticmethod
-    def _is_cmd_editor(line: str) -> bool:
-        """Whether `line` opens the interactive cheatsheet editor (cmd add/edit)."""
-        verb, rest = verbs.split_verb(line)
-        parts = rest.split()
-        return (
-            verb == "cmd"
-            and bool(parts)
-            and parts[0] in (cmdflow.ADD_ARGS | cmdflow.EDIT_ARGS)
-        )
-
-    def _attach_cmd_editor(
-        self,
-        line: str,
-        read_line: Callable[[], str | None],
-        emit: Callable[[dict[str, object]], None],
-    ) -> None:
-        """Run the cheatsheet editor over the attach connection (like the wizard)."""
-
-        def ask(prompt: str) -> str | None:
-            emit({"ask": prompt})
-            return read_line()
-
-        def notify(text: str) -> None:
-            emit({"chunk": text + "\n"})
-
-        _, rest = verbs.split_verb(line)
-        parts = rest.split()
-        sub, name = parts[0], (parts[1] if len(parts) > 1 else "")
-        self.core.note_interaction("cmd", rest)
-        with self._lock:
-            if sub in cmdflow.EDIT_ARGS:
-                existing = self.core.commands.alias_for(name)
-                if existing is None:
-                    notify(f"unknown alias {name!r}")
-                else:
-                    cmdflow.run_cmd_editor(
-                        ask,
-                        lambda raw: self.core.cmds.update(name, raw),
-                        notify,
-                        existing=existing,
-                    )
-            else:
-                cmdflow.run_cmd_editor(ask, self.core.cmds.add, notify)
-        emit({"end": True, "exit": False})
-
-    @staticmethod
-    def _is_set_interactive(line: str) -> bool:
-        """Whether `line` is ``set provider``/``set model`` with no value (a picker).
-
-        Only the no-value forms prompt; ``set provider openai`` stays a one-shot.
-        """
-        verb, rest = verbs.split_verb(line)
-        parts = rest.split()
-        return verb == "set" and len(parts) == 1 and parts[0] in {"provider", "model"}
-
-    def _attach_set(
-        self,
-        line: str,
-        read_line: Callable[[], str | None],
-        emit: Callable[[dict[str, object]], None],
-    ) -> None:
-        """Run ``set provider`` / ``set model`` interactively over the attach loop.
-
-        ``set provider`` (no name) is the full guided provider+credential+model
-        flow; ``set model`` (no name) picks a model for the current provider.
-        """
-
-        def ask(prompt: str) -> str | None:
-            emit({"ask": prompt})
-            return read_line()
-
-        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
-            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
-            return read_line()
-
-        def notify(text: str) -> None:
-            emit({"chunk": text + "\n"})
-
-        _, rest = verbs.split_verb(line)
-        noun = rest.split()[0]
-        self.core.note_interaction("set", rest)
-        with self._lock:
-            if noun == "provider":
-                setup.run_setup(self.core, ask, choose, notify)
-            else:
-                setup.run_model_select(
-                    self.core, self.core.provider, ask, choose, notify
-                )
-        emit({"end": True, "exit": False})
-
-    def _is_config_request(self, line: str) -> bool:
-        """Whether `line` is a natural-language ``set config`` request (escalation)."""
-        verb, rest = verbs.split_verb(line)
-        if verb != "set":
-            return False
-        noun, _, tail = rest.partition(" ")
-        if noun != "config":
-            return False
-        parts = tail.split(maxsplit=1)
-        if not parts or parts[0] == "show":
-            return False
-        return parts[0] not in self.core.config.settable_keys()
-
-    def _attach_config(
-        self,
-        arg: str,
-        read_line: Callable[[], str | None],
-        emit: Callable[[dict[str, object]], None],
-    ) -> None:
-        """Run the LLM config escalation over the attach connection."""
-
-        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
-            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
-            return read_line()
-
-        self.core.note_interaction("config", arg)
-        with self._lock:
-            configflow.run_config_request(
-                arg,
-                choose=choose,
-                notify=lambda text: emit({"chunk": text + "\n"}),
-                propose=self.core.config.propose,
-                apply=self.core.config.apply,
-                grants=self.core.grants,
-            )
-        emit({"end": True, "exit": False})
-
-    @staticmethod
-    def _is_cmd_suggest(line: str) -> bool:
-        """Whether `line` is ``cmd suggest <request>`` (interactive)."""
-        verb, rest = verbs.split_verb(line)
-        parts = rest.split()
-        return (
-            verb == "cmd"
-            and bool(parts)
-            and parts[0] in cmdflow.SUGGEST_ARGS
-            and len(parts) > 1
-        )
-
-    def _attach_cmd_suggest(
-        self,
-        request: str,
-        read_line: Callable[[], str | None],
-        emit: Callable[[dict[str, object]], None],
-    ) -> None:
-        """Run the cmd-suggest confirm flow over the attach connection."""
-
-        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
-            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
-            return read_line()
-
-        self.core.note_interaction("cmd", f"suggest {request}")
-        with self._lock:
-            cmdflow.run_cmd_suggest(
-                request,
-                choose=choose,
-                notify=lambda text: emit({"chunk": text + "\n"}),
-                propose=self.core.cmds.propose,
-                preview=self.core.cmds.preview_proposal,
-                apply=self.core.cmds.apply_proposal,
-                grants=self.core.grants,
-            )
-        emit({"end": True, "exit": False})
-
-    @staticmethod
-    def _is_scope_request(line: str) -> bool:
-        """Whether `line` is a ``set scope <request>`` (always interactive)."""
-        verb, rest = verbs.split_verb(line)
-        if verb != "set":
-            return False
-        noun, _, tail = rest.partition(" ")
-        return noun == "scope" and bool(tail.strip())
-
-    def _attach_scope(
-        self,
-        request: str,
-        read_line: Callable[[], str | None],
-        emit: Callable[[dict[str, object]], None],
-    ) -> None:
-        """Run the scope-edit confirm flow over the attach connection."""
-
-        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
-            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
-            return read_line()
-
-        self.core.note_interaction("set", f"scope {request}")
-        with self._lock:
-            scopeflow.run_scope_request(
-                request,
-                choose=choose,
-                notify=lambda text: emit({"chunk": text + "\n"}),
-                propose=self.core.scope.propose,
-                preview=self.core.scope.preview,
-                apply=self.core.scope.apply,
-                grants=self.core.grants,
-            )
-        emit({"end": True, "exit": False})
-
-    @staticmethod
-    def _is_install_missing(line: str) -> bool:
-        """Whether `line` is ``doctor install missing`` (the gated install flow)."""
-        verb, rest = verbs.split_verb(line)
-        return verb == "doctor" and dispatch.doctor_install_target(rest) == "missing"
-
-    def _attach_install_missing(
-        self,
-        read_line: Callable[[], str | None],
-        emit: Callable[[dict[str, object]], None],
-    ) -> None:
-        """Install the missing scoped tools over the attach connection."""
-
-        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
-            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
-            return read_line()
-
-        self.core.note_interaction("doctor", "install missing")
-        with self._lock:
-            installflow.run_install_missing(
-                choose=choose,
-                notify=lambda text: emit({"chunk": text + "\n"}),
-                propose=self.core.doctor.propose_installs,
-                install=self.core.doctor.install,
-                grants=self.core.grants,
-            )
-        emit({"end": True, "exit": False})
 
     def _dispatch(self, msg: dict[str, object]) -> Iterator[dict[str, object]]:
         if msg.get("op") == "exit":
