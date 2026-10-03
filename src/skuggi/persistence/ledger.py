@@ -29,314 +29,62 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, fields
 from pathlib import Path
 
 from skuggi.common.clock import now_iso
 from skuggi.common.execution import CommandResult
 from skuggi.common.paths import ensure_parent
 from skuggi.frameworks import cvss, registry
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS sessions (
-    session_id      TEXT PRIMARY KEY,
-    engagement_name TEXT NOT NULL,
-    mode            TEXT NOT NULL,
-    started_at      TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS commands (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    thread_id   TEXT NOT NULL,
-    command     TEXT NOT NULL,
-    binary      TEXT NOT NULL,
-    method      TEXT,
-    status      TEXT NOT NULL,
-    exit_code   INTEGER,
-    stdout      TEXT NOT NULL DEFAULT '',
-    stderr      TEXT NOT NULL DEFAULT '',
-    reason      TEXT NOT NULL DEFAULT '',
-    started_at  TEXT NOT NULL,
-    finished_at TEXT,
-    turn_event_id INTEGER            -- -> events(id): the prompt that drove it
-);
-CREATE TABLE IF NOT EXISTS findings (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    command_id  INTEGER REFERENCES commands(id),
-    title       TEXT NOT NULL,
-    severity    TEXT NOT NULL,
-    description TEXT NOT NULL,
-    evidence    TEXT NOT NULL DEFAULT '',
-    -- CVSS v3.1, stored complete so a score reconstructs from (version, vector)
-    -- alone -- no agent turn, no network. cvss_severity is the band derived from
-    -- the vector; `severity` above stays the display/report value (derived from
-    -- cvss_severity when a vector is present, else set directly for info findings).
-    cvss_version       TEXT,
-    cvss_vector        TEXT,
-    cvss_base          REAL,
-    cvss_temporal      REAL,
-    cvss_environmental REAL,
-    cvss_score         REAL,
-    cvss_severity      TEXT,
-    -- Review lifecycle. Every finding is born 'draft'; only 'approved' reaches a
-    -- report. ``author`` is who recorded it ('agent' | 'operator'); a rejection
-    -- carries its ``review_reason`` (also fed back to the agent so it stops
-    -- re-asserting it), and ``reviewed_at`` stamps the last status change.
-    author       TEXT NOT NULL DEFAULT 'agent',
-    status       TEXT NOT NULL DEFAULT 'draft',
-    review_reason TEXT NOT NULL DEFAULT '',
-    reviewed_at  TEXT,
-    -- Score provenance for the freeze/flag/rescore flow: which threat-model version
-    -- the environmental score was computed under, and when. A finding is "outdated"
-    -- when this version != the engagement's current threat-model version.
-    cvss_tm_version INTEGER,
-    cvss_scored_at  TEXT,
-    created_at  TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS threat_model_versions (
-    version    INTEGER PRIMARY KEY AUTOINCREMENT,
-    snapshot   TEXT NOT NULL,       -- the ThreatModel as JSON, or '' for none
-    note       TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS finding_refs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    finding_id  INTEGER NOT NULL REFERENCES findings(id),
-    framework   TEXT NOT NULL,       -- wstg | attack | ptes
-    ref_id      TEXT NOT NULL,       -- e.g. WSTG-ATHN-01, T1110, PTES-05
-    title       TEXT NOT NULL DEFAULT '',
-    url         TEXT NOT NULL DEFAULT '',
-    is_primary  INTEGER NOT NULL DEFAULT 0   -- the driver framework's id
-);
-CREATE TABLE IF NOT EXISTS events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    thread_id   TEXT,
-    kind        TEXT NOT NULL,       -- prompt | response | command | finding
-    ref_id      INTEGER,             -- -> commands(id) / findings(id) by kind
-    text        TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS audit (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    kind        TEXT NOT NULL,       -- control | cli | review
-    verb        TEXT NOT NULL DEFAULT '',
-    detail      TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL
-);
-"""
-
-# Columns added to `commands` after the initial release; each is applied to an
-# already-created table with ADD COLUMN when missing (a fresh DB gets them from
-# the schema above). Kept plain (no REFERENCES) so ADD COLUMN is always legal.
-_COMMAND_MIGRATIONS = (("turn_event_id", "INTEGER"),)
-
-# Columns added to `findings` for CVSS scoring; applied to an older DB with ADD
-# COLUMN when missing (a fresh DB gets them from the schema). All nullable, since a
-# pre-existing finding (or an info finding) has no vector. `finding_refs` is a new
-# table, so it is created by the IF NOT EXISTS schema and needs no migration here.
-_FINDING_MIGRATIONS = (
-    ("cvss_version", "TEXT"),
-    ("cvss_vector", "TEXT"),
-    ("cvss_base", "REAL"),
-    ("cvss_temporal", "REAL"),
-    ("cvss_environmental", "REAL"),
-    ("cvss_score", "REAL"),
-    ("cvss_severity", "TEXT"),
-    ("author", "TEXT NOT NULL DEFAULT 'agent'"),
-    ("status", "TEXT NOT NULL DEFAULT 'draft'"),
-    ("review_reason", "TEXT NOT NULL DEFAULT ''"),
-    ("reviewed_at", "TEXT"),
-    ("cvss_tm_version", "INTEGER"),
-    ("cvss_scored_at", "TEXT"),
+from skuggi.persistence.ledger_schema import (
+    _AUDIT_COLS,
+    _COMMAND_COLS,
+    _COMMAND_MIGRATIONS,
+    _EVENT_COLS,
+    _FINDING_COLS,
+    _FINDING_MIGRATIONS,
+    _FINDING_REF_COLS,
+    _SCHEMA,
+    _SESSION_COLS,
+    _TM_VERSION_COLS,
+    AuditKind,
+    AuditRow,
+    CommandRow,
+    CommandStatus,
+    EventKind,
+    EventRow,
+    FindingAuthor,
+    FindingRefInput,
+    FindingRefRow,
+    FindingRow,
+    FindingStatus,
+    SessionRow,
+    ThreadSummary,
+    ThreatModelVersionRow,
 )
 
-
-@dataclass(frozen=True, slots=True)
-class SessionRow:
-    """One engagement session."""
-
-    session_id: str
-    engagement_name: str
-    mode: str
-    started_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class CommandRow:
-    """One recorded command (proposed, blocked or executed)."""
-
-    id: int
-    session_id: str
-    thread_id: str
-    command: str
-    binary: str
-    method: str | None
-    status: str
-    exit_code: int | None
-    stdout: str
-    stderr: str
-    reason: str
-    started_at: str
-    finished_at: str | None
-    turn_event_id: int | None
-
-
-@dataclass(frozen=True, slots=True)
-class FindingRow:
-    """One finding, linked to its session and (optionally) source command.
-
-    The ``cvss_*`` fields are populated when the finding carries a CVSS v3.1 vector
-    (``cvss_vector`` + ``cvss_version`` reconstruct every score); they are ``None``
-    for an info/manual finding scored only by ``severity``.
-
-    Model-facing boundary: storing a finding raw is fine (this row is the record
-    behind the report), but reaching the model is not. ``evidence`` is the raw
-    proof -- a captured response, a credential dump -- and is *never* put into a
-    request: it is absent from ``FindingBrief`` (``graph._finding_briefs``, which
-    also redacts the title) and from ``transcript._finding_block``. ``title`` and
-    ``description`` do reach the model (brief title; review transcript), so both
-    are passed through redaction on those paths. Keep ``evidence`` out of any new
-    model-facing projection.
-    """
-
-    id: int
-    session_id: str
-    command_id: int | None
-    title: str
-    severity: str
-    description: str
-    evidence: str
-    cvss_version: str | None
-    cvss_vector: str | None
-    cvss_base: float | None
-    cvss_temporal: float | None
-    cvss_environmental: float | None
-    cvss_score: float | None
-    cvss_severity: str | None
-    author: str
-    status: str
-    review_reason: str
-    reviewed_at: str | None
-    cvss_tm_version: int | None
-    cvss_scored_at: str | None
-    created_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class FindingRefRow:
-    """One framework citation attached to a finding (a WSTG/ATT&CK/PTES id + link)."""
-
-    id: int
-    finding_id: int
-    framework: str
-    ref_id: str
-    title: str
-    url: str
-    is_primary: int
-
-
-@dataclass(frozen=True, slots=True)
-class FindingRefInput:
-    """A framework id to attach to a finding; the ledger resolves its title + link."""
-
-    framework: str
-    ref_id: str
-    is_primary: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class ThreatModelVersionRow:
-    """One recorded threat-model version -- CVSS env scores are tagged by it."""
-
-    version: int
-    snapshot: str
-    note: str
-    created_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class EventRow:
-    """One entry on the engagement timeline (the ordered session spine).
-
-    ``kind`` is ``prompt`` / ``response`` (``text`` holds the operator directive
-    or agent answer) or ``command`` / ``finding`` (``ref_id`` points at the
-    ``commands`` / ``findings`` row carrying the detail).
-    """
-
-    id: int
-    session_id: str
-    thread_id: str | None
-    kind: str
-    ref_id: int | None
-    text: str
-    created_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class AuditRow:
-    """One harness-interaction record (a control verb, CLI noise, or a review)."""
-
-    id: int
-    session_id: str
-    kind: str
-    verb: str
-    detail: str
-    created_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class ThreadSummary:
-    """A conversation thread, summarised for ``show threads`` (so it is actionable).
-
-    ``first_prompt`` is the thread's opening operator directive (a label to
-    recognise it by); ``turns`` counts prompts; ``last_activity`` is the most
-    recent event's timestamp. Derived from the ``events`` table -- the langgraph
-    checkpointer stores only the id.
-    """
-
-    thread_id: str
-    turns: int
-    first_prompt: str
-    last_activity: str
-
-
-def finding_line(
-    row: FindingRow,
-    paint: Callable[[str, str], str] | None = None,
-    *,
-    outdated: bool = False,
-) -> str:
-    """One-line summary of a finding: ``SEV [id] title — author/status (cmd:N)``.
-
-    Shared by the REPL and the shell daemon so the row shape and the command
-    link never drift. ``paint`` styles the severity token (the REPL passes the
-    palette; the plaintext daemon passes nothing). ``outdated`` flags a finding
-    whose CVSS score predates a threat-model change (see ``Ledger.rescore``).
-    """
-    severity = row.severity.upper()
-    if paint is not None:
-        severity = paint(severity, row.severity)
-    link = f" (cmd:{row.command_id})" if row.command_id is not None else ""
-    stale = " ⚠ outdated" if outdated else ""
-    meta = f" — {row.author}/{row.status}{stale}"
-    return f"{severity} [{row.id}] {row.title}{meta}{link}"
-
-
-# Column lists derived from the row dataclasses, so SELECT order (and the
-# positional Row(*row) unpacking) can never drift from the field order. The
-# INSERT lists drop the autoincrement id.
-_SESSION_COLS = tuple(f.name for f in fields(SessionRow))
-_COMMAND_COLS = tuple(f.name for f in fields(CommandRow))
-_FINDING_COLS = tuple(f.name for f in fields(FindingRow))
-_FINDING_REF_COLS = tuple(f.name for f in fields(FindingRefRow))
-_TM_VERSION_COLS = tuple(f.name for f in fields(ThreatModelVersionRow))
-_EVENT_COLS = tuple(f.name for f in fields(EventRow))
-_AUDIT_COLS = tuple(f.name for f in fields(AuditRow))
+# The row types and status/kind vocabularies live in ``ledger_schema`` (a pure,
+# connection-free module) but ``ledger`` stays their public home: re-export them so
+# the ~20 ``from skuggi.persistence.ledger import <Row>`` sites need no change.
+__all__ = [
+    "AuditKind",
+    "AuditRow",
+    "CommandRow",
+    "CommandStatus",
+    "EventKind",
+    "EventRow",
+    "FindingAuthor",
+    "FindingRefInput",
+    "FindingRefRow",
+    "FindingRow",
+    "FindingStatus",
+    "Ledger",
+    "SessionRow",
+    "ThreadSummary",
+    "ThreatModelVersionRow",
+    "open_ledger",
+]
 
 
 # The column names interpolated below are code-defined dataclass field names
@@ -378,28 +126,22 @@ class Ledger:
         with self._lock:
             self._conn.execute("PRAGMA foreign_keys = ON")
             self._conn.executescript(_SCHEMA)
-            self._migrate_commands()
-            self._migrate_findings()
+            self._migrate("commands", _COMMAND_MIGRATIONS)
+            self._migrate("findings", _FINDING_MIGRATIONS)
             self._conn.commit()
 
-    def _migrate_commands(self) -> None:
-        """Add any post-release ``commands`` columns missing from an older DB.
+    def _migrate(self, table: str, migrations: tuple[tuple[str, str], ...]) -> None:
+        """Add any post-release columns missing from an older DB's ``table``.
 
-        A fresh database gets these from ``_SCHEMA``; a ledger created before the
+        A fresh database gets these from ``_SCHEMA``; a ledger created before a
         column existed is upgraded in place with ADD COLUMN. Idempotent -- run on
-        every open. The caller holds the lock.
+        every open. The caller holds the lock. The ``table``/column names are
+        code-defined (never user input), so S608 string-building does not apply.
         """
-        have = {row[1] for row in self._conn.execute("PRAGMA table_info(commands)")}
-        for name, decl in _COMMAND_MIGRATIONS:
+        have = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in migrations:
             if name not in have:
-                self._conn.execute(f"ALTER TABLE commands ADD COLUMN {name} {decl}")
-
-    def _migrate_findings(self) -> None:
-        """Add the CVSS ``findings`` columns to an older DB (same pattern as above)."""
-        have = {row[1] for row in self._conn.execute("PRAGMA table_info(findings)")}
-        for name, decl in _FINDING_MIGRATIONS:
-            if name not in have:
-                self._conn.execute(f"ALTER TABLE findings ADD COLUMN {name} {decl}")
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
     def start_session(
         self, session_id: str, *, engagement_name: str, mode: str
@@ -459,7 +201,7 @@ class Ledger:
             self._event_locked(
                 session_id=session_id,
                 thread_id=thread_id,
-                kind="command",
+                kind=EventKind.COMMAND,
                 ref_id=cid,
                 created_at=started_at,
             )
@@ -479,7 +221,7 @@ class Ledger:
         env_metrics: dict[str, str] | None = None,
         tm_version: int | None = None,
         refs: Sequence[FindingRefInput] = (),
-        author: str = "agent",
+        author: str = FindingAuthor.AGENT,
     ) -> int:
         """Insert a finding (plus its timeline event and any refs); return its id.
 
@@ -519,7 +261,7 @@ class Ledger:
                     eff.overall if eff else None,
                     eff.severity if eff else None,
                     author,
-                    "draft",
+                    FindingStatus.DRAFT,
                     "",
                     None,
                     tm_version if base else None,
@@ -548,7 +290,7 @@ class Ledger:
             self._event_locked(
                 session_id=session_id,
                 thread_id=None,
-                kind="finding",
+                kind=EventKind.FINDING,
                 ref_id=fid,
                 created_at=created_at,
             )
@@ -661,7 +403,7 @@ class Ledger:
                 turns[thread_id], first[thread_id] = 0, ""
                 order.append(thread_id)
             last[thread_id] = created_at  # ordered by id -> last row wins
-            if kind == "prompt":
+            if kind == EventKind.PROMPT:
                 turns[thread_id] += 1
                 if not first[thread_id]:
                     first[thread_id] = text
@@ -735,7 +477,7 @@ class Ledger:
 
     def approved_findings_for(self, session_id: str) -> list[FindingRow]:
         """Only the approved findings -- what a report is allowed to contain."""
-        return self.findings_for(session_id, status="approved")
+        return self.findings_for(session_id, status=FindingStatus.APPROVED)
 
     def set_finding_status(
         self, finding_id: int, status: str, *, reason: str = ""
@@ -786,15 +528,6 @@ class Ledger:
                 "SELECT MAX(version) FROM threat_model_versions"
             ).fetchone()
         return int(row[0]) if row and row[0] is not None else 0
-
-    def latest_threat_model_snapshot(self) -> str | None:
-        """The most recent recorded snapshot, or None when none is recorded."""
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT snapshot FROM threat_model_versions"
-                " ORDER BY version DESC LIMIT 1"
-            ).fetchone()
-        return str(row[0]) if row else None
 
     def threat_model_history(self) -> list[ThreatModelVersionRow]:
         """Every recorded threat-model version, oldest first (the change log)."""

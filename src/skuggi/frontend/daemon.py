@@ -42,7 +42,6 @@ from skuggi.frontend import (
 )
 from skuggi.install import reconcile
 from skuggi.persistence import reports, visualize
-from skuggi.persistence.ledger import finding_line
 from skuggi.tooling.commands import CommandAlias
 from skuggi.tooling.commands import render as render_alias
 from skuggi.tooling.doctor import (
@@ -616,7 +615,7 @@ class Daemon:
     def _add_record(self, arg: str) -> Iterator[str]:
         outcome = dispatch.run_add(self.core, arg)
         if isinstance(outcome, outcomes.FindingRecorded):
-            yield "recorded " + finding_line(outcome.row) + "\n"
+            yield "recorded " + presenters.finding_line(outcome.row) + "\n"
             return
         yield from self._emit(presenters.present_add(outcome, self._surface()))
 
@@ -650,7 +649,7 @@ class Daemon:
         current = self.core.ledger.current_threat_model_version()
         yield (
             "\n".join(
-                finding_line(
+                presenters.finding_line(
                     f,
                     outdated=f.cvss_tm_version is not None
                     and f.cvss_tm_version != current,

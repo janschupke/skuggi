@@ -1,0 +1,338 @@
+"""The ledger's data definitions: table DDL, migrations, row types, vocabulary.
+
+Split out of ``ledger.py`` because these are pure declarations with no dependency
+on the ``Ledger`` class or a live sqlite connection -- they change for a different
+reason (schema evolution) than the query behaviour does, and keeping them separate
+lets a light consumer (``visualize``, ``presenters``) import a row type or a status
+constant without pulling in sqlite/threading.
+
+The status/kind/author vocabularies are ``StrEnum``s so the one spelling lives here
+and ``ledger``/``dispatch``/``visualize`` stop re-typing the bare strings. Each
+member's value is the string stored in the DB, so a row's plain-text ``status``
+compares equal to the enum and an enum passes anywhere a column string is expected.
+The DDL ``DEFAULT`` clauses below stay literal (they are raw SQL) but mirror these.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, fields
+from enum import StrEnum
+
+
+class CommandStatus(StrEnum):
+    """How a recorded command relates to execution."""
+
+    PROPOSED = "proposed"
+    BLOCKED = "blocked"
+    EXECUTED = "executed"
+    PASSTHROUGH = "passthrough"
+
+
+class FindingStatus(StrEnum):
+    """A finding's review lifecycle; only ``APPROVED`` reaches a report."""
+
+    DRAFT = "draft"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class FindingAuthor(StrEnum):
+    """Who recorded a finding."""
+
+    AGENT = "agent"
+    OPERATOR = "operator"
+
+
+class EventKind(StrEnum):
+    """The kind of a timeline event (the ordered session spine)."""
+
+    PROMPT = "prompt"
+    RESPONSE = "response"
+    COMMAND = "command"
+    FINDING = "finding"
+
+
+class AuditKind(StrEnum):
+    """The channel of a harness-interaction audit entry."""
+
+    CONTROL = "control"
+    CLI = "cli"
+    REVIEW = "review"
+
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id      TEXT PRIMARY KEY,
+    engagement_name TEXT NOT NULL,
+    mode            TEXT NOT NULL,
+    started_at      TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS commands (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
+    thread_id   TEXT NOT NULL,
+    command     TEXT NOT NULL,
+    binary      TEXT NOT NULL,
+    method      TEXT,
+    status      TEXT NOT NULL,
+    exit_code   INTEGER,
+    stdout      TEXT NOT NULL DEFAULT '',
+    stderr      TEXT NOT NULL DEFAULT '',
+    reason      TEXT NOT NULL DEFAULT '',
+    started_at  TEXT NOT NULL,
+    finished_at TEXT,
+    turn_event_id INTEGER            -- -> events(id): the prompt that drove it
+);
+CREATE TABLE IF NOT EXISTS findings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
+    command_id  INTEGER REFERENCES commands(id),
+    title       TEXT NOT NULL,
+    severity    TEXT NOT NULL,
+    description TEXT NOT NULL,
+    evidence    TEXT NOT NULL DEFAULT '',
+    -- CVSS v3.1, stored complete so a score reconstructs from (version, vector)
+    -- alone -- no agent turn, no network. cvss_severity is the band derived from
+    -- the vector; `severity` above stays the display/report value (derived from
+    -- cvss_severity when a vector is present, else set directly for info findings).
+    cvss_version       TEXT,
+    cvss_vector        TEXT,
+    cvss_base          REAL,
+    cvss_temporal      REAL,
+    cvss_environmental REAL,
+    cvss_score         REAL,
+    cvss_severity      TEXT,
+    -- Review lifecycle. Every finding is born 'draft'; only 'approved' reaches a
+    -- report. ``author`` is who recorded it ('agent' | 'operator'); a rejection
+    -- carries its ``review_reason`` (also fed back to the agent so it stops
+    -- re-asserting it), and ``reviewed_at`` stamps the last status change.
+    author       TEXT NOT NULL DEFAULT 'agent',
+    status       TEXT NOT NULL DEFAULT 'draft',
+    review_reason TEXT NOT NULL DEFAULT '',
+    reviewed_at  TEXT,
+    -- Score provenance for the freeze/flag/rescore flow: which threat-model version
+    -- the environmental score was computed under, and when. A finding is "outdated"
+    -- when this version != the engagement's current threat-model version.
+    cvss_tm_version INTEGER,
+    cvss_scored_at  TEXT,
+    created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS threat_model_versions (
+    version    INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot   TEXT NOT NULL,       -- the ThreatModel as JSON, or '' for none
+    note       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS finding_refs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    finding_id  INTEGER NOT NULL REFERENCES findings(id),
+    framework   TEXT NOT NULL,       -- wstg | attack | ptes
+    ref_id      TEXT NOT NULL,       -- e.g. WSTG-ATHN-01, T1110, PTES-05
+    title       TEXT NOT NULL DEFAULT '',
+    url         TEXT NOT NULL DEFAULT '',
+    is_primary  INTEGER NOT NULL DEFAULT 0   -- the driver framework's id
+);
+CREATE TABLE IF NOT EXISTS events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
+    thread_id   TEXT,
+    kind        TEXT NOT NULL,       -- prompt | response | command | finding
+    ref_id      INTEGER,             -- -> commands(id) / findings(id) by kind
+    text        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
+    kind        TEXT NOT NULL,       -- control | cli | review
+    verb        TEXT NOT NULL DEFAULT '',
+    detail      TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+"""
+
+# Columns added to `commands` after the initial release; each is applied to an
+# already-created table with ADD COLUMN when missing (a fresh DB gets them from
+# the schema above). Kept plain (no REFERENCES) so ADD COLUMN is always legal.
+_COMMAND_MIGRATIONS = (("turn_event_id", "INTEGER"),)
+
+# Columns added to `findings` for CVSS scoring; applied to an older DB with ADD
+# COLUMN when missing (a fresh DB gets them from the schema). All nullable, since a
+# pre-existing finding (or an info finding) has no vector. `finding_refs` is a new
+# table, so it is created by the IF NOT EXISTS schema and needs no migration here.
+_FINDING_MIGRATIONS = (
+    ("cvss_version", "TEXT"),
+    ("cvss_vector", "TEXT"),
+    ("cvss_base", "REAL"),
+    ("cvss_temporal", "REAL"),
+    ("cvss_environmental", "REAL"),
+    ("cvss_score", "REAL"),
+    ("cvss_severity", "TEXT"),
+    ("author", "TEXT NOT NULL DEFAULT 'agent'"),
+    ("status", "TEXT NOT NULL DEFAULT 'draft'"),
+    ("review_reason", "TEXT NOT NULL DEFAULT ''"),
+    ("reviewed_at", "TEXT"),
+    ("cvss_tm_version", "INTEGER"),
+    ("cvss_scored_at", "TEXT"),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SessionRow:
+    """One engagement session."""
+
+    session_id: str
+    engagement_name: str
+    mode: str
+    started_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class CommandRow:
+    """One recorded command (proposed, blocked or executed)."""
+
+    id: int
+    session_id: str
+    thread_id: str
+    command: str
+    binary: str
+    method: str | None
+    status: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    reason: str
+    started_at: str
+    finished_at: str | None
+    turn_event_id: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class FindingRow:
+    """One finding, linked to its session and (optionally) source command.
+
+    The ``cvss_*`` fields are populated when the finding carries a CVSS v3.1 vector
+    (``cvss_vector`` + ``cvss_version`` reconstruct every score); they are ``None``
+    for an info/manual finding scored only by ``severity``.
+
+    Model-facing boundary: storing a finding raw is fine (this row is the record
+    behind the report), but reaching the model is not. ``evidence`` is the raw
+    proof -- a captured response, a credential dump -- and is *never* put into a
+    request: it is absent from ``FindingBrief`` (``executor._finding_briefs``,
+    which also redacts the title) and from ``transcript._finding_block``. ``title``
+    and ``description`` do reach the model (brief title; review transcript), so both
+    are passed through redaction on those paths. Keep ``evidence`` out of any new
+    model-facing projection.
+    """
+
+    id: int
+    session_id: str
+    command_id: int | None
+    title: str
+    severity: str
+    description: str
+    evidence: str
+    cvss_version: str | None
+    cvss_vector: str | None
+    cvss_base: float | None
+    cvss_temporal: float | None
+    cvss_environmental: float | None
+    cvss_score: float | None
+    cvss_severity: str | None
+    author: str
+    status: str
+    review_reason: str
+    reviewed_at: str | None
+    cvss_tm_version: int | None
+    cvss_scored_at: str | None
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class FindingRefRow:
+    """One framework citation attached to a finding (a WSTG/ATT&CK/PTES id + link)."""
+
+    id: int
+    finding_id: int
+    framework: str
+    ref_id: str
+    title: str
+    url: str
+    is_primary: int
+
+
+@dataclass(frozen=True, slots=True)
+class FindingRefInput:
+    """A framework id to attach to a finding; the ledger resolves its title + link."""
+
+    framework: str
+    ref_id: str
+    is_primary: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ThreatModelVersionRow:
+    """One recorded threat-model version -- CVSS env scores are tagged by it."""
+
+    version: int
+    snapshot: str
+    note: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class EventRow:
+    """One entry on the engagement timeline (the ordered session spine).
+
+    ``kind`` is ``prompt`` / ``response`` (``text`` holds the operator directive
+    or agent answer) or ``command`` / ``finding`` (``ref_id`` points at the
+    ``commands`` / ``findings`` row carrying the detail).
+    """
+
+    id: int
+    session_id: str
+    thread_id: str | None
+    kind: str
+    ref_id: int | None
+    text: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class AuditRow:
+    """One harness-interaction record (a control verb, CLI noise, or a review)."""
+
+    id: int
+    session_id: str
+    kind: str
+    verb: str
+    detail: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadSummary:
+    """A conversation thread, summarised for ``show threads`` (so it is actionable).
+
+    ``first_prompt`` is the thread's opening operator directive (a label to
+    recognise it by); ``turns`` counts prompts; ``last_activity`` is the most
+    recent event's timestamp. Derived from the ``events`` table -- the langgraph
+    checkpointer stores only the id.
+    """
+
+    thread_id: str
+    turns: int
+    first_prompt: str
+    last_activity: str
+
+
+# Column lists derived from the row dataclasses, so SELECT order (and the
+# positional Row(*row) unpacking) can never drift from the field order. The
+# INSERT lists drop the autoincrement id.
+_SESSION_COLS = tuple(f.name for f in fields(SessionRow))
+_COMMAND_COLS = tuple(f.name for f in fields(CommandRow))
+_FINDING_COLS = tuple(f.name for f in fields(FindingRow))
+_FINDING_REF_COLS = tuple(f.name for f in fields(FindingRefRow))
+_TM_VERSION_COLS = tuple(f.name for f in fields(ThreatModelVersionRow))
+_EVENT_COLS = tuple(f.name for f in fields(EventRow))
+_AUDIT_COLS = tuple(f.name for f in fields(AuditRow))

@@ -49,7 +49,7 @@ from skuggi.frontend import (
 from skuggi.frontend.prompter import Prompter
 from skuggi.install import reconcile
 from skuggi.persistence import reports, visualize
-from skuggi.persistence.ledger import Ledger, finding_line
+from skuggi.persistence.ledger import Ledger
 from skuggi.tooling.commands import CommandAlias
 from skuggi.tooling.commands import render as render_alias
 from skuggi.tooling.doctor import (
@@ -672,7 +672,7 @@ class Tui:
             return
         self.console.print(
             "[green]recorded[/green] "
-            + finding_line(
+            + presenters.finding_line(
                 outcome.row,
                 lambda text, sev: palette.paint(text, palette.severity_style(sev)),
             )
@@ -740,7 +740,7 @@ class Tui:
         current = self.core.ledger.current_threat_model_version()
         for finding in rows:
             self.console.print(
-                finding_line(
+                presenters.finding_line(
                     finding,
                     lambda text, sev: palette.paint(text, palette.severity_style(sev)),
                     outdated=finding.cvss_tm_version is not None
