@@ -143,6 +143,70 @@ handler — a stream handler would corrupt the Rich TUI — so these records go 
 file alone. The level is `SKUGGI_LOG_LEVEL` (or `DEBUG` under `SKUGGI_DEBUG`, else
 `INFO`), and noisy third-party loggers are capped at `WARNING`.
 
+## The data-plane boundary
+
+skuggi feeds command output, retrieved documents and prior findings back to the
+model, so it draws a hard line between a **control plane** (the model reasons and
+proposes commands over handles and redacted summaries) and a **data plane** (the
+raw secrets and PII live in files and the vault, and reach tools only). The line
+is one package, [src/skuggi/security/](../src/skuggi/security/), and it is
+deterministic — rule-based detectors, no model, no network.
+
+- **Redaction** ([redaction.py](../src/skuggi/security/redaction.py)) is a pure
+  function of `(text, policy)`: high-precision detectors (PEM keys, JWTs,
+  cloud/VCS tokens, auth headers, URL credentials, password assignments, crypt
+  hashes, emails, Luhn-checked cards) mark each sensitive span. `redact` masks
+  each either to a reversible `«KIND:id»` placeholder (with a vault) or to an
+  opaque `REDACTED` sentinel (without one). Recognising a mask keeps it
+  idempotent, so redacting twice is a no-op.
+- **The vault** ([vault.py](../src/skuggi/security/vault.py)) is a 0600
+  per-engagement SQLite file (`.vault.db` at the workspace root) mapping a
+  placeholder back to its real value. Ids are an HMAC of the value under a
+  persisted random salt, so an id leaks nothing and two values never collide. It
+  is never serialized into a request, brief, report or dashboard.
+- **The policy** ([policy.py](../src/skuggi/security/policy.py)) carries the
+  category toggles and the *allow set* — the engagement's own name, hosts,
+  networks and target, which the agent must still see in the clear (built from
+  the loaded `EngagementConfig`).
+
+Every model-bound request is assembled by `protocol.render_request`, and the
+graph redacts at each ingress feeding it: the operator's prompt/history, the
+retrieved RAG snippet (before it even reaches the checkpoint), captured command
+output (scrubbed *before* the summary cap, so a secret cannot ride past it), and
+finding titles. `graph.ask` then runs a last-resort egress net
+([tripwire.py](../src/skuggi/security/tripwire.py)) over the whole assembled
+block — `scrub` masks-and-logs anything a detector only sees in the full context,
+and `assert_clean` is the hard gate used in tests. The `/review` path redacts its
+transcript the same way; `/replay` and `/transcript` stay raw (operator-facing).
+
+Secrets flow back *toward tools* by rehydration: just before an autonomous
+command runs, `graph._run_or_propose` replaces every placeholder in its argv with
+the real value from the vault, so a credential the agent discovered (and only
+ever saw as a placeholder) reaches the tool — and nowhere else. The ledger row
+and the model-facing brief keep the placeholder form.
+
+Operator-supplied inputs (wordlists, user/credential lists) live as files under
+the workspace `inputs/` folder and pulled documents under `evidence/`; the agent
+learns of them only through a metadata-only inventory
+([datafiles.py](../src/skuggi/engagement/datafiles.py): name, size, line count,
+SHA-256, never contents) and references one *by path*. The guard
+(`engagement.check_command`) confines every data-file flag
+(`ToolSpec.input_file_flags`) to the workspace with
+`Workspace.confine_datafile`, rejecting a path that escapes the root, is
+absolute, or targets a control file (`scope.json`/ledger/vault). Binary documents
+are parsed by [documents.py](../src/skuggi/persistence/documents.py) with
+pure-Python readers under no-execute guardrails — no subprocess, macros refused
+(`.xlsm`/a `vbaProject.bin` member), size/page/cell caps and a zip-bomb check —
+and the extracted text is redacted at the retrieval chokepoint like any other
+ingest source.
+
+The honest limit: the model-egress path is deterministically closed and
+tripwire-tested, but the operator's own terminal is inside the trust boundary.
+skuggi cannot stop an operator reading an engagement file by hand (that is not a
+disclosure to the provider); it only guarantees nothing raw crosses into a model
+request. A secret an operator deliberately pastes into `ask` is redacted, but a
+determined operator inside the boundary is not something a harness can prevent.
+
 ## Standalone modules
 
 Files that can be read top-to-bottom in one sitting:

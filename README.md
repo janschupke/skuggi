@@ -279,14 +279,38 @@ Every command the agent proposes is parsed and checked by a single guard
 (`check_command` in [src/skuggi/engagement/engagement.py](src/skuggi/engagement/engagement.py)), in
 order: recognized tool → authorized tool → authorized method → inside the date
 window → inside the daily clock window → every extracted target inside an
-allowed network/host. The rule is conservative: a target-requiring command with
-no in-scope target is denied, and anything the guard cannot prove in scope is
-denied.
+allowed network/host → every data-file path confined to the workspace. The rule
+is conservative: a target-requiring command with no in-scope target is denied,
+and anything the guard cannot prove in scope is denied.
 
 `allowed_methods` is coarse by design: each registry entry declares one static
 method (`nmap`→`scan`, `curl`→`recon`), so it gates tool *categories* and
 largely reinforces `allowed_tools` — it does not distinguish `nmap -sn` from
 `nmap -A`.
+
+## Keeping secrets out of the model
+
+skuggi feeds command output, retrieved documents and prior findings back to the
+model, so a deterministic boundary ([src/skuggi/security/](src/skuggi/security/))
+scrubs secrets and PII out of every model-bound request first — no model, no
+network, just rule-based detectors. A discovered secret becomes a reversible
+`«KIND:id»` placeholder backed by a per-engagement 0600 vault; the model reasons
+over the placeholder, and when it proposes a command that uses one, the harness
+rehydrates the real value into the argv *just before the tool runs* — so a
+credential reaches the tool, never the chat. An egress tripwire re-scans the
+whole assembled request as a last resort, and is a hard gate in the tests.
+
+Sensitive inputs stay out of the chat entirely: wordlists and credential/user
+lists live as files under the workspace `inputs/` folder (pulled documents under
+`evidence/`), the agent sees only a metadata inventory (name, size, line count,
+hash — never contents) and points a tool at one *by path*, and the guard confines
+every such path to the workspace. Binary documents (pdf/docx/xlsx) are parsed by
+pure-Python readers with no-execute guardrails — no subprocess, macros refused,
+size/zip-bomb capped — and their text is redacted before it reaches the model.
+Findings are stored raw (they are the record behind the report) but their
+model-facing title/description are redacted, and the raw `evidence` never reaches
+a request. The boundary closes the model-egress path; it cannot police the
+operator's own terminal, which is inside the trust boundary.
 
 ## Commands: suggest by default, autonomous on request
 
@@ -390,12 +414,15 @@ engagements/<name>/
   scope.json            # the engagement boundary (the engagement setup)
   findings/             # per-finding artefacts (structured records are in the ledger)
   notes/notes.md        # `/skuggi add note` — timestamped operator notes
-  recon/nmap/  recon/dirs/  recon/domains/  recon/web/   # cmd output lands here
+  recon/nmap/  recon/dirs/  recon/domains/  recon/web/   # cmd output is written here
+  inputs/               # operator-supplied wordlists / user & credential lists (fed to tools by path)
+  evidence/             # files pulled from a target (downloads, documents)
   loot/                 # cracked hashes, captured creds, payloads
   loot/loot.md          # `/skuggi add loot` — timestamped loot log
   reports/              # /report output
   scripts/  tests/
   ledger.db             # this engagement's ledger
+  .vault.db             # 0600 secret vault for reversible redaction (never committed)
 ```
 
 The layout is configurable
