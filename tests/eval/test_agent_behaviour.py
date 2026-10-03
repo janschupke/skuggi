@@ -33,11 +33,26 @@ Runner = Callable[..., AgentState]
 @pytest.mark.parametrize("provider", ["openai", "anthropic", "ollama", "chatgpt"])
 def test_each_provider_completes_a_turn(run_turn: Runner, provider: str) -> None:
     settings = require(provider)  # type: ignore[arg-type]
-    state = run_turn(settings, "Reply with a single word: ready")
+    # Name a target so the deterministic backstop forces the full pipeline on every
+    # provider, however the planner triages -- which is what makes the critic run.
+    state = run_turn(settings, "What is a sensible first recon step for 10.0.0.5?")
 
     assert answer(state), f"{provider} produced no reply"
     # The critic's structured verdict must have run.
     assert state.get("approved") is not None, "the critic should have judged the draft"
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic"])
+def test_a_conversational_turn_is_answered_directly(
+    run_turn: Runner, provider: str
+) -> None:
+    """The latency fix: an identity question is answered in one call, no pipeline."""
+    settings = require(provider)  # type: ignore[arg-type]
+    state = run_turn(settings, "Who are you?")
+
+    assert answer(state), f"{provider} produced no reply"
+    # A direct answer never reaches the critic, so there is no verdict.
+    assert state.get("approved") is None, "a direct answer must skip the critic"
 
 
 def test_conversation_memory_survives_a_follow_up(run_turn: Runner) -> None:
@@ -55,7 +70,7 @@ def test_the_critic_loop_terminates_with_an_answer(run_turn: Runner) -> None:
     """The loop must always settle, whatever the critic says."""
     state = run_turn(
         require("openai"),
-        "Answer in exactly three words, no more: what colour is the sky?",
+        "In exactly three words, give a first recon step for 10.0.0.5.",
         max_revisions=2,
     )
 

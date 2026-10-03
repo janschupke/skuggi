@@ -170,6 +170,80 @@ def test_max_revisions_cuts_the_loop_off() -> None:
     assert state["messages"][-1].type == "ai"
 
 
+# --- triage (the planner answers directly) ----------------------------------
+
+
+def test_direct_answer_skips_the_worker_and_critic() -> None:
+    model = RoleScriptedChatModel(
+        planner_replies=[PlannerResponse(action="answer", answer="I am skuggi.")],
+    )
+
+    state = _turn(_app(model), "who are you?")
+
+    assert [m.type for m in state["messages"]] == ["human", "ai"]
+    assert "I am skuggi." in state["messages"][-1].text
+    assert state["draft"] == "I am skuggi."
+    # The pipeline never ran: no worker response, no critic verdict.
+    assert state.get("worker") is None
+    assert state.get("approved") is None
+    assert model.prompts_for("worker") == []
+    assert model.prompts_for("critic") == []
+
+
+def test_direct_answer_is_refused_mid_revision() -> None:
+    """A planner cannot abandon an in-flight revision by answering directly."""
+    model = RoleScriptedChatModel(
+        planner_replies=[
+            PlannerResponse(steps=("do the work",)),
+            PlannerResponse(action="answer", answer="never mind"),
+        ],
+        worker_replies=[
+            WorkerResponse(summary="first"),
+            WorkerResponse(summary="second"),
+        ],
+        critic_replies=[
+            CriticResponse(approved=False, reason="more"),
+            CriticResponse(approved=True, reason="ok"),
+        ],
+    )
+
+    state = _turn(_app(model), "explain", max_revisions=2)
+
+    assert state["revision_count"] == 1
+    # The revision pass ran the real pipeline, not the direct answer.
+    assert len(model.prompts_for("worker")) == 2
+    assert "never mind" not in state["messages"][-1].text
+    assert "second" in state["messages"][-1].text
+
+
+def test_blank_direct_answer_falls_back_to_the_pipeline() -> None:
+    model = RoleScriptedChatModel(
+        planner_replies=[PlannerResponse(action="answer", answer="   ")],
+        worker_replies=[WorkerResponse(summary="real answer")],
+        critic_replies=[CriticResponse(approved=True)],
+    )
+
+    state = _turn(_app(model), "who are you?")
+
+    assert model.prompts_for("worker")  # the worker ran
+    assert "real answer" in state["messages"][-1].text
+
+
+def test_backstop_forces_the_pipeline_when_a_target_is_named() -> None:
+    """A direct answer is refused when the turn plainly names a target (an IP)."""
+    model = RoleScriptedChatModel(
+        planner_replies=[PlannerResponse(action="answer", answer="no scan needed")],
+        worker_replies=[WorkerResponse(summary="scanning plan")],
+        critic_replies=[CriticResponse(approved=True)],
+    )
+
+    state = _turn(_app(model), "take a look at 10.0.0.5")
+
+    assert model.prompts_for("worker")  # the deterministic backstop forced the loop
+    assert "no scan needed" not in state["messages"][-1].text
+    assert "scanning plan" in state["messages"][-1].text
+
+
 # --- phase advancement ------------------------------------------------------
 
 

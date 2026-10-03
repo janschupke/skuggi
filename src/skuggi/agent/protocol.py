@@ -198,7 +198,18 @@ class RequestContext(BaseModel):
 
 
 class PlannerResponse(BaseModel):
-    """The planner's strict output: a plan plus a phase judgement."""
+    """The planner's strict output: a triage decision, a plan, a phase judgement.
+
+    The planner evaluates whether the full pipeline is warranted. For a
+    conversational / identity / clarification / simple-advice turn that needs no
+    recon, tools or multi-step work it returns ``action="answer"`` with the reply
+    in ``answer``; the graph then routes straight to ``respond`` in a single model
+    call, skipping the worker and critic. For anything that needs reconnaissance,
+    a command, or multi-step investigation it returns ``action="plan"`` with
+    ``steps`` and the existing pipeline runs. ``action`` defaults to ``"plan"`` so
+    a provider (or fake) that omits it keeps the old always-pipeline behaviour.
+    ``answer`` is read only when ``action == "answer"``.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -206,6 +217,8 @@ class PlannerResponse(BaseModel):
     # planner only *suggests* the next phase via ``advance_to``. There is no
     # required ``phase`` field -- a provider that omits it must not fail the turn.
     advance_to: Phase | None = None
+    action: Literal["answer", "plan"] = "plan"
+    answer: str = ""
     steps: tuple[str, ...] = ()
     rationale: str = ""
 

@@ -22,6 +22,7 @@ exactly one rendered answer in the conversation rather than one per pass.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -274,6 +275,55 @@ def route_after_critic(state: AgentState) -> Literal["bump", "respond"]:
     return "bump"
 
 
+def route_after_plan(state: AgentState) -> Literal["retriever", "respond"]:
+    """A triaged direct answer skips the pipeline; everything else continues.
+
+    The decision itself is made in ``plan_node`` (so this stays trivially pure,
+    like ``route_after_critic``): it writes ``plan_action="answer"`` only when the
+    turn is a safe direct reply, and the draft is already set for ``respond``.
+    """
+    if state.get("plan_action") == "answer":
+        return "respond"
+    return "retriever"
+
+
+# An IPv4 address or CIDR block anywhere in the text -- the clearest signal that a
+# turn names a target, whatever words surround it. IPv6 and hostnames are covered
+# by the engagement-scope check in ``needs_pipeline`` instead, where an exact
+# in-scope literal avoids the false positives a loose IPv6/domain regex would hit.
+_IP_OR_CIDR = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?:/\d{1,2})?\b")
+# A bare word token, for matching a tool binary name against the message.
+_WORD = re.compile(r"[a-z0-9][a-z0-9._-]*")
+
+
+def needs_pipeline(text: str, deps: GraphDeps) -> bool:
+    """Deterministic backstop: True when the turn plainly targets the engagement.
+
+    The planner's triage is an LLM judgement and can mis-read a real recon/tool
+    request as conversational. This no-LLM check forces the full pipeline when the
+    message names a target (an IP/CIDR token, or an in-scope host/network literal)
+    or a known tool binary, so a mis-triage can never answer a scanning request
+    from the model's head -- it only ever degrades to taking the slow, safe path.
+    Kept to cheap string/set/regex work so it never re-introduces latency.
+    """
+    if not text.strip():
+        return False
+    lowered = text.lower()
+    if _IP_OR_CIDR.search(text):
+        return True
+    engagement = deps.engagement
+    if engagement is not None:
+        if any(host.lower() in lowered for host in engagement.allowed_hosts):
+            return True
+        if any(str(net).lower() in lowered for net in engagement.target_networks):
+            return True
+    if deps.registry is not None:
+        words = set(_WORD.findall(lowered))
+        if any(spec.binary.lower() in words for spec in deps.registry.tools):
+            return True
+    return False
+
+
 # --- graph ------------------------------------------------------------------
 
 
@@ -341,15 +391,34 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
     def plan_node(state: AgentState) -> PlanUpdate:
         ctx = context(state, prior_critique=state.get("critique") or "")
         resp = ask(deps.prompts.planner, ctx, PlannerResponse)
+        current = state.get("phase", "recon")
+        revising = (state.get("revision_count") or 0) > 0
+        answer = resp.answer.strip()
+        # Triage: a direct answer short-circuits the pipeline (planner -> respond)
+        # for conversational/identity/clarification turns -- but only on the first
+        # pass (never abandon an in-flight revision and discard the worker's
+        # accumulated draft/critique), only with a real answer to give, and never
+        # when the turn plainly targets the engagement (the deterministic
+        # backstop). A conversational turn does NOT advance the methodology phase.
+        direct = (
+            resp.action == "answer"
+            and bool(answer)
+            and not revising
+            and not needs_pipeline(last_user_text(state["messages"]), deps)
+        )
+        if direct:
+            return {
+                "plan_action": "answer",
+                "draft": answer,
+                "phase": current,
+                "commands": [],
+                "command_rounds": 0,
+            }
         # Advance the phase at most once per turn (on the first pass), so a
         # multi-revision turn cannot walk several phases forward.
-        current = state.get("phase", "recon")
-        phase = (
-            clamp_phase(current, resp.advance_to)
-            if (state.get("revision_count") or 0) == 0
-            else current
-        )
+        phase = clamp_phase(current, resp.advance_to) if not revising else current
         return {
+            "plan_action": "plan",
             "plan": list(resp.steps),
             "phase": phase,
             # Reset this turn's command trail and round counter for the new pass.
@@ -431,7 +500,7 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
     graph.add_node("bump", bump_node)
 
     graph.add_edge(START, "planner")
-    graph.add_edge("planner", "retriever")
+    graph.add_conditional_edges("planner", route_after_plan)
     graph.add_edge("retriever", "worker")
     graph.add_edge("worker", "executor")
     graph.add_conditional_edges("executor", route_after_executor)

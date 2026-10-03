@@ -887,6 +887,25 @@ class AgentCore:
             self._current_turn_event_id = None
             self._last_full_response = ""
 
+    def _planner_events(self, values: dict[str, Any]) -> Iterator[TurnEvent]:
+        """Emit the planner superstep's events.
+
+        On a triaged direct answer the worker and critic never run, so this is the
+        only place the terminal answer is emitted (``respond`` just commits
+        ``draft`` to ``messages``); a conversational reply has no labeled render, so
+        the clean answer is also what the turn-closing ledger event records.
+        Otherwise the plan is internal scaffolding and only logged.
+        """
+        yield TurnEvent("reset")
+        if values.get("plan_action") == "answer":
+            answer = str(values.get("draft") or "")
+            self._last_full_response = answer
+            yield TurnEvent("final", answer)
+            return
+        steps = list(values.get("plan") or [])
+        if steps:
+            log.debug("plan thread=%s steps=%s", self.thread_id, json.dumps(steps))
+
     def _turn_updates(self, payload: dict[str, object]) -> Iterator[TurnEvent]:
         """Turn one graph superstep into operator events, logging the rest.
 
@@ -899,12 +918,7 @@ class AgentCore:
         for node, update in payload.items():
             values = update if isinstance(update, dict) else {}
             if node == "planner":
-                yield TurnEvent("reset")
-                steps = list(values.get("plan") or [])
-                if steps:
-                    log.debug(
-                        "plan thread=%s steps=%s", self.thread_id, json.dumps(steps)
-                    )
+                yield from self._planner_events(values)
             elif node == "retriever":
                 if values.get("context"):
                     log.debug("retrieved context inlined thread=%s", self.thread_id)

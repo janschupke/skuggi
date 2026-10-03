@@ -39,6 +39,10 @@ class AgentState(_MessageChannels, total=False):
     """Full graph state. Non-reducer keys are absent until written."""
 
     phase: Phase
+    # "answer" when the planner triaged the turn as a direct reply (routes
+    # planner -> respond, skipping the pipeline), "plan" otherwise. Absent until
+    # the planner writes it; read with .get().
+    plan_action: str
     plan: list[str]
     context: str
     commands: list[CommandBrief]
@@ -52,10 +56,17 @@ class AgentState(_MessageChannels, total=False):
 
 
 class PlanUpdate(TypedDict, total=False):
-    """Written by the planner, which also resets the worker's per-turn channels."""
+    """Written by the planner, which also resets the worker's per-turn channels.
 
+    On a direct-answer turn the planner writes ``plan_action="answer"`` and the
+    reply into ``draft`` (reusing the channel ``respond`` already emits), leaving
+    ``plan`` empty; on a pipeline turn it writes ``plan_action="plan"`` and ``plan``.
+    """
+
+    plan_action: str
     plan: list[str]
     phase: Phase
+    draft: str
     commands: list[CommandBrief]
     command_rounds: int
 

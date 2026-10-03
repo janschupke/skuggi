@@ -267,6 +267,32 @@ def test_structured_invoke_native_uses_with_structured_output() -> None:
     assert out == want
 
 
+def test_planner_response_defaults_to_the_pipeline() -> None:
+    """An omitted triage decision must fall through to the existing pipeline."""
+    assert PlannerResponse().action == "plan"
+    assert PlannerResponse().answer == ""
+    # A plan-only reply (what every current provider/fake sends) stays action=plan.
+    assert PlannerResponse(steps=("look",)).action == "plan"
+
+
+def test_planner_triage_answer_round_trips_non_native() -> None:
+    """The chatgpt/claude-cli JSON path must carry a direct answer back intact."""
+    llm = ScriptedChatModel()
+    llm.replies = ['{"action": "answer", "answer": "I am skuggi."}']
+    llm.calls = []
+    out = structured_invoke(
+        llm, PlannerResponse, [HumanMessage(content="who are you?")], native=False
+    )
+    assert out.action == "answer"
+    assert out.answer == "I am skuggi."
+
+
+def test_format_instructions_carry_the_triage_fields() -> None:
+    text = format_instructions(PlannerResponse)
+    assert "action" in text
+    assert "answer" in text
+
+
 def test_finding_draft_requires_vector_or_severity() -> None:
     with pytest.raises(ValidationError):
         FindingDraft(title="x", description="d")  # neither vector nor severity

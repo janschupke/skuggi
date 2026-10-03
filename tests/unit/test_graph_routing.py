@@ -12,14 +12,17 @@ from skuggi.agent.graph import (
     GraphDeps,
     _record_findings,
     last_user_text,
+    needs_pipeline,
     prior_turns,
     render_history,
     route_after_critic,
+    route_after_plan,
 )
 from skuggi.agent.protocol import FindingDraft, FindingRefDraft, WorkerResponse
 from skuggi.agent.state import AgentState
 from skuggi.engagement.engagement import EngagementConfig, ThreatModel
 from skuggi.persistence.ledger import open_ledger
+from skuggi.tooling.registry import ToolRegistry, ToolSpec
 
 
 def _state(**kwargs: object) -> AgentState:
@@ -47,6 +50,60 @@ def test_route_after_critic(
         kwargs["approved"] = approved
     state = _state(**kwargs)
     assert route_after_critic(state) == expected
+
+
+@pytest.mark.parametrize(
+    ("plan_action", "expected"),
+    [
+        ("answer", "respond"),  # a triaged direct answer skips the pipeline
+        ("plan", "retriever"),  # a real plan continues into retrieval + worker
+        (None, "retriever"),  # absent (older provider/fake) -> the pipeline
+    ],
+)
+def test_route_after_plan(plan_action: str | None, expected: str) -> None:
+    kwargs: dict[str, object] = {}
+    if plan_action is not None:
+        kwargs["plan_action"] = plan_action
+    assert route_after_plan(_state(**kwargs)) == expected
+
+
+_TOOLS = ToolRegistry(tools=(ToolSpec(name="nmap", binary="nmap", method="scan"),))
+
+
+def _scoped_engagement() -> EngagementConfig:
+    return EngagementConfig.model_validate(
+        {
+            "name": "e",
+            "timezone": "UTC",
+            "authorized_start": datetime(2000, 1, 1, tzinfo=UTC),
+            "authorized_end": datetime(2999, 1, 1, tzinfo=UTC),
+            "allowed_hosts": frozenset({"scanme.example"}),
+        }
+    )
+
+
+def test_needs_pipeline_is_false_for_a_conversational_turn() -> None:
+    deps = GraphDeps(registry=_TOOLS, engagement=_scoped_engagement())
+    assert needs_pipeline("who are you?", deps) is False
+    assert needs_pipeline("what can you do here?", deps) is False
+    assert needs_pipeline("", deps) is False
+
+
+def test_needs_pipeline_catches_an_ip_or_cidr_with_no_deps() -> None:
+    assert needs_pipeline("have a look at 10.0.0.5", GraphDeps()) is True
+    assert needs_pipeline("sweep 192.168.0.0/24", GraphDeps()) is True
+
+
+def test_needs_pipeline_catches_an_in_scope_host() -> None:
+    deps = GraphDeps(engagement=_scoped_engagement())
+    assert needs_pipeline("poke at scanme.example please", deps) is True
+
+
+def test_needs_pipeline_catches_a_known_tool_binary() -> None:
+    deps = GraphDeps(registry=_TOOLS)
+    assert needs_pipeline("could you run nmap for me", deps) is True
+    # The binary must be a whole word, not an incidental substring.
+    assert needs_pipeline("tell me about enmapment theory", deps) is False
 
 
 def test_last_user_text_takes_the_most_recent() -> None:
