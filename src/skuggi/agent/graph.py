@@ -128,6 +128,10 @@ class GraphDeps:
     history_chars: int = 4_000
     findings_limit: int = 10
     commands_limit: int = 10
+    # The host-awareness block (OS, installers, scoped tool presence) and the
+    # harness command catalogue, pre-rendered by the core (see agent.awareness).
+    system_facts: str = ""
+    harness_catalogue: str = ""
     # The operator's standing preferences, pre-rendered as a bullet list.
     preferences: str = ""
     # Metadata-only inventory of tool-input/evidence files, pre-rendered. The
@@ -304,6 +308,8 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
             request=clean(last_user_text(state["messages"])),
             phase=state.get("phase", "recon"),
             engagement=brief,
+            system_facts=deps.system_facts,
+            harness_catalogue=deps.harness_catalogue,
             history=clean(history(state, divisor=divisor)),
             preferences=clean(deps.preferences),
             data_files=deps.data_files,

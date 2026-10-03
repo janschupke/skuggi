@@ -93,6 +93,23 @@ def test_render_request_includes_the_load_bearing_context() -> None:
     assert "Request:\nscan the host" in rendered
 
 
+def test_render_request_includes_awareness_blocks_when_present() -> None:
+    ctx = RequestContext(
+        request="how do I scan it?",
+        system_facts="os: Darwin\ninstallers available: brew",
+        harness_catalogue="Agent: ask <q> — ask the agent",
+    )
+    rendered = render_request(ctx)
+    assert "System:\nos: Darwin" in rendered
+    assert "Harness commands:\nAgent: ask <q>" in rendered
+
+
+def test_render_request_elides_empty_awareness_blocks() -> None:
+    rendered = render_request(RequestContext(request="hi"))
+    assert "System:" not in rendered
+    assert "Harness commands:" not in rendered
+
+
 def test_render_response_is_deterministic_and_labelled() -> None:
     resp = WorkerResponse(
         command="nmap -sV 10.0.0.1",

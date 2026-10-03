@@ -174,6 +174,13 @@ class RequestContext(BaseModel):
     request: str
     phase: Phase = "recon"
     engagement: EngagementBrief | None = None
+    # Host awareness: OS, available installers, scoped tool presence (metadata
+    # only, no file contents). The harness command catalogue (verbs/nouns + saved
+    # cmd aliases) so the agent can direct the operator in the harness's own terms.
+    # Both are harness-generated, so -- like the engagement block -- they are not
+    # run through the ingress redactor; the egress scrub in ``ask`` still covers them.
+    system_facts: str = ""
+    harness_catalogue: str = ""
     history: str = ""
     preferences: str = ""
     retrieved_context: str = ""
@@ -364,6 +371,8 @@ def render_request(ctx: RequestContext) -> str:
     return join_blocks(
         labeled("Phase", ctx.phase),
         labeled("Engagement", engagement),
+        labeled("System", ctx.system_facts),
+        labeled("Harness commands", ctx.harness_catalogue),
         labeled("Operator preferences", ctx.preferences),
         labeled("Conversation so far", ctx.history),
         labeled("Prior findings", _findings_block(ctx.findings)),

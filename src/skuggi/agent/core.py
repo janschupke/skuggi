@@ -29,6 +29,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import SecretStr, ValidationError
 
+from skuggi.agent import awareness
 from skuggi.agent.commandbook import CommandBook
 from skuggi.agent.config_controller import ConfigController
 from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
@@ -283,6 +284,23 @@ class AgentCore:
         )
         return datafiles.render_datafiles(files)
 
+    def _system_facts_block(self) -> str:
+        """The host-awareness block (OS, installers, scoped tool presence).
+
+        Rebuilt with the graph (on config/engagement changes, not per turn), so a
+        mid-session install is reflected on the next rebuild.
+        """
+        return awareness.system_facts_block(
+            self.registry,
+            self.engagement,
+            source=self.settings.tool_source,
+            managed_dir=self.settings.managed_tools_dir,
+        )
+
+    def _harness_catalogue_block(self) -> str:
+        """The harness command catalogue (verbs/nouns + saved cmd aliases)."""
+        return awareness.harness_catalogue_block(self.commands.names())
+
     def _redaction_policy(self) -> RedactionPolicy:
         """The redaction policy for this session, allow-listing in-scope identifiers.
 
@@ -345,6 +363,8 @@ class AgentCore:
             retrieve_k=self.settings.retrieve_k,
             history_messages=self.settings.history_messages,
             history_chars=self.settings.history_chars,
+            system_facts=self._system_facts_block(),
+            harness_catalogue=self._harness_catalogue_block(),
             preferences=self.prefs.render_block(),
             data_files=self._datafiles_block(),
             prompts=prompt_set(self.mode),

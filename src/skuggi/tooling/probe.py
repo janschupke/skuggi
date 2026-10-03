@@ -137,6 +137,27 @@ def probe(
     return _map_concurrently(one, registry.tools)
 
 
+def probe_presence(
+    registry: ToolRegistry, *, source: str, managed_dir: Path
+) -> list[ToolStatus]:
+    """Resolve each tool's presence WITHOUT running its version command.
+
+    The agent's awareness context needs only found/missing per tool, not
+    versions, and ``_resolve`` is a pure ``shutil.which``/``is_file`` check with
+    no subprocess -- so this is cheap enough to run on every graph rebuild, unlike
+    :func:`probe` (which spawns a version command per tool). ``version`` is always
+    ``None`` here; call :func:`probe` when a version is wanted.
+    """
+
+    def one(spec: ToolSpec) -> ToolStatus:
+        path, where = _resolve(spec, source=source, managed_dir=managed_dir)
+        return ToolStatus(
+            spec=spec, found=path is not None, path=path, version=None, source=where
+        )
+
+    return [one(spec) for spec in registry.tools]
+
+
 def select_install(spec: ToolSpec, *, source: str, system: str) -> InstallPlan | None:
     """Pick an install command for `spec` on `system`, or None if unavailable.
 
