@@ -101,8 +101,12 @@ def test_report_is_produced_from_real_findings(engage: Runner, lab: Lab) -> None
     command = f"curl -s {lab.base_url}/post.php?{_SQLI_UNION}"
     rows = engage.run(command, findings=(finding,))
     assert _executed(rows).exit_code == 0
-    assert [f.title for f in engage.core.journal.findings()] == [finding.title]
+    recorded = engage.core.journal.findings()
+    assert [f.title for f in recorded] == [finding.title]
 
+    # A report contains only approved findings (the operator gates each one), so
+    # approve it before writing -- otherwise it renders as a draft and is excluded.
+    engage.core.ledger.set_finding_status(recorded[0].id, "approved")
     report = engage.core.journal.write_report()
     assert isinstance(report, Path)  # Markdown only (no pdf=True)
     text = report.read_text(encoding="utf-8")
@@ -111,9 +115,9 @@ def test_report_is_produced_from_real_findings(engage: Runner, lab: Lab) -> None
 
 
 @pytest.mark.skipif(not ip_routable(), reason=f"{LAB_IP} is not directly routable")
-def test_curl_against_the_in_network_ip(engage: Runner) -> None:
+def test_curl_against_the_in_network_ip(engage: Runner, lab: Lab) -> None:
     """Bonus axis: when 192.0.2.10 is routable, the same IDOR works by IP."""
     require_tool("curl")
-    row = _executed(engage.run(f"curl -s http://{LAB_IP}/post.php?id=4"))
+    row = _executed(engage.run(f"curl -s http://{lab.net_ip}/post.php?id=4"))
     assert row.exit_code == 0
     assert _DRAFT_SENTINEL in row.stdout
