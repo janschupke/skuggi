@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 from skuggi.common.paths import packaged_template
-from skuggi.frontend import dispatch
+from skuggi.frontend import dispatch, presenters
 from skuggi.install import configdiff, reconcile
 from skuggi.install.init import SEEDED
 
@@ -112,7 +112,7 @@ class _StubCore:
 def _run(config_dir: Path, arg: str) -> list[str]:
     core = _StubCore(config_dir)
     outcome = dispatch.run_reconcile(core, arg)  # type: ignore[arg-type]
-    return [line.text for line in dispatch.present_reconcile(outcome, "repl")]
+    return [line.text for line in presenters.present_reconcile(outcome, "repl")]
 
 
 def test_present_list_flags_a_drifted_file_with_magnitude(tmp_path: Path) -> None:

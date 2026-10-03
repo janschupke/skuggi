@@ -39,6 +39,8 @@ from skuggi.frontend import (
     control,
     dispatch,
     installflow,
+    outcomes,
+    presenters,
     render,
     scopeflow,
     setup,
@@ -580,7 +582,7 @@ class Daemon:
         else:
             yield {
                 "chunk": "".join(
-                    self._emit(dispatch.present_unknown(verb, self._surface()))
+                    self._emit(presenters.present_unknown(verb, self._surface()))
                 )
             }
         yield {"end": True, "exit": False}
@@ -746,7 +748,7 @@ class Daemon:
         if first.lower() == "note":
             if not rest.strip():
                 yield from self._emit(
-                    dispatch.usage("report note <text>", self._surface())
+                    presenters.usage("report note <text>", self._surface())
                 )
                 return
             yield f"changelog: {self.core.journal.add_report_note(rest)}\n"
@@ -762,13 +764,13 @@ class Daemon:
 
     def _replay(self, arg: str) -> Iterator[str]:
         match dispatch.run_replay(self.core, arg, current_id=self.core.session_id):
-            case dispatch.ReplayEmpty():
+            case outcomes.ReplayEmpty():
                 yield "(no sessions)\n"
-            case dispatch.ReplayList(rows, current_id):
+            case outcomes.ReplayList(rows, current_id):
                 for s in rows:
                     mark = " *" if s.session_id == current_id else ""
                     yield f"  {s.session_id[:8]}  {s.started_at}  {s.mode}{mark}\n"
-            case dispatch.ReplayTranscript(text):
+            case outcomes.ReplayTranscript(text):
                 yield text + "\n"
 
     def _review(self, arg: str) -> Iterator[str]:
@@ -879,7 +881,7 @@ class Daemon:
     def _install(self, binary: str) -> Iterator[str]:
         yield f"installing {binary}...\n"
         yield from self._emit(
-            dispatch.present_install(dispatch.run_install(self.core, binary))
+            presenters.present_install(dispatch.run_install(self.core, binary))
         )
 
     def _set_provider(self, arg: str) -> Iterator[str]:
@@ -916,7 +918,7 @@ class Daemon:
 
     def _ingest(self, arg: str) -> Iterator[str]:
         if not arg:
-            yield from self._emit(dispatch.usage("ingest <path>", self._surface()))
+            yield from self._emit(presenters.usage("ingest <path>", self._surface()))
             return
         yield from self._emit(
             [render.info(f"indexed {self.core.ingest(Path(arg))} chunk(s)")]
@@ -943,14 +945,14 @@ class Daemon:
             yield from self._add_record(f"{noun} {rest.strip()}".strip())
             return
         options = " | ".join(n.name for n in verbs.nouns_of("add"))
-        yield from self._emit(dispatch.usage(f"add <{options}>", self._surface()))
+        yield from self._emit(presenters.usage(f"add <{options}>", self._surface()))
 
     def _add_record(self, arg: str) -> Iterator[str]:
         outcome = dispatch.run_add(self.core, arg)
-        if isinstance(outcome, dispatch.FindingRecorded):
+        if isinstance(outcome, outcomes.FindingRecorded):
             yield "recorded " + finding_line(outcome.row) + "\n"
             return
-        yield from self._emit(dispatch.present_add(outcome, self._surface()))
+        yield from self._emit(presenters.present_add(outcome, self._surface()))
 
     def _notes(self, _arg: str) -> Iterator[str]:
         text = self.core.journal.notes()
@@ -972,7 +974,7 @@ class Daemon:
         if message is not None:
             yield message + "\n"
             return
-        yield from self._emit(dispatch.present_findings_usage(self._surface()))
+        yield from self._emit(presenters.present_findings_usage(self._surface()))
 
     def _render_findings(self) -> Iterator[str]:
         rows = self.core.journal.findings()

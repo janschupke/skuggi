@@ -38,6 +38,8 @@ from skuggi.frontend import (
     dispatch,
     installflow,
     menu,
+    outcomes,
+    presenters,
     render,
     scopeflow,
     setup,
@@ -315,7 +317,7 @@ class Tui:
             self.core.note_interaction(verb, rest)  # control verb -> audit log
         handler = self._commands.get(verb)
         if handler is None:
-            self._emit(dispatch.present_unknown(verb, "repl"))
+            self._emit(presenters.present_unknown(verb, "repl"))
             return None
         return handler(rest)
 
@@ -494,7 +496,7 @@ class Tui:
 
     def _set_scope(self, arg: str) -> None:
         if not arg.strip():
-            self._emit(dispatch.usage("set scope <request>", "repl"))
+            self._emit(presenters.usage("set scope <request>", "repl"))
             return
         scopeflow.run_scope_request(
             arg,
@@ -545,13 +547,13 @@ class Tui:
         """Install one recognized tool. Issuing this command is the confirm."""
         self.console.print(f"[dim]installing {binary}...[/dim]")
         match dispatch.run_install(self.core, binary):
-            case dispatch.InstallUnknown(name):
+            case outcomes.InstallUnknown(name):
                 self.console.print(f"[red]unknown tool:[/red] {name!r}")
-            case dispatch.Installed(name, version, source):
+            case outcomes.Installed(name, version, source):
                 self.console.print(
                     f"[green]installed[/green] {name} ({version or '?'}) via {source}"
                 )
-            case dispatch.InstallFailed(name):
+            case outcomes.InstallFailed(name):
                 self.console.print(
                     f"[red]install failed or unavailable[/red] for {name}"
                 )
@@ -616,7 +618,7 @@ class Tui:
 
     def _cmd_suggest(self, request: str) -> None:
         if not request.strip():
-            self._emit(dispatch.usage("cmd suggest <request>", "repl"))
+            self._emit(presenters.usage("cmd suggest <request>", "repl"))
             return
         cmdflow.run_cmd_suggest(
             request,
@@ -663,8 +665,8 @@ class Tui:
     def _add_record(self, noun: str, rest: str) -> None:
         """Record a note, loot item or finding (finding keeps its severity colour)."""
         outcome = dispatch.run_add(self.core, f"{noun} {rest}".strip())
-        if not isinstance(outcome, dispatch.FindingRecorded):
-            self._emit(dispatch.present_add(outcome, "repl"))
+        if not isinstance(outcome, outcomes.FindingRecorded):
+            self._emit(presenters.present_add(outcome, "repl"))
             return
         self.console.print(
             "[green]recorded[/green] "
@@ -773,13 +775,13 @@ class Tui:
         if message is not None:
             self._emit([render.plain(message)])
             return
-        self._emit(dispatch.present_findings_usage("repl"))
+        self._emit(presenters.present_findings_usage("repl"))
 
     def _cmd_report(self, arg: str) -> None:
         first, _, rest = arg.strip().partition(" ")
         if first.lower() == "note":
             if not rest.strip():
-                self._emit(dispatch.usage("report note <text>", "repl"))
+                self._emit(presenters.usage("report note <text>", "repl"))
                 return
             path = self.core.journal.add_report_note(rest)
             self.console.print(f"[green]changelog: {path}[/green]")
@@ -796,16 +798,16 @@ class Tui:
     def _cmd_replay(self, arg: str) -> None:
         """Reconstruct & view a session transcript (``list`` enumerates them)."""
         match dispatch.run_replay(self.core, arg, current_id=self.session_id):
-            case dispatch.ReplayEmpty():
+            case outcomes.ReplayEmpty():
                 self.console.print("[dim](no sessions)[/dim]")
-            case dispatch.ReplayList(rows, current_id):
+            case outcomes.ReplayList(rows, current_id):
                 for s in rows:
                     marker = " *" if s.session_id == current_id else ""
                     self.console.print(
                         f"[cyan]{s.session_id[:8]}[/cyan]  "
                         f"{s.started_at}  {s.mode}{marker}"
                     )
-            case dispatch.ReplayTranscript(text):
+            case outcomes.ReplayTranscript(text):
                 self.console.print(Markdown(text))
 
     def _cmd_review(self, arg: str) -> None:
@@ -826,7 +828,7 @@ class Tui:
 
     def _cmd_ingest(self, arg: str) -> None:
         if not arg:
-            self._emit(dispatch.usage("ingest <path>", "repl"))
+            self._emit(presenters.usage("ingest <path>", "repl"))
             return
         self._emit([render.info(f"indexed {self.core.ingest(Path(arg))} chunk(s)")])
 

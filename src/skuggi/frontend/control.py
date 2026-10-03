@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
 from skuggi.agent.core import parse_toggle
-from skuggi.frontend import dispatch, verbs
+from skuggi.frontend import dispatch, presenters, verbs
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
@@ -45,39 +45,39 @@ Action = Callable[["AgentCore", str, "verbs.Surface"], "render.Styled"]
 
 def show_provider(core: AgentCore, _rest: str, surface: verbs.Surface) -> render.Styled:
     """Provider readiness: the active provider and whether it can run."""
-    return dispatch.present_show_provider(readiness.from_core(core), surface)
+    return presenters.present_show_provider(readiness.from_core(core), surface)
 
 
 def show_model(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
     """The active model and provider."""
-    return dispatch.present_show_model(readiness.from_core(core))
+    return presenters.present_show_model(readiness.from_core(core))
 
 
 def show_grants(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
     """The active session approval grants."""
-    return dispatch.present_grants(core.grants.active())
+    return presenters.present_grants(core.grants.active())
 
 
 def show_status(core: AgentCore, _rest: str, surface: verbs.Surface) -> render.Styled:
     """A one-glance summary of provider, model, mode and engagement."""
-    return dispatch.present_status(dispatch.run_status(core), surface)
+    return presenters.present_status(dispatch.run_status(core), surface)
 
 
 def show_sessions(
     core: AgentCore, _rest: str, _surface: verbs.Surface
 ) -> render.Styled:
     """The recorded sessions for this engagement."""
-    return dispatch.present_sessions(dispatch.run_sessions(core))
+    return presenters.present_sessions(dispatch.run_sessions(core))
 
 
 def show_threads(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
     """The conversation threads on this session, marking the active one."""
-    return dispatch.present_threads(core.ledger.thread_summaries(), core.thread_id)
+    return presenters.present_threads(core.ledger.thread_summaries(), core.thread_id)
 
 
 def show_memory(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
     """The remembered operator preferences."""
-    return dispatch.present_memory(dispatch.run_memory(core, ""))
+    return presenters.present_memory(dispatch.run_memory(core, ""))
 
 
 # ----- set <noun> ------------------------------------------------------------
@@ -85,7 +85,7 @@ def show_memory(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.
 
 def set_engagement(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
     """Adopt the engagement root `rest` (cwd by default), scaffolding if absent."""
-    return dispatch.present_set_engagement(
+    return presenters.present_set_engagement(
         dispatch.run_set_engagement(core, rest), surface
     )
 
@@ -95,8 +95,8 @@ def set_mode(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styl
     try:
         core.set_mode(rest)
     except ValueError as e:
-        return dispatch.present_error(str(e))
-    return dispatch.present_mode(core.mode)
+        return presenters.present_error(str(e))
+    return presenters.present_mode(core.mode)
 
 
 def set_autonomous(
@@ -106,30 +106,30 @@ def set_autonomous(
     try:
         state = core.set_autonomous(parse_toggle(rest))
     except ValueError as e:
-        return dispatch.present_error(str(e))
-    return dispatch.present_autonomous(state)
+        return presenters.present_error(str(e))
+    return presenters.present_autonomous(state)
 
 
 def set_thread(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
     """Start a new conversation thread, or switch to the named one."""
     if rest in ("new", ""):
-        return dispatch.present_thread("new", core.new_thread())
+        return presenters.present_thread("new", core.new_thread())
     core.set_thread(rest)
-    return dispatch.present_thread("switch", rest)
+    return presenters.present_thread("switch", rest)
 
 
 def set_provider_named(
     core: AgentCore, name: str, surface: verbs.Surface
 ) -> render.Styled:
     """Switch to the named provider (the no-argument picker is per front-end)."""
-    return dispatch.present_provider(dispatch.run_provider(core, name), surface)
+    return presenters.present_provider(dispatch.run_provider(core, name), surface)
 
 
 def set_model_named(
     core: AgentCore, name: str, surface: verbs.Surface
 ) -> render.Styled:
     """Switch to the named model (the no-argument picker is per front-end)."""
-    return dispatch.present_model(dispatch.run_model(core, name), surface)
+    return presenters.present_model(dispatch.run_model(core, name), surface)
 
 
 # ----- add / remove <noun> ---------------------------------------------------
@@ -138,24 +138,24 @@ def set_model_named(
 def add_memory(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
     """Remember an operator preference (``add memory <entry>``)."""
     if not rest:
-        return dispatch.usage("add memory <entry>", surface)
-    return dispatch.present_memory(dispatch.run_memory(core, f"add {rest}"))
+        return presenters.usage("add memory <entry>", surface)
+    return presenters.present_memory(dispatch.run_memory(core, f"add {rest}"))
 
 
 def remove_memory(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
     """Forget one preference (``remove memory <id>``) or every one (``all``)."""
     if rest == "all":
-        return dispatch.present_memory(dispatch.run_memory(core, "clear"))
+        return presenters.present_memory(dispatch.run_memory(core, "clear"))
     if not rest.isdigit():
-        return dispatch.usage("remove memory <id> | all", surface)
-    return dispatch.present_memory(dispatch.run_memory(core, f"forget {rest}"))
+        return presenters.usage("remove memory <id> | all", surface)
+    return presenters.present_memory(dispatch.run_memory(core, f"forget {rest}"))
 
 
 def remove_grants(
     core: AgentCore, _rest: str, _surface: verbs.Surface
 ) -> render.Styled:
     """Revoke every active session approval grant."""
-    return dispatch.present_grants_revoked(core.grants.revoke_all())
+    return presenters.present_grants_revoked(core.grants.revoke_all())
 
 
 # ----- verb-level actions (no noun) ------------------------------------------
@@ -163,12 +163,12 @@ def remove_grants(
 
 def resolve_cmd(core: AgentCore, name: str, surface: verbs.Surface) -> render.Styled:
     """Render the resolved shell plan for the exact cheatsheet alias `name`."""
-    return dispatch.present_cmd_plan(core.cmds.plan(name), surface)
+    return presenters.present_cmd_plan(core.cmds.plan(name), surface)
 
 
 def reconcile(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
     """Reconcile the installed config against the packaged templates."""
-    return dispatch.present_reconcile(dispatch.run_reconcile(core, rest), surface)
+    return presenters.present_reconcile(dispatch.run_reconcile(core, rest), surface)
 
 
 # ----- shared noun tables ----------------------------------------------------

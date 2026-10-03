@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.frontend import dispatch
+from skuggi.frontend import dispatch, outcomes
 
 
 def test_scaffold_copies_the_template(tmp_path: Path) -> None:
     match dispatch.run_scaffold(tmp_path):
-        case dispatch.Scaffolded(path):
+        case outcomes.Scaffolded(path):
             assert path == tmp_path / "scope.json"
             assert path.read_text(encoding="utf-8").strip()  # the template content
         case other:  # pragma: no cover -- a clean copy must succeed
@@ -20,7 +20,7 @@ def test_scaffold_copies_the_template(tmp_path: Path) -> None:
 
 def test_scaffold_never_overwrites(tmp_path: Path) -> None:
     (tmp_path / "scope.json").write_text("mine", encoding="utf-8")
-    assert isinstance(dispatch.run_scaffold(tmp_path), dispatch.ScaffoldExists)
+    assert isinstance(dispatch.run_scaffold(tmp_path), outcomes.ScaffoldExists)
     assert (tmp_path / "scope.json").read_text(encoding="utf-8") == "mine"
 
 
@@ -28,7 +28,7 @@ def test_scaffold_reports_an_os_error(tmp_path: Path) -> None:
     # A missing parent directory makes the write raise OSError (FileNotFoundError).
     missing = tmp_path / "does-not-exist"
     match dispatch.run_scaffold(missing):
-        case dispatch.ScaffoldError(message):
+        case outcomes.ScaffoldError(message):
             assert message
         case other:  # pragma: no cover -- must not succeed without a parent dir
             pytest.fail(f"expected ScaffoldError, got {other}")
