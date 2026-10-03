@@ -69,7 +69,7 @@ from skuggi.engagement.workspace import (
     has_engagement,
     safe_engagement_name,
 )
-from skuggi.install import envfile, reconcile
+from skuggi.install import configdiff, envfile, reconcile
 from skuggi.install import update as updater
 from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence import memory, preferences
@@ -699,10 +699,25 @@ class AgentCore:
     def self_update(self, runner: updater.UpdateRunner | None = None) -> Iterator[str]:
         """Update the install in place: ``git pull --ff-only`` then a dependency sync.
 
-        Thin delegator to :func:`skuggi.install.update.perform_update`; ``runner``
-        is forwarded so the subprocess path stays injectable and testable.
+        Delegates to :func:`skuggi.install.update.perform_update` (``runner`` is
+        forwarded so the subprocess path stays injectable and testable), then
+        notes any config drift -- a pulled template may have moved ahead of the
+        installed copy, and an update is exactly the moment to surface that.
         """
-        return updater.perform_update(runner)
+        yield from updater.perform_update(runner)
+        behind = reconcile.drifted(self._config_dir)
+        if behind:
+            yield "\n"
+            yield (
+                f"{len(behind)} config file(s) differ from the packaged templates: "
+                + ", ".join(behind)
+                + "\n"
+            )
+            yield (
+                "  review with `reconcile diff <file>`, update with "
+                "`reconcile <file>` or `reconcile all` (a timestamped backup is "
+                "saved).\n"
+            )
 
     # ----- config reconcile (the `reconcile` verb) --------------------------
 
@@ -719,9 +734,9 @@ class AgentCore:
         """The installed config files that have fallen behind their template."""
         return reconcile.drifted(self._config_dir)
 
-    def reconcile_diff(self, name: str) -> str:
-        """The diff an overwrite of `name` would apply (empty when up to date)."""
-        return reconcile.diff_text(self._config_dir, name)
+    def reconcile_structured_diff(self, name: str) -> configdiff.StructuredDiff:
+        """What an overwrite of `name` would change, per file type (empty = in sync)."""
+        return reconcile.structured_diff(self._config_dir, name)
 
     def reconcile_overwrite(self, name: str) -> Path | None:
         """Overwrite `name` from its template (backing up), then reload config.

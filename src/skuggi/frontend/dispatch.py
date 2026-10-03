@@ -23,7 +23,7 @@ from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import ThreatModel
 from skuggi.frontend import render, verbs
 from skuggi.frontend.render import Styled
-from skuggi.install import reconcile
+from skuggi.install import configdiff, reconcile
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
@@ -836,13 +836,31 @@ def present_cmd_plan(plan: object, surface: verbs.Surface) -> Styled:  # noqa: A
     return lines
 
 
+def _drift_note(readiness_now: Readiness, surface: verbs.Surface) -> str | None:
+    """The config-drift line for ``show status`` (``None`` when nothing drifted).
+
+    Drift is deliberately off the passive banner (config is meant to be edited),
+    so the explicit ``show status`` query -- and reinstall / update -- is where it
+    is surfaced.
+    """
+    if not readiness_now.stale_configs:
+        return None
+    names = ", ".join(readiness_now.stale_configs)
+    return (
+        f"{len(readiness_now.stale_configs)} config file(s) behind the packaged "
+        f"templates ({names}) -- run {verbs.cmd('reconcile', surface)}"
+    )
+
+
 def present_status(readiness_now: Readiness, surface: verbs.Surface) -> Styled:
-    """Render ``show status``: the shared glance plus pending steps (or 'ready')."""
+    """Render ``show status``: the shared glance, pending steps, and any drift."""
     lines: Styled = [render.plain(readiness.glance(readiness_now))]
     notes = readiness.render_banner_notes(readiness_now, surface)
-    if notes:
-        lines += [render.info(note) for note in notes]
-    else:
+    lines += [render.info(note) for note in notes]
+    drift = _drift_note(readiness_now, surface)
+    if drift is not None:
+        lines.append(render.info(drift))
+    if not notes and drift is None:
         lines.append(render.success("ready"))
     return lines
 
@@ -850,11 +868,12 @@ def present_status(readiness_now: Readiness, surface: verbs.Surface) -> Styled:
 # ----- config reconcile -----------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class ReconcileRow:
-    """A config file's status plus its drift magnitude (±lines; 0/0 unless drifted)."""
+    """A config file's status plus its drift magnitude (0s unless drifted)."""
 
     status: reconcile.FileStatus
     added: int
     removed: int
+    changed: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -866,10 +885,10 @@ class ReconcileList:
 
 @dataclass(frozen=True, slots=True)
 class ReconcileDiff:
-    """The diff `name` -> packaged template (`text` empty when up to date)."""
+    """The semantic diff `name` installed -> packaged (empty when up to date)."""
 
     name: str
-    text: str
+    diff: configdiff.StructuredDiff
 
 
 @dataclass(frozen=True, slots=True)
@@ -909,15 +928,12 @@ ReconcileOutcome = (
 )
 
 
-def _magnitude(text: str) -> tuple[int, int]:
-    """Count (added, removed) content lines in a unified diff (headers excluded)."""
-    added = sum(
-        1 for ln in text.splitlines() if ln.startswith("+") and not ln.startswith("+++")
-    )
-    removed = sum(
-        1 for ln in text.splitlines() if ln.startswith("-") and not ln.startswith("---")
-    )
-    return added, removed
+def _reconcile_row(core: AgentCore, status: reconcile.FileStatus) -> ReconcileRow:
+    """A status row with its drift magnitude (counts; 0s unless the file drifted)."""
+    if status.state != "drifted":
+        return ReconcileRow(status, 0, 0, 0)
+    d = core.reconcile_structured_diff(status.name)
+    return ReconcileRow(status, len(d.added), len(d.removed), len(d.changed))
 
 
 def run_reconcile(core: AgentCore, arg: str) -> ReconcileOutcome:  # noqa: PLR0911
@@ -931,17 +947,7 @@ def run_reconcile(core: AgentCore, arg: str) -> ReconcileOutcome:  # noqa: PLR09
     sub, _, rest = arg.partition(" ")
     sub, rest = sub.strip().lower(), rest.strip()
     if not sub:
-        rows = tuple(
-            ReconcileRow(
-                s,
-                *(
-                    _magnitude(core.reconcile_diff(s.name))
-                    if s.state == "drifted"
-                    else (0, 0)
-                ),
-            )
-            for s in core.reconcile_status()
-        )
+        rows = tuple(_reconcile_row(core, s) for s in core.reconcile_status())
         return ReconcileList(rows)
     if sub == "all":
         return ReconcileAll(core.reconcile_overwrite_all())
@@ -950,7 +956,7 @@ def run_reconcile(core: AgentCore, arg: str) -> ReconcileOutcome:  # noqa: PLR09
             return ReconcileUsage()
         if not reconcile.is_known(rest):
             return ReconcileUnknown(rest)
-        return ReconcileDiff(rest, core.reconcile_diff(rest))
+        return ReconcileDiff(rest, core.reconcile_structured_diff(rest))
     # A bare known file name overwrites it (the old `overwrite <file>`, redundant).
     if reconcile.is_known(sub):
         return ReconcileOverwritten(sub, core.reconcile_overwrite(sub))
@@ -964,15 +970,21 @@ _RECONCILE_STYLE = {
 }
 
 
-def _diff_line(line: str) -> render.Line:
-    """Colour a unified-diff line: additions green, removals red, hunks dim."""
-    if line.startswith("+") and not line.startswith("+++"):
-        return render.success(line)
-    if line.startswith("-") and not line.startswith("---"):
-        return render.danger(line)
-    if line.startswith(("@@", "+++", "---")):
-        return render.info(line)
-    return render.plain(line)
+def _diff_sections(diff: configdiff.StructuredDiff) -> Styled:
+    """The Added / Removed / Changed sections of a structured diff (coloured)."""
+    lines: Styled = []
+    if diff.added:
+        lines.append(render.heading("Added:"))
+        lines += [render.success(f"  {entry}") for entry in diff.added]
+    if diff.removed:
+        lines.append(render.heading("Removed:"))
+        lines += [render.danger(f"  {entry}") for entry in diff.removed]
+    if diff.changed:
+        lines.append(render.heading("Changed:"))
+        lines += [
+            render.warning(f"  {c.path}  {c.old} => {c.new}") for c in diff.changed
+        ]
+    return lines
 
 
 def present_reconcile(  # noqa: PLR0911, PLR0912 -- one branch per outcome
@@ -997,7 +1009,7 @@ def present_reconcile(  # noqa: PLR0911, PLR0912 -- one branch per outcome
             for row in rows:
                 s = row.status
                 mag = (
-                    f"  (+{row.added} \N{MINUS SIGN}{row.removed})"
+                    f"  (+{row.added} \N{MINUS SIGN}{row.removed} ~{row.changed})"
                     if s.state == "drifted"
                     else ""
                 )
@@ -1016,13 +1028,13 @@ def present_reconcile(  # noqa: PLR0911, PLR0912 -- one branch per outcome
                     )
                 )
             return lines
-        case ReconcileDiff(name, text):
-            if not text:
+        case ReconcileDiff(name, diff):
+            if diff.empty:
                 return [
                     render.success(f"{name} is up to date with the packaged template")
                 ]
             lines = [render.heading(f"{name}: installed -> packaged")]
-            lines += [_diff_line(ln) for ln in text.splitlines()]
+            lines += _diff_sections(diff)
             lines.append(
                 render.info(
                     "apply with "

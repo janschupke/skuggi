@@ -15,6 +15,5 @@
   "history_messages": 8,
   "history_chars": 4000,
   "chunk_size": 800,
-  "chunk_overlap": 120,
-  "engagement": null
+  "chunk_overlap": 120
 }

@@ -72,3 +72,10 @@ def test_banner_notes_an_unsupported_shell_only_when_set() -> None:
     assert "unsupported" not in _banner()
     noted = _banner(unsupported_shell="fish")
     assert "fish is unsupported" in noted
+
+
+def test_banner_never_carries_config_drift() -> None:
+    # Config is meant to be edited, so drift is NOT a passive-startup warning;
+    # it is surfaced only on reinstall, update, and `show status`.
+    out = _banner(stale_configs=("tools.json", "commands.json"))
+    assert "behind the packaged" not in out

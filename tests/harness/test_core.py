@@ -483,6 +483,20 @@ def test_self_update_runs_pull_then_sync(
     assert any("updated to skuggi" in line for line in lines)
 
 
+def test_self_update_notes_config_drift_after_updating(
+    core: AgentCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pulled template may move ahead of the install; update is where to say so.
+
+    The test registry differs from the packaged template, so `tools.json` is
+    drifted -- self_update should surface that after the update stream.
+    """
+    monkeypatch.setattr(update_mod, "is_uv_tool_env", lambda: False)
+    lines = list(core.self_update(lambda argv: _result(argv, exit_code=0)))
+    assert any("differ from the packaged templates" in line for line in lines)
+    assert any("tools.json" in line for line in lines)
+
+
 def test_self_update_aborts_on_a_failed_step(
     core: AgentCore, monkeypatch: pytest.MonkeyPatch
 ) -> None:

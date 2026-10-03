@@ -13,7 +13,8 @@ This module closes that gap without ever destroying an operator's edits:
   packaged template by *normalised* JSON (so a reformat or a key reorder is not
   reported as drift), classifying each file ``up_to_date`` / ``drifted`` /
   ``missing``.
-- :func:`diff_text` shows exactly what an overwrite would change.
+- :func:`structured_diff` shows exactly what an overwrite would change, as a
+  per-file-type semantic diff (see :mod:`skuggi.install.configdiff`).
 - :func:`overwrite` replaces the installed file with the packaged template, but
   only after copying the current file into a timestamped backup first.
 
@@ -23,7 +24,6 @@ and ``skuggi-init`` only *note* that drift exists.
 
 from __future__ import annotations
 
-import difflib
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Literal
 
 from skuggi.common.paths import ensure_dir, packaged_template
+from skuggi.install import configdiff
 from skuggi.install.init import SEEDED
 
 State = Literal["up_to_date", "drifted", "missing"]
@@ -99,26 +100,31 @@ def drifted(config_dir: Path) -> tuple[str, ...]:
     return tuple(s.name for s in status(config_dir) if s.state == "drifted")
 
 
-def diff_text(config_dir: Path, name: str) -> str:
-    """Unified diff from the installed file to the packaged template.
+def _load_json(raw: bytes) -> configdiff.JsonObj:
+    """Parse `raw` as a JSON object; ``{}`` when it is missing or unparseable.
 
-    Empty when the two are identical (nothing to apply). Both sides are the
-    normalised form, so the diff shows real content changes, not reformatting.
+    A malformed (or non-object) installed file still has drift *detected* by
+    :func:`status`; here it degrades to an empty object so the semantic diff
+    surfaces the template rather than raising.
+    """
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def structured_diff(config_dir: Path, name: str) -> configdiff.StructuredDiff:
+    """What an overwrite of `name` would change, as a per-file-type semantic diff.
+
+    Empty when the two are already equivalent (nothing to apply). A missing
+    installed file diffs against ``{}``, so the whole template reads as additions.
     """
     template = _PAIRS[name]
     dest = config_dir / name
-    current = _normalise(dest.read_bytes()) if dest.exists() else ""
-    packaged = _normalise(_packaged(template))
-    if current == packaged:
-        return ""
-    return "".join(
-        difflib.unified_diff(
-            current.splitlines(keepends=True),
-            packaged.splitlines(keepends=True),
-            fromfile=f"installed/{name}",
-            tofile=f"packaged/{template}",
-        )
-    )
+    installed = _load_json(dest.read_bytes()) if dest.exists() else {}
+    packaged = _load_json(_packaged(template))
+    return configdiff.diff(name, installed, packaged)
 
 
 def _stamp() -> str:

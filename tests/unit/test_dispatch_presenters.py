@@ -50,6 +50,13 @@ def test_present_status_ready_vs_pending() -> None:
     assert "ready" not in _texts(pending)
 
 
+def test_present_status_surfaces_config_drift() -> None:
+    # Drift is off the passive banner but kept on the explicit `show status`.
+    drifted = dispatch.present_status(_readiness(stale_configs=("tools.json",)), "repl")
+    assert any("behind the packaged" in line.text for line in drifted)
+    assert "ready" not in _texts(drifted)
+
+
 def test_present_sessions_empty_and_rows() -> None:
     assert _texts(dispatch.present_sessions([])) == ["(no sessions yet)"]
     row = dispatch.SessionCount(

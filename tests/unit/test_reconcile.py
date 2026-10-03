@@ -14,7 +14,7 @@ from pathlib import Path
 
 from skuggi.common.paths import packaged_template
 from skuggi.frontend import dispatch
-from skuggi.install import reconcile
+from skuggi.install import configdiff, reconcile
 from skuggi.install.init import SEEDED
 
 _TOOLS = "tools.json"
@@ -49,7 +49,7 @@ def test_reformat_is_not_drift(tmp_path: Path) -> None:
     reflowed = json.dumps(data, sort_keys=False, indent=4).encode() + b"\n"
     _write(tmp_path, _TOOLS, reflowed)
     assert reconcile.drifted(tmp_path) == ()
-    assert reconcile.diff_text(tmp_path, _TOOLS) == ""
+    assert reconcile.structured_diff(tmp_path, _TOOLS).empty
 
 
 def test_drift_detected_when_a_field_is_missing(tmp_path: Path) -> None:
@@ -57,9 +57,11 @@ def test_drift_detected_when_a_field_is_missing(tmp_path: Path) -> None:
     data["tools"][0].pop("output_flag")  # an old install lacking the convention
     _write(tmp_path, _TOOLS, json.dumps(data).encode())
     assert _TOOLS in reconcile.drifted(tmp_path)
-    diff = reconcile.diff_text(tmp_path, _TOOLS)
-    assert "output_flag" in diff
-    assert any(ln.startswith("+") and "output_flag" in ln for ln in diff.splitlines())
+    diff = reconcile.structured_diff(tmp_path, _TOOLS)
+    # The missing field reads as a per-entry change: absent (—) -> the template's.
+    change = next(c for c in diff.changed if c.path == "nmap.output_flag")
+    assert change.old == "\N{EM DASH}"
+    assert "-oA" in change.new
 
 
 def test_overwrite_backs_up_then_replaces(tmp_path: Path) -> None:
@@ -94,8 +96,8 @@ class _StubCore:
     def reconcile_status(self) -> tuple[reconcile.FileStatus, ...]:
         return reconcile.status(self._dir)
 
-    def reconcile_diff(self, name: str) -> str:
-        return reconcile.diff_text(self._dir, name)
+    def reconcile_structured_diff(self, name: str) -> configdiff.StructuredDiff:
+        return reconcile.structured_diff(self._dir, name)
 
     def reconcile_overwrite(self, name: str) -> Path | None:
         return reconcile.overwrite(self._dir, name)
@@ -116,9 +118,22 @@ def _run(config_dir: Path, arg: str) -> list[str]:
 def test_present_list_flags_a_drifted_file_with_magnitude(tmp_path: Path) -> None:
     _write(tmp_path, _TOOLS, b'{"tools": []}')
     texts = _run(tmp_path, "")  # no argument lists every file
-    # The drifted row carries its state and a (+added -removed) magnitude.
-    assert any(_TOOLS in t and "drifted" in t and "(+" in t for t in texts)
+    # The drifted row carries its state and a (+added -removed ~changed) magnitude.
+    assert any(_TOOLS in t and "drifted" in t and "(+" in t and "~" in t for t in texts)
     assert any("reconcile all" in t for t in texts)
+
+
+def test_present_diff_shows_semantic_sections(tmp_path: Path) -> None:
+    # An install with one tool dropped and one field changed vs the template.
+    data = json.loads(_packaged_tools())
+    data["tools"] = [t for t in data["tools"] if t["name"] != "nikto"]  # drop one
+    data["tools"][0]["output_flag"] = "-OA"  # change nmap's convention
+    _write(tmp_path, _TOOLS, json.dumps(data).encode())
+    texts = _run(tmp_path, f"diff {_TOOLS}")
+    assert any("Added:" in t for t in texts)  # nikto is re-added by an overwrite
+    assert any("nikto" in t for t in texts)
+    assert any("Changed:" in t for t in texts)
+    assert any("nmap.output_flag" in t and "=>" in t for t in texts)
 
 
 def test_present_bare_filename_overwrites_and_reports_the_backup(

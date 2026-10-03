@@ -89,16 +89,14 @@ def render_banner_notes(readiness: Readiness, surface: verbs.Surface) -> list[st
 
     Each pending step is phrased once here and formatted for `surface`, so the
     shell, the chat loop and the REPL all point at the command that runs there.
+    Config drift is deliberately NOT noted here -- config is meant to be edited,
+    so drift is the normal state, not a passive-startup warning. It is surfaced
+    only on reinstall, ``update``, and the explicit ``show status`` (which appends
+    it from :data:`skuggi.frontend.dispatch`).
     """
     notes = list(readiness.warnings)
     notes += [
         f"{step.message} -- run {verbs.cmd(step.invocation, surface)}"
         for step in readiness.pending
     ]
-    if readiness.stale_configs:
-        names = ", ".join(readiness.stale_configs)
-        notes.append(
-            f"{len(readiness.stale_configs)} config file(s) behind the packaged "
-            f"templates ({names}) -- run {verbs.cmd('reconcile', surface)}"
-        )
     return notes
