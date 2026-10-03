@@ -62,6 +62,14 @@ pdf = [
     "pygments>=2.17",
     "jinja2>=3.1",
 ]
+# Pure-Python readers for binary documents found in an engagement (pdf/docx/xlsx).
+# A separate extra from `pdf` (which RENDERS reports): these only PARSE text out,
+# with no subprocess and no macro execution. See skuggi.persistence.documents.
+documents = [
+    "pypdf>=5",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+]
 
 [project.scripts]
 skuggi = "skuggi.frontend.shell:main"
@@ -318,5 +326,5 @@ warn_required_dynamic_aliases = true
 # follow them. Scoped to those two; markdown-it-py, mdit-py-plugins, jinja2 and
 # markupsafe are all typed.
 [[tool.mypy.overrides]]
-module = ["weasyprint.*", "pygments.*"]
+module = ["weasyprint.*", "pygments.*", "openpyxl.*"]
 ignore_missing_imports = true

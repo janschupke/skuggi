@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -138,3 +139,44 @@ def test_oversized_source_is_skipped(
     assert store.ingest([docs]) == 1  # only the small file
     hits = store.search("tiny", k=5)
     assert all("big.md" not in h.metadata["source"] for h in hits)
+
+
+# --- binary-document ingestion (pdf/docx/xlsx via the safe extractor) -------
+
+
+def test_ingests_a_docx_and_retrieves_it(
+    tmp_path: Path, fake_embeddings: CountingFakeEmbeddings
+) -> None:
+    docx = pytest.importorskip("docx")
+
+    docs = tmp_path / "evidence"
+    docs.mkdir()
+    doc = docx.Document()
+    doc.add_paragraph("quarterly findings about pangolins")
+    doc.save(str(docs / "report.docx"))
+
+    store = Store(tmp_path / "idx", fake_embeddings)
+    added = store.ingest([docs])
+
+    assert added > 0
+    hits = store.search("pangolins", k=1)
+    assert hits
+    assert "pangolins" in hits[0].page_content
+
+
+def test_a_macro_document_is_skipped_not_fatal(
+    tmp_path: Path, fake_embeddings: CountingFakeEmbeddings
+) -> None:
+    docs = tmp_path / "evidence"
+    docs.mkdir()
+    # A good text file plus a macro-bearing xlsx: ingest keeps the good one and
+    # skips the refused document rather than failing the whole run.
+    (docs / "ok.txt").write_text("clean text about herons", encoding="utf-8")
+    with zipfile.ZipFile(docs / "evil.xlsx", "w") as zf:
+        zf.writestr("xl/vbaProject.bin", b"\x00vba")
+
+    store = Store(tmp_path / "idx", fake_embeddings)
+    added = store.ingest([docs])
+
+    assert added > 0  # the clean file made it in
+    assert store.search("herons", k=1)

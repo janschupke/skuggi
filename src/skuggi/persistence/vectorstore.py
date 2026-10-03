@@ -22,6 +22,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from skuggi.common.logs import get_logger
 from skuggi.common.paths import ensure_dir
 from skuggi.config.config import Settings
+from skuggi.persistence import documents
 
 log = get_logger(__name__)
 
@@ -58,7 +59,13 @@ class Store:
         *,
         chunk_size: int = 800,
         chunk_overlap: int = 120,
-        globs: Sequence[str] = ("**/*.md", "**/*.txt"),
+        globs: Sequence[str] = (
+            "**/*.md",
+            "**/*.txt",
+            "**/*.pdf",
+            "**/*.docx",
+            "**/*.xlsx",
+        ),
     ) -> None:
         self.path = path.expanduser()
         self.embeddings = embeddings
@@ -128,17 +135,11 @@ class Store:
         """
         sources: list[Document] = []
         for path in self._files(paths):
-            size = path.stat().st_size
-            if size > MAX_FILE_BYTES:
-                log.warning(
-                    "skipping oversized ingest source (%d bytes): %s", size, path
-                )
+            content = self._read_source(path)
+            if content is None:
                 continue
             sources.append(
-                Document(
-                    page_content=path.read_text(encoding="utf-8", errors="replace"),
-                    metadata={"source": str(path)},
-                )
+                Document(page_content=content, metadata={"source": str(path)})
             )
         docs = self._splitter.split_documents(sources)
         if not docs:
@@ -148,6 +149,27 @@ class Store:
         else:
             self._vs.add_documents(docs)
         return len(docs)
+
+    def _read_source(self, path: Path) -> str | None:
+        """The text of one ingest source, or None to skip it.
+
+        A binary document (pdf/docx/xlsx) is parsed through the safe extractor
+        (no execution, macros refused, bomb/size-capped); a refused document is
+        skipped with a warning rather than failing the whole run. A plain-text
+        source is read directly, with ``errors="replace"`` kept so one stray byte
+        does not abort ingest, under the non-document size cap.
+        """
+        if documents.is_supported(path):
+            try:
+                return documents.extract_text(path)
+            except documents.DocumentError as exc:
+                log.warning("skipping document: %s", exc)
+                return None
+        size = path.stat().st_size
+        if size > MAX_FILE_BYTES:
+            log.warning("skipping oversized ingest source (%d bytes): %s", size, path)
+            return None
+        return path.read_text(encoding="utf-8", errors="replace")
 
     def persist(self) -> None:
         """Write the index to disk; a no-op when nothing has been ingested."""
