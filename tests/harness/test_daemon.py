@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.agent.core import AgentCore, TurnEvent
+from skuggi.agent.core import AgentCore
+from skuggi.agent.turn_runner import TurnEvent
 from skuggi.frontend import attach
 from skuggi.frontend.daemon import Daemon
 from skuggi.persistence import pdf as pdf_mod

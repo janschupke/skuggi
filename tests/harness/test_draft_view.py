@@ -20,8 +20,9 @@ import pytest
 from rich.console import Console
 from rich.live import Live
 
-from skuggi.agent.core import AgentCore, TurnEvent
+from skuggi.agent.core import AgentCore
 from skuggi.agent.protocol import CommandBrief, WorkerResponse, render_response
+from skuggi.agent.turn_runner import TurnEvent
 from skuggi.frontend.tui import DraftView
 from tests.conftest import offline_settings, wire_offline_core
 
@@ -63,7 +64,7 @@ def test_turn_maps_node_updates_to_events(
                 {"critic": {"approved": True, "critique": "ok"}},
             ]
         )
-        with caplog.at_level(logging.DEBUG, logger="skuggi.agent.core"):
+        with caplog.at_level(logging.DEBUG, logger="skuggi.agent.turn_runner"):
             events = list(core.turn("q"))
     finally:
         core.close()

@@ -15,17 +15,12 @@ front-end shows them) rather than crashing the session.
 
 from __future__ import annotations
 
-import json
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import ValidationError
 
@@ -33,17 +28,17 @@ from skuggi.agent import awareness
 from skuggi.agent.commandbook import CommandBook
 from skuggi.agent.config_controller import ConfigController
 from skuggi.agent.grants import SessionGrants
-from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
+from skuggi.agent.graph import GraphDeps, build_graph
 from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.preferencebook import PreferenceBook
-from skuggi.agent.protocol import render_answer
 from skuggi.agent.provider_kernel import ProviderKernel
 from skuggi.agent.reconcile_controller import ReconcileController
 from skuggi.agent.scope_controller import ScopeController
 from skuggi.agent.session_archive import SessionArchive
 from skuggi.agent.state import AgentState
 from skuggi.agent.tooldoctor import ToolDoctor
+from skuggi.agent.turn_runner import TurnEvent, TurnRunner
 from skuggi.common import logs
 from skuggi.config.config import (
     Provider,
@@ -61,7 +56,6 @@ from skuggi.engagement import datafiles
 from skuggi.engagement.engagement import (
     EngagementConfig,
     ThreatModel,
-    parse_command,
 )
 from skuggi.engagement.workspace import (
     Workspace,
@@ -81,8 +75,6 @@ from skuggi.tooling.registry import ToolRegistry
 
 log = logs.get_logger(__name__)
 
-EventKind = Literal["reset", "status", "token", "final"]
-
 
 def parse_toggle(arg: str) -> bool | None:
     """Parse an on/off argument; None (neither) means "flip the current state".
@@ -91,20 +83,6 @@ def parse_toggle(arg: str) -> bool | None:
     both front-ends.
     """
     return {"on": True, "off": False}.get(arg.strip().lower())
-
-
-@dataclass(frozen=True, slots=True)
-class TurnEvent:
-    """One item streamed out of a turn.
-
-    ``reset`` clears the draft buffer (a new pass or tool round begins),
-    ``status`` is a one-line node update, ``token`` is an incremental worker
-    token, ``final`` is the critic-approved draft that supersedes the buffer.
-    """
-
-    kind: EventKind
-    text: str = ""
-    node: str = ""
 
 
 class AgentCore:
@@ -117,13 +95,6 @@ class AgentCore:
         self.thread_id = str(uuid.uuid4())
         self.session_id = str(uuid.uuid4())
         self.warnings: list[str] = []
-        # The prompt event id of the turn in flight, so commands the agent runs
-        # link back to the directive that drove them. None between turns.
-        self._current_turn_event_id: int | None = None
-        # The full, labeled render of the turn in flight -- recorded to the ledger
-        # (replay/review keep every field) while the terminal gets only the clean
-        # answer. Set by ``_turn_updates`` when the worker answers; "" otherwise.
-        self._last_full_response: str = ""
 
         self.layout = self._load_layout()
         self.workspace = self._open_workspace()
@@ -151,6 +122,10 @@ class AgentCore:
         # Harness memory: global operator preferences, injected into every turn.
         self._prefs_ctx = preferences.open_preferences(self.settings.preferences_path)
         self.prefs = self._prefs_ctx.__enter__()
+
+        # The turn loop + its transient per-turn state (built before the first
+        # rebuild: _deps's turn_id lambda reads current_turn_event_id from here).
+        self.turn_runner = TurnRunner(self)
 
         self.rebuild_graph()
 
@@ -288,13 +263,12 @@ class AgentCore:
 
     @property
     def current_turn_event_id(self) -> int | None:
-        """The ledger event id of the in-flight turn (``None`` between turns).
+        """The in-flight turn's ledger event id (delegated to the turn runner).
 
         A sub-component (the command book) links a proposed command to the turn
-        that produced it; this read-only seam exposes that link without reaching
-        into the core's internals.
+        that produced it; this read-only seam exposes that link.
         """
-        return self._current_turn_event_id
+        return self.turn_runner.current_turn_event_id
 
     def redaction_policy(self) -> RedactionPolicy:
         """The redaction policy for this session, allow-listing in-scope identifiers.
@@ -375,7 +349,7 @@ class AgentCore:
             wordlist_roots=tuple(Path(r) for r in self.settings.wordlist_roots),
             session_id=self.session_id,
             thread_id=lambda: self.thread_id,
-            turn_id=lambda: self._current_turn_event_id,
+            turn_id=lambda: self.current_turn_event_id,
             cwd=self._recon_cwd(),
             command_timeout_s=self.settings.command_timeout_s,
             native_structured=self.settings.supports_structured_output(),
@@ -662,207 +636,20 @@ class AgentCore:
         self.commands = self._load_commands()
         self.rebuild_graph()
 
-    # ----- session logging, retrieval, replay & review ----------------------
+    # ----- turn loop + session logging (delegated to TurnRunner) -------------
 
     def note_interaction(self, verb: str, detail: str = "") -> None:
-        """Record a harness-control interaction to the audit log (not the timeline).
-
-        Called by both front-ends for every ``control`` verb (config, mode,
-        doctor, help, replay, review, ...). Engagement verbs (ask/run) are left
-        out -- their activity is the timeline itself.
-        """
-        self.ledger.record_audit(
-            session_id=self.session_id, kind="control", verb=verb, detail=detail
-        )
+        """Record a harness-control interaction to the audit log (delegated)."""
+        self.turn_runner.note_interaction(verb, detail)
 
     def record_passthrough(self, cmdline: str) -> None:
-        """Log a free-typed shell command the operator ran (the wrapped shell).
-
-        The operator's own commands are not vetoed (scope is not checked -- the
-        honest boundary is that skuggi only *proposes* commands, guarded by the
-        executor); this simply records what actually ran. Navigation/builtin noise
-        (``settings.passthrough_skip``) goes to the audit ``cli`` channel; every
-        other command lands on the engagement timeline as ``passthrough``.
-        """
-        raw = cmdline.strip()
-        if not raw:
-            return
-        if raw.split()[0] in self.settings.passthrough_skip:
-            self.ledger.record_audit(session_id=self.session_id, kind="cli", detail=raw)
-            return
-        parsed = parse_command(raw, self.registry)
-        self.ledger.record_command(
-            session_id=self.session_id,
-            thread_id=self.thread_id,
-            command=raw,
-            binary=parsed.binary,
-            method=parsed.method,
-            status="passthrough",
-        )
-
-    # ----- the agent turn ----------------------------------------------------
-
-    def _config(self) -> RunnableConfig:
-        return {
-            "configurable": {"thread_id": self.thread_id},
-            "recursion_limit": recursion_limit(
-                max_revisions=self.settings.max_revisions,
-                max_command_rounds=self.settings.max_tool_rounds,
-            ),
-        }
+        """Log a free-typed shell command the operator ran (delegated)."""
+        self.turn_runner.record_passthrough(cmdline)
 
     def state(self) -> AgentState:
-        """The current graph state for the active thread."""
-        values = self.graph.get_state(self._config()).values
-        if isinstance(values, dict) and values:
-            return cast("AgentState", values)
-        return {"messages": []}
+        """The current graph state for the active thread (delegated)."""
+        return self.turn_runner.state()
 
     def turn(self, user_text: str) -> Iterator[TurnEvent]:
-        """Run one agent turn, yielding events as the graph streams.
-
-        A bad turn yields a ``status`` error event rather than raising, so a
-        front-end loop (REPL or daemon) is never killed by one failed turn.
-        """
-        initial: AgentState = {
-            "messages": [HumanMessage(content=user_text)],
-            "revision_count": 0,
-            "max_revisions": self.settings.max_revisions,
-        }
-        # The prompt goes on the timeline first, and its id tags every command
-        # this turn records (so a finding traces prompt -> command -> finding).
-        self._current_turn_event_id = self.ledger.record_event(
-            session_id=self.session_id,
-            thread_id=self.thread_id,
-            kind="prompt",
-            text=user_text,
-        )
-        log.info("turn start thread=%s prompt=%r", self.thread_id, user_text)
-        final_text = ""
-        self._last_full_response = ""
-        try:
-            # Build the model on first use. A missing credential raises here and
-            # is caught below, surfacing as a clean, actionable error event
-            # (pointing at /setup) rather than a dead session.
-            self.ensure_llm()
-            # Structured output is not token-streamed; each node's state update is
-            # turned into a status/final event as the graph advances.
-            stream: Iterator[Any] = self.graph.stream(
-                initial, self._config(), stream_mode="updates"
-            )
-            for payload in stream:
-                for ev in self._turn_updates(cast("dict[str, object]", payload)):
-                    if ev.kind == "final":
-                        final_text = ev.text
-                    yield ev
-            # The turn is answered; now let the harness remember any standing
-            # directive it carried (best-effort, never raises).
-            for row in self.memory.maybe_capture(user_text):
-                yield TurnEvent(
-                    "status",
-                    f"remembered: {row.text} (forget {row.id} to undo)",
-                    node="memory",
-                )
-        except ConfigError as e:
-            # A config/credential problem is already a full, actionable sentence
-            # (e.g. "No OpenAI API key configured. Run /setup..."); show it as-is
-            # rather than prefixing it with the exception class name.
-            log.warning("turn aborted on config error: %s", e)
-            final_text = f"[error] {e}"
-            yield TurnEvent("status", str(e), node="error")
-        except Exception as e:  # a bad turn must not kill the loop
-            log.exception("turn failed")
-            final_text = f"[error] {type(e).__name__}: {e}"
-            yield TurnEvent("status", f"{type(e).__name__}: {e}", node="error")
-        finally:
-            # Close the turn on the timeline and stop tagging commands with it,
-            # so a later /run proposal is recorded unlinked rather than misattributed.
-            # This runs OUTSIDE the try above: a storage failure here must degrade
-            # to a logged warning, never raise out of `turn` and kill the
-            # front-end loop with the response already delivered.
-            log.info("turn response thread=%s answer=%r", self.thread_id, final_text)
-            try:
-                self.ledger.record_event(
-                    session_id=self.session_id,
-                    thread_id=self.thread_id,
-                    kind="response",
-                    # Keep the full, labeled render on the timeline so replay/review
-                    # retain every field; the operator only ever saw the clean answer.
-                    text=self._last_full_response or final_text,
-                )
-            except Exception:  # closing the timeline must not crash the loop
-                log.exception("failed to record turn-closing response event")
-            self._current_turn_event_id = None
-            self._last_full_response = ""
-
-    def _planner_events(self, values: dict[str, Any]) -> Iterator[TurnEvent]:
-        """Emit the planner superstep's events.
-
-        On a triaged direct answer the worker and critic never run, so this is the
-        only place the terminal answer is emitted (``respond`` just commits
-        ``draft`` to ``messages``); a conversational reply has no labeled render, so
-        the clean answer is also what the turn-closing ledger event records.
-        Otherwise the plan is internal scaffolding and only logged.
-        """
-        yield TurnEvent("reset")
-        if values.get("plan_action") == "answer":
-            answer = str(values.get("draft") or "")
-            self._last_full_response = answer
-            yield TurnEvent("final", answer)
-            return
-        steps = list(values.get("plan") or [])
-        if steps:
-            log.debug("plan thread=%s steps=%s", self.thread_id, json.dumps(steps))
-
-    def _turn_updates(self, payload: dict[str, object]) -> Iterator[TurnEvent]:
-        """Turn one graph superstep into operator events, logging the rest.
-
-        Only the worker's answer reaches the terminal (as a ``final`` event); the
-        planner plan, retrieval, executor command briefs and critic verdict are
-        internal scaffolding -- they are logged to the diagnostic file (the full,
-        structured worker object included) but never shown. Errors and the memory
-        note stay operator-facing and are yielded by ``turn`` itself.
-        """
-        for node, update in payload.items():
-            values = update if isinstance(update, dict) else {}
-            if node == "planner":
-                yield from self._planner_events(values)
-            elif node == "retriever":
-                if values.get("context"):
-                    log.debug("retrieved context inlined thread=%s", self.thread_id)
-            elif node == "worker":
-                yield TurnEvent("reset")
-                worker = values.get("worker")
-                if worker is not None:
-                    log.debug(
-                        "worker thread=%s response=%s",
-                        self.thread_id,
-                        worker.model_dump_json(),
-                    )
-                    # The full, labeled render stays in the ledger/history/critic;
-                    # the terminal gets only the clean answer.
-                    self._last_full_response = str(values.get("draft") or "")
-                    yield TurnEvent("final", render_answer(worker))
-                elif values.get("draft"):  # defensive: draft without the object
-                    draft = str(values["draft"])
-                    self._last_full_response = draft
-                    yield TurnEvent("final", draft)
-            elif node == "executor":
-                commands = values.get("commands") or []
-                if commands:
-                    last = commands[-1]
-                    log.debug(
-                        "command thread=%s status=%s command=%r",
-                        self.thread_id,
-                        last.status,
-                        last.command,
-                    )
-            elif node == "critic":
-                approved = values.get("approved")
-                reason = values.get("critique") or ""
-                log.debug(
-                    "critic thread=%s approved=%s reason=%r",
-                    self.thread_id,
-                    approved,
-                    reason,
-                )
+        """Run one agent turn, yielding events as the graph streams (delegated)."""
+        yield from self.turn_runner.turn(user_text)

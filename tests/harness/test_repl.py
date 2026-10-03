@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from skuggi.agent.core import TurnEvent
+from skuggi.agent.turn_runner import TurnEvent
 from skuggi.frontend import menu, verbs
 from skuggi.frontend.tui import Tui
 from tests.conftest import offline_settings, wire_offline_core
@@ -181,7 +181,7 @@ def test_turn_shows_the_clean_answer_and_logs_the_scaffolding(
 ) -> None:
     app, buffer = tui
 
-    with caplog.at_level(logging.DEBUG, logger="skuggi.agent.core"):
+    with caplog.at_level(logging.DEBUG, logger="skuggi.agent.turn_runner"):
         app.turn("what is the answer?")
     output = _out(buffer)
 
