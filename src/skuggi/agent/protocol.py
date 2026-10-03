@@ -412,7 +412,19 @@ def format_instructions(schema: type[BaseModel]) -> str:
 
 
 def _text_of(reply: object) -> str:
-    """The plain text of a chat reply, however the provider shaped it."""
+    """The plain text of a chat reply, however the provider shaped it.
+
+    A chat model returns a ``BaseMessage``. With the OpenAI Responses API -- the
+    ``chatgpt``/codex provider, and the only one on this non-native path -- its
+    ``content`` is a list of content blocks (a reasoning item plus a text item),
+    not a string. ``BaseMessage.text`` flattens that to the assistant's text,
+    skipping the reasoning/non-text blocks; ``str(content)`` would instead yield a
+    Python repr (single quotes) that is not valid JSON and crashes ``_extract_json``.
+    The ``.text`` *property* is used deliberately -- calling ``.text()`` is
+    deprecated and the suite runs under ``-W error``.
+    """
+    if isinstance(reply, BaseMessage):
+        return str(reply.text)
     content = getattr(reply, "content", reply)
     return content if isinstance(content, str) else str(content)
 

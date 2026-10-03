@@ -128,6 +128,27 @@ def test_structured_invoke_non_native_parses_json() -> None:
     assert any(isinstance(m, SystemMessage) and "JSON" in m.text for m in llm.calls[-1])
 
 
+def test_structured_invoke_non_native_extracts_text_from_content_blocks() -> None:
+    # The chatgpt/codex Responses API returns .content as a list of blocks (a
+    # reasoning item plus a text item), not a string. str(content) would yield a
+    # Python repr that is not valid JSON -- the real planner crash. _text_of must
+    # flatten the blocks to the assistant's text.
+    llm = ScriptedChatModel()
+    llm.replies = [
+        AIMessage(
+            content=[
+                {"type": "reasoning", "id": "rs_abc"},
+                {"type": "text", "text": '{"approved": true, "reason": "ok"}'},
+            ]
+        )
+    ]
+    llm.calls = []
+    out = structured_invoke(
+        llm, CriticResponse, [HumanMessage(content="ok?")], native=False
+    )
+    assert out == CriticResponse(approved=True, reason="ok")
+
+
 def test_structured_invoke_non_native_tolerates_a_code_fence() -> None:
     llm = ScriptedChatModel()
     llm.replies = ['here you go:\n```json\n{"approved": false, "reason": "scope"}\n```']

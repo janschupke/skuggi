@@ -13,7 +13,9 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
+from langchain_core.messages import HumanMessage
 
+from skuggi.agent.protocol import CriticResponse, structured_invoke
 from skuggi.providers.codex_chat import (
     CodexAuthError,
     CodexTokenStore,
@@ -197,3 +199,63 @@ def test_auth_json_without_tokens_is_actionable(tmp_path: Path) -> None:
 @pytest.mark.parametrize("token", ["", "a", "a.b", "....", "a.!!!.c"])
 def test_jwt_expiry_tolerates_malformed_tokens(token: str) -> None:
     assert jwt_expiry(token) is None
+
+
+def _sse_with_reasoning(text: str) -> str:
+    """An SSE stream whose output carries a reasoning item before the text item.
+
+    A reasoning model (gpt-6-luna) returns `.content` as a list of blocks, not a
+    string -- the condition that crashed the non-native structured-output path.
+    """
+    events = [
+        {"type": "response.created", "response": {"id": "r1", "output": []}},
+        {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {"type": "reasoning", "id": "rs_abc", "summary": []},
+        },
+        {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {"type": "reasoning", "id": "rs_abc", "summary": []},
+        },
+        {"type": "response.output_text.delta", "delta": text, "output_index": 1},
+        {
+            "type": "response.completed",
+            "response": {
+                "id": "r1",
+                "output": [
+                    {"type": "reasoning", "id": "rs_abc", "summary": []},
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": text}],
+                    },
+                ],
+            },
+        },
+    ]
+    return "".join(f"data: {json.dumps(e)}\n\n" for e in events) + "data: [DONE]\n\n"
+
+
+@respx.mock
+def test_structured_invoke_parses_a_reasoning_models_block_content(
+    tmp_path: Path,
+) -> None:
+    # End-to-end against the real CodexChatModel wiring: a reasoning model returns
+    # list-shaped content, and structured_invoke(native=False) must still parse the
+    # JSON text block out of it -- this is the real planner crash the user hit.
+    respx.post(RESPONSES_URL).mock(
+        return_value=httpx.Response(
+            200,
+            text=_sse_with_reasoning('{"approved": true, "reason": "ok"}'),
+            headers={"content-type": "text/event-stream"},
+        )
+    )
+    model = build_codex_chat_model("gpt-6-luna", auth_path=_auth_json(tmp_path))
+
+    out = structured_invoke(
+        model, CriticResponse, [HumanMessage(content="ok?")], native=False
+    )
+
+    assert out == CriticResponse(approved=True, reason="ok")
