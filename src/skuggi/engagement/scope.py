@@ -1,0 +1,187 @@
+"""The engagement scope model: the authorized boundary, loaded from JSON.
+
+The pydantic data definitions for one engagement -- what is in scope (networks,
+hosts, tools, methods, time windows), the posture/framework awareness that is
+advisory to the agent, and the CVSS environmental threat model. Split out of
+``engagement.py`` from the parse+guard engine (:mod:`skuggi.engagement.guard`),
+which reads these models but changes for a different reason. No I/O, no command
+parsing -- just the shape of an engagement and the small queries over it.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime, time
+from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    IPvAnyNetwork,
+    field_validator,
+    model_validator,
+)
+
+from skuggi.agent.protocol import Methodology, Stance, Taxonomy
+from skuggi.tooling.registry import RiskTier, RiskTierField
+
+
+class TimeWindow(BaseModel):
+    """A daily allowed clock range, interpreted in the engagement timezone."""
+
+    model_config = ConfigDict(frozen=True)
+
+    start: time
+    end: time
+
+    def contains(self, moment: time) -> bool:
+        """Whether `moment` falls in this window, including midnight-spanning."""
+        if self.start <= self.end:
+            return self.start <= moment <= self.end
+        return moment >= self.start or moment <= self.end
+
+
+class ThreatModel(BaseModel):
+    """Per-engagement CVSS Environmental inputs -- the asset's security requirements.
+
+    Present on a scope means environmental scoring is in play; its three
+    requirements map to CVSS CR/IR/AR (``medium`` is the neutral default, so a
+    threat model with all-medium is harmless but still switches environmental on).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    confidentiality_requirement: Literal["low", "medium", "high"] = "medium"
+    integrity_requirement: Literal["low", "medium", "high"] = "medium"
+    availability_requirement: Literal["low", "medium", "high"] = "medium"
+
+    def cvss_environmental_metrics(self) -> dict[str, str]:
+        """The CR/IR/AR CVSS metrics for this threat model (non-neutral levels only)."""
+        level = {"low": "L", "medium": "M", "high": "H"}
+        pairs = {
+            "CR": level[self.confidentiality_requirement],
+            "IR": level[self.integrity_requirement],
+            "AR": level[self.availability_requirement],
+        }
+        # "M" is CVSS "Medium" == the neutral 1.0 weight; omit it to keep vectors lean.
+        return {code: value for code, value in pairs.items() if value != "M"}
+
+
+class EngagementConfig(BaseModel):
+    """The authorized boundary for one engagement, loaded from JSON."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    timezone: str
+    # Optional time bounds. ``None`` leaves that edge unbounded: both ``None``
+    # means the engagement has no authorized-time window at all (the guard skips
+    # the date/time check). A set bound must be timezone-aware (see ``_aware``).
+    authorized_start: datetime | None = None
+    authorized_end: datetime | None = None
+    daily_windows: tuple[TimeWindow, ...] = ()
+    target_networks: tuple[IPvAnyNetwork, ...] = ()
+    allowed_hosts: frozenset[str] = frozenset()
+    allowed_tools: frozenset[str] = frozenset()
+    allowed_methods: frozenset[str] = frozenset()
+    autonomous: bool = False
+    # The highest risk tier autonomous mode runs without asking. A command above
+    # it is recorded ``proposed`` for the operator to run by hand, even when
+    # autonomous is armed -- the deterministic "manual escalation" gate (see
+    # skuggi.engagement.risk and executor._run_or_propose). Conservative by default:
+    # recon/scans auto-run, but brute-force/crack/exploit escalate. Unlike the
+    # scope allow-lists this never *widens* authority -- it only holds back.
+    autonomous_ceiling: RiskTierField = RiskTier.active
+    # The engagement posture. Advisory only: it calibrates what the agent
+    # proposes (see skuggi.prompts), never what the guard allows.
+    stance: Stance = "cautious"
+    # The host the cheatsheet's ``${target}`` defaults to, exported into the
+    # wrapped shell. Optional: when blank it is derived from a sole allowed host
+    # or sole target network (see ``primary_target``).
+    primary_target: str | None = None
+    # Framework awareness. ``methodology`` is the driving framework (prescriptive);
+    # ``taxonomies`` are the per-finding classification schemes enabled for this
+    # engagement (descriptive, never forced); ``threat_model`` enables CVSS
+    # Environmental scoring. All advisory to the agent -- none affect the guard.
+    methodology: Methodology = "phases"
+    taxonomies: frozenset[Taxonomy] = frozenset()
+    threat_model: ThreatModel | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            msg = f"unknown timezone: {value!r}"
+            raise ValueError(msg) from exc
+        return value
+
+    @field_validator("authorized_start", "authorized_end")
+    @classmethod
+    def _aware(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            msg = "authorized_start/authorized_end must be timezone-aware"
+            raise ValueError(msg)
+        return value
+
+    @model_validator(mode="after")
+    def _window_ordered(self) -> EngagementConfig:
+        """Reject an end before the start when both bounds are set."""
+        start, end = self.authorized_start, self.authorized_end
+        if start is not None and end is not None and end < start:
+            msg = "authorized_end is before authorized_start"
+            raise ValueError(msg)
+        return self
+
+    def tzinfo(self) -> ZoneInfo:
+        """The engagement's timezone as a ``ZoneInfo``."""
+        return ZoneInfo(self.timezone)
+
+    def resolve_target(self) -> str | None:
+        """The ``${target}`` default for this engagement, or None if ambiguous.
+
+        Precedence: the explicit ``primary_target`` field, else the sole allowed
+        host, else the sole target network. With several hosts/networks (or none)
+        there is no safe default and the operator sets ``target`` themselves.
+        """
+        if self.primary_target:
+            return self.primary_target
+        if len(self.allowed_hosts) == 1:
+            return next(iter(self.allowed_hosts))
+        if len(self.target_networks) == 1:
+            return str(self.target_networks[0])
+        return None
+
+    def describe(self, *, method_paint: Callable[[str], str] | None = None) -> str:
+        """A one-block human summary for the REPL.
+
+        ``method_paint`` styles each method name (the REPL passes the palette);
+        without it the summary is plain, for the daemon and the report. Colour
+        is applied to the structured method list here, so no front-end has to
+        re-parse this rendered text.
+        """
+        paint = method_paint or (lambda m: m)
+        nets = ", ".join(str(n) for n in self.target_networks) or "(none)"
+        daily = ", ".join(f"{w.start}-{w.end}" for w in self.daily_windows) or "any"
+        hosts = ", ".join(sorted(self.allowed_hosts)) or "(none)"
+        methods = ", ".join(paint(m) for m in sorted(self.allowed_methods))
+        start = self.authorized_start.isoformat() if self.authorized_start else "open"
+        end = self.authorized_end.isoformat() if self.authorized_end else "open"
+        window = (
+            "no time bound"
+            if self.authorized_start is None and self.authorized_end is None
+            else f"{start} -> {end}"
+        )
+        return (
+            f"engagement: {self.name}\n"
+            f"  window: {window} ({self.timezone})\n"
+            f"  daily:  {daily}\n"
+            f"  networks: {nets}\n"
+            f"  hosts:  {hosts}\n"
+            f"  tools:  {', '.join(sorted(self.allowed_tools))}\n"
+            f"  methods: {methods}\n"
+            f"  stance: {self.stance}\n"
+            f"  autonomous: {self.autonomous}"
+        )
