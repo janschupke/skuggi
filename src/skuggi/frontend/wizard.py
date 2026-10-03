@@ -30,7 +30,17 @@ Apply = Callable[[dict[str, object]], EngagementConfig]
 # Arguments to the `engagement` verb that open the wizard rather than show scope.
 WIZARD_ARGS = frozenset({"setup", "new", "edit"})
 
-Widget = Literal["text", "autocomplete", "select", "multiselect", "confirm"]
+Widget = Literal[
+    "text", "autocomplete", "select", "multiselect", "confirm", "threat_model"
+]
+
+# CVSS environmental requirement dimensions, in C-I-A order, and their levels.
+_CIA = (
+    ("confidentiality_requirement", "Confidentiality"),
+    ("integrity_requirement", "Integrity"),
+    ("availability_requirement", "Availability"),
+)
+_CIA_LEVELS = ("low", "medium", "high")
 
 
 @dataclass(frozen=True)
@@ -77,23 +87,6 @@ def _windows(answer: str) -> list[dict[str, str]]:
         start, _, end = chunk.partition("-")
         windows.append({"start": start.strip(), "end": end.strip()})
     return windows
-
-
-def _threat_model(answer: str) -> dict[str, str] | None:
-    """Parse ``CR,IR,AR`` levels (low/medium/high) into a threat-model dict.
-
-    A blank answer leaves the field unset (no environmental scoring); fewer than
-    three values pad with ``medium``.
-    """
-    levels = _csv(answer.lower())
-    if not levels:
-        return None
-    levels = [*levels, "medium", "medium", "medium"][:3]
-    return {
-        "confidentiality_requirement": levels[0],
-        "integrity_requirement": levels[1],
-        "availability_requirement": levels[2],
-    }
 
 
 def _show(value: object) -> str:
@@ -180,7 +173,7 @@ _SECTIONS: tuple[Section, ...] = (
         (
             Field(
                 "allowed_tools",
-                "allowed tools (comma-separated; Tab to complete, blank = none)",
+                "allowed tools (comma-sep; Tab completes; * = all; blank = none)",
                 "autocomplete",
                 transform=_csv,
                 source=lambda c: c.tools,
@@ -218,12 +211,7 @@ _SECTIONS: tuple[Section, ...] = (
                 default="cautious",
             ),
             Field("autonomous", "autonomous execution?", "confirm"),
-            Field(
-                "threat_model",
-                "threat model CR,IR,AR (low/medium/high; blank = none)",
-                "text",
-                transform=_threat_model,
-            ),
+            Field("threat_model", "threat model", "threat_model"),
         ),
     ),
 )
@@ -235,7 +223,7 @@ KNOWN_KEYS: frozenset[str] = frozenset(
 )
 
 
-def _ask_field(
+def _ask_field(  # noqa: PLR0911 -- a widget dispatch is one return per widget kind
     prompter: Prompter, catalog: Catalog, field: Field, current: object
 ) -> tuple[bool, object] | None:
     """Collect one field. Returns (changed, value), or ``None`` on abort.
@@ -274,9 +262,33 @@ def _ask_field(
             preselected = ()
         picks = prompter.multiselect(field.prompt, options, preselected)
         return None if picks is None else (True, picks)
+    if field.widget == "threat_model":
+        return _ask_threat_model(prompter, current)
     # confirm
     answer_bool = prompter.confirm(field.prompt, bool(current))
     return None if answer_bool is None else (True, answer_bool)
+
+
+def _ask_threat_model(
+    prompter: Prompter, current: object
+) -> tuple[bool, object] | None:
+    """Guided CVSS environmental scoring: a yes/no, then three C-I-A dropdowns."""
+    existing = current if isinstance(current, dict) else None
+    enable = prompter.confirm(
+        "set CVSS environmental requirements (threat model)?", existing is not None
+    )
+    if enable is None:
+        return None
+    if not enable:
+        return (True, None)
+    model: dict[str, str] = {}
+    for key, name in _CIA:
+        default = existing.get(key) if existing else "medium"
+        level = prompter.choose(f"{name} requirement", list(_CIA_LEVELS), str(default))
+        if level is None:
+            return None
+        model[key] = level
+    return (True, model)
 
 
 def collect_scope(

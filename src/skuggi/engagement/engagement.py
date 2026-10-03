@@ -470,11 +470,18 @@ def check_command(  # noqa: PLR0911, PLR0912, PLR0913 -- a guard is a linear seq
         return GuardVerdict(False, "empty or unparseable command")
     if cmd.method is None:
         return GuardVerdict(False, f"tool {cmd.binary!r} is not in the tool registry")
-    if cmd.binary not in engagement.allowed_tools:
+    # ``*`` in the allow-list is an explicit operator choice to authorize every
+    # tool / method (a lab or a deliberately wide engagement); otherwise the
+    # binary / method must be named.
+    tools = engagement.allowed_tools
+    if "*" not in tools and cmd.binary not in tools:
         return GuardVerdict(
             False, f"tool {cmd.binary!r} is not authorized for this engagement"
         )
-    if cmd.method not in engagement.allowed_methods:
+    if (
+        "*" not in engagement.allowed_methods
+        and cmd.method not in engagement.allowed_methods
+    ):
         return GuardVerdict(
             False, f"method {cmd.method!r} is not authorized for this engagement"
         )

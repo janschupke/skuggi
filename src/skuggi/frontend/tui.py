@@ -215,9 +215,11 @@ class Tui:
         core = self.core
         engagement = core.engagement.name if core.engagement else "[red](none)[/red]"
         autonomous = palette.paint("ON", palette.DANGER) if core.autonomous else "off"
+        model = core.model or core.settings.model_for(core.settings.provider)
         self.console.print(
             f"mode=[cyan]{self.mode}[/cyan]  "
             f"provider=[cyan]{self.provider}[/cyan]  "
+            f"model=[cyan]{model}[/cyan]  "
             f"engagement=[cyan]{engagement}[/cyan]  "
             f"autonomous={autonomous}"
         )

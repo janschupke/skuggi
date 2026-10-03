@@ -527,14 +527,20 @@ class AgentCore:
                 for err in exc.errors()
             )
             raise InvalidScopeError(summary or str(exc), keys) from exc
-        workspace = Workspace.for_engagement(
-            self.settings.engagements_dir, scope.name, layout=self.layout
-        )
-        workspace.ensure()
-        workspace.scope_path.write_text(
-            scope.model_dump_json(indent=2), encoding="utf-8"
-        )
-        return self.load_engagement(scope.name)
+        # Past pydantic, the name still has to become a safe directory segment and
+        # the tree has to be writable. A bad name (e.g. one that slugifies to
+        # nothing) or a disk error must re-ask the name, never crash the wizard.
+        try:
+            workspace = Workspace.for_engagement(
+                self.settings.engagements_dir, scope.name, layout=self.layout
+            )
+            workspace.ensure()
+            workspace.scope_path.write_text(
+                scope.model_dump_json(indent=2), encoding="utf-8"
+            )
+            return self.load_engagement(scope.name)
+        except (ValueError, OSError) as exc:
+            raise InvalidScopeError(str(exc), frozenset({"name"})) from exc
 
     def load_engagement(self, name: str) -> EngagementConfig:
         """Switch the active engagement to `name`, hot-reloading scope + tools.

@@ -208,12 +208,16 @@ class Daemon:
         )
         self.core.note_interaction("engagement", "setup")
         with self._lock:
-            wizard.run_wizard(
-                prompter,
-                self.core.create_engagement,
-                self._engagement_catalog(),
-                existing=self.core.engagement,
-            )
+            try:
+                wizard.run_wizard(
+                    prompter,
+                    self.core.create_engagement,
+                    self._engagement_catalog(),
+                    existing=self.core.engagement,
+                )
+            except Exception as exc:  # defensive: never kill the daemon thread
+                log.exception("engagement wizard failed")
+                emit({"chunk": f"engagement setup failed: {exc}\n"})
         emit({"end": True, "exit": False})
 
     @staticmethod

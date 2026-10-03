@@ -84,7 +84,7 @@ class _Script:
 def _full_script(**over: object) -> _Script:
     """A complete, valid pass. Keyword overrides replace a widget queue."""
     base = _Script(
-        # name, start, end, daily, networks, hosts, threat_model
+        # name, start, end, daily, networks, hosts
         asks=[
             "acme",
             "2026-01-01T00:00:00+00:00",
@@ -92,12 +92,12 @@ def _full_script(**over: object) -> _Script:
             "",
             "192.0.2.0/24",
             "",
-            "",
         ],
         completes=["UTC", "nmap, curl"],  # timezone, allowed_tools
-        chooses=["ptes", "cautious"],  # methodology, stance
+        # methodology, stance, then the threat-model C/I/A dropdowns
+        chooses=["ptes", "cautious", "high", "medium", "low"],
         multis=[["recon", "scan"], ["wstg"]],  # allowed_methods, taxonomies
-        confirms=[True],  # autonomous
+        confirms=[True, True],  # autonomous, enable-threat-model
     )
     for key, value in over.items():
         setattr(base, key, value)
@@ -117,12 +117,31 @@ def test_collect_scope_shapes_answers_into_valid_scope() -> None:
     assert raw["taxonomies"] == ["wstg"]
     assert raw["stance"] == "cautious"
     assert raw["autonomous"] is True
+    assert raw["threat_model"] == {
+        "confidentiality_requirement": "high",
+        "integrity_requirement": "medium",
+        "availability_requirement": "low",
+    }
     EngagementConfig.model_validate(raw)  # the shaped dict validates
+
+
+def test_threat_model_declined_is_none() -> None:
+    script = _full_script(confirms=[True, False])  # autonomous yes, threat-model no
+    raw = collect_scope(script.prompter(), _CATALOG)
+    assert raw is not None
+    assert raw.get("threat_model") is None
+
+
+def test_star_allows_all_tools() -> None:
+    script = _full_script(completes=["UTC", "*"])
+    raw = collect_scope(script.prompter(), _CATALOG)
+    assert raw is not None
+    assert raw["allowed_tools"] == ["*"]
 
 
 def test_blank_time_bounds_leave_no_window() -> None:
     script = _full_script(
-        asks=["acme", "", "", "", "", "", ""]  # blank start/end + the rest
+        asks=["acme", "", "", "", "", ""]  # blank start/end + the rest
     )
     raw = collect_scope(script.prompter(), _CATALOG)
     assert raw is not None
@@ -153,11 +172,11 @@ def test_collect_scope_aborts_when_a_widget_returns_none() -> None:
 
 def test_collect_scope_edit_keeps_existing_on_blank() -> None:
     script = _Script(
-        asks=["", "", "", "", "", "", ""],
+        asks=["", "", "", "", "", ""],
         completes=["", ""],
         chooses=["phases", "cautious"],
         multis=[[], []],
-        confirms=[False],
+        confirms=[False, False],  # autonomous, enable-threat-model (declined)
     )
     raw = collect_scope(script.prompter(), _CATALOG, existing=_VALID)
     assert raw is not None

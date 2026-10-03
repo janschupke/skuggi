@@ -252,6 +252,8 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
         }
         console.print(
             render_startup_banner(
+                provider=core.settings.provider,
+                model=core.model or core.settings.model_for(core.settings.provider),
                 engagement=core.engagement.name if core.engagement else None,
                 has_llm=core.llm is not None,
                 warnings=core.warnings,

@@ -25,20 +25,28 @@ from pydantic import BaseModel, ConfigDict
 
 from skuggi.common.paths import ensure_dir
 
-# An engagement name becomes a directory under ``engagements/``. It is an
-# identity, not free text: restrict it to one path segment of safe characters so
-# a name like ``../../tmp/x`` or ``/etc/skuggi`` cannot escape the workspace
-# root (``engagements_dir / name`` would otherwise traverse, and an absolute
-# name makes ``/`` discard the base entirely).
-_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# An engagement name becomes a directory under ``engagements/``. The display
+# name is free text (``Lab 01``); the directory is a *slug* derived from it, so a
+# human name works while the on-disk segment stays safe. Normalising here -- the
+# single choke point for the segment -- means a name like ``../../tmp/x`` or
+# ``/etc/skuggi`` cannot escape the workspace root: ``/`` and other unsafe
+# characters collapse to ``-``, the result must start alphanumeric, and ``..``
+# can never survive (``engagements_dir / slug`` can then only descend one level).
+_SAFE_SLUG = re.compile(r"[a-z0-9][a-z0-9._-]*")
 
 
 def safe_engagement_name(name: str) -> str:
-    """Return `name` if it is a single safe path segment, else raise ValueError."""
-    if ".." in name or not _SAFE_NAME.match(name):
+    """Slugify `name` into one safe path segment (``Lab 01`` -> ``lab-01``).
+
+    Raises ``ValueError`` only when the name reduces to nothing usable (empty,
+    all-punctuation, or a bare ``..``) -- the caller surfaces that as a re-ask.
+    """
+    slug = re.sub(r"[^a-z0-9._-]+", "-", name.strip().lower())
+    slug = re.sub(r"-{2,}", "-", slug).strip("-._")
+    if ".." in slug or not _SAFE_SLUG.fullmatch(slug):
         msg = f"invalid engagement name: {name!r}"
         raise ValueError(msg)
-    return name
+    return slug
 
 
 class WorkspaceLayout(BaseModel):

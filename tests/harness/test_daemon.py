@@ -393,13 +393,13 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
             '["wstg"]',  # taxonomies (multiselect)
             "cautious",  # stance (choose)
             "no",  # autonomous (confirm -> yes/no choose)
-            "",  # threat model -> none
+            "no",  # threat model: decline CVSS environmental scoring
         ]
     )
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
     asks = [f["ask"] for f in emitted if "ask" in f]
-    assert len(asks) == 9  # the text + (degraded) autocomplete fields
+    assert len(asks) == 8  # the text + (degraded) autocomplete fields
     assert any("multiselect" in f for f in emitted)  # the checklists
     assert any("choose" in f for f in emitted)  # methodology/stance/confirm
     assert daemon.core.engagement is not None

@@ -25,8 +25,10 @@ _VERBS: tuple[tuple[str, str], ...] = (
 )
 
 
-def render_startup_banner(
+def render_startup_banner(  # noqa: PLR0913 -- keyword-only banner fields
     *,
+    provider: str,
+    model: str,
     engagement: str | None,
     has_llm: bool,
     warnings: list[str],
@@ -34,13 +36,22 @@ def render_startup_banner(
 ) -> str:
     """Compose the wrapped shell's startup banner as a Rich-markup string.
 
-    ``engagement`` is the scoped engagement name (``None`` -> agent-only, which
-    adds the scope-an-engagement next step); ``has_llm`` False adds the
+    ``provider``/``model`` are shown at a glance (the prompt no longer carries
+    them); ``engagement`` is the scoped engagement name (``None`` -> agent-only,
+    which adds the scope-an-engagement next step); ``has_llm`` False adds the
     configure-a-model next step; ``warnings`` are ``core.warnings`` verbatim;
     ``unsupported_shell`` is the shell's name when it cannot take the hook, else
     ``None``.
     """
-    lines: list[str] = [f"{palette.SHIELD} [bold]skuggi shell[/bold]", ""]
+    scope = engagement or "(none)"
+    lines: list[str] = [
+        f"{palette.SHIELD} [bold]skuggi shell[/bold]",
+        "  "
+        + palette.paint(
+            f"provider {provider} · model {model} · engagement {scope}", palette.INFO
+        ),
+        "",
+    ]
 
     hints = [(verbs.cmd(inv), what) for inv, what in _VERBS]
     width = max(len(cmd) for cmd, _ in hints)

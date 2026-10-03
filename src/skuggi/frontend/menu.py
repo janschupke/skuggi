@@ -30,8 +30,19 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.output import Output
 from prompt_toolkit.styles import Style
 
+# ANSI-named colours map to the parent terminal's own 16-colour palette, so the
+# menu reads correctly on light and dark themes without hard-coding RGB. The row
+# under the cursor is marked by a coloured caret and bold text -- no background
+# fill. A checked box is green, an unchecked one dim.
 _STYLE = Style.from_dict(
-    {"menu.selected": "reverse", "menu.prompt": "bold", "menu.hint": "italic"}
+    {
+        "menu.prompt": "bold",
+        "menu.hint": "ansibrightblack italic",
+        "menu.cursor": "ansicyan bold",
+        "menu.selected": "bold",
+        "menu.checked": "ansigreen",
+        "menu.unchecked": "ansibrightblack",
+    }
 )
 
 
@@ -81,9 +92,10 @@ def select(
         rows: StyleAndTextTuples = []
         for i, opt in enumerate(opts):
             if i == state["pos"]:
-                rows.append(("class:menu.selected", f" > {opt} \n"))
+                rows.append(("class:menu.cursor", "▸ "))
+                rows.append(("class:menu.selected", f"{opt}\n"))
             else:
-                rows.append(("", f"   {opt} \n"))
+                rows.append(("", f"  {opt}\n"))
         return rows
 
     layout = Layout(
@@ -190,10 +202,13 @@ def multiselect(
     def _render() -> StyleAndTextTuples:
         rows: StyleAndTextTuples = []
         for i, opt in enumerate(opts):
-            box = "[x]" if i in checked else "[ ]"
-            cursor = " > " if i == state["pos"] else "   "
-            style = "class:menu.selected" if i == state["pos"] else ""
-            rows.append((style, f"{cursor}{box} {opt} \n"))
+            on_cursor = i == state["pos"]
+            rows.append(("class:menu.cursor", "▸ " if on_cursor else "  "))
+            if i in checked:
+                rows.append(("class:menu.checked", "[x] "))
+            else:
+                rows.append(("class:menu.unchecked", "[ ] "))
+            rows.append(("class:menu.selected" if on_cursor else "", f"{opt}\n"))
         return rows
 
     layout = Layout(

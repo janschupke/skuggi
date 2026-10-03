@@ -16,11 +16,13 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from skuggi.agent import protocol
 from skuggi.agent.core import AgentCore
 from skuggi.common import home, palette
 from skuggi.config.config import Settings
-from skuggi.config.configs import load_scope
+from skuggi.config.configs import InvalidScopeError, load_scope
 from skuggi.engagement.engagement import check_command, parse_command
 from skuggi.engagement.workspace import Workspace
 from skuggi.frontend import setup, wizard
@@ -52,7 +54,7 @@ def _catalog(core: AgentCore) -> wizard.Catalog:
 # queue per widget kind, matching the field order in wizard._SECTIONS.
 def _wizard_prompter(name: str, notes: list[str] | None = None) -> Prompter:
     sink = notes if notes is not None else []
-    # ask: name, start, end, daily, networks, hosts, threat_model
+    # ask: name, start, end, daily, networks, hosts
     asks = iter(
         [
             name,
@@ -61,14 +63,13 @@ def _wizard_prompter(name: str, notes: list[str] | None = None) -> Prompter:
             "",
             "10.0.0.0/8",
             "",
-            "",
         ]
     )
     completes = iter(["UTC", "nmap, curl"])  # timezone, allowed_tools
-    chooses = iter(["phases", "cautious"])  # methodology, stance
+    chooses = iter(["phases", "cautious"])  # methodology, stance (threat declined)
     multis: list[list[str]] = [["recon", "scan"], []]  # methods, taxonomies
     multi_it = iter(multis)
-    confirms = iter([False])  # autonomous
+    confirms = iter([False, False])  # autonomous, enable-threat-model
     return Prompter(
         ask=lambda _p: next(asks),
         ask_complete=lambda _p, _c, _d: next(completes),
@@ -130,6 +131,23 @@ def test_wizard_creates_workspace_tree_and_scope_roundtrips(tmp_path: Path) -> N
     assert loaded == core.engagement
     assert "10.0.0.0/8" in str(loaded.target_networks)
     assert loaded.allowed_methods == frozenset({"recon", "scan"})
+
+
+def test_create_engagement_accepts_a_human_name(tmp_path: Path) -> None:
+    core = _core(tmp_path)
+    eng = core.create_engagement({"name": "Lab 01", "timezone": "UTC"})
+    assert eng.name == "Lab 01"  # display name preserved
+    assert core.workspace is not None
+    assert core.workspace.root.name == "lab-01"  # directory slugified
+
+
+def test_create_engagement_reasks_on_an_unusable_name(tmp_path: Path) -> None:
+    core = _core(tmp_path)
+    # A name that slugifies to nothing raises a *structured* error (re-ask the
+    # name), not a raw ValueError that would crash the wizard/daemon.
+    with pytest.raises(InvalidScopeError) as excinfo:
+        core.create_engagement({"name": "!!!", "timezone": "UTC"})
+    assert excinfo.value.field_keys == frozenset({"name"})
 
 
 # --- in-process: provider / credential setup -------------------------------
@@ -247,20 +265,20 @@ def test_attach_wizard_creates_engagement_over_socket(tmp_path: Path) -> None:
         # One answer per read, in field order: menus/checklists arrive as the
         # chosen string / a JSON list / yes-no, exactly as the client sends them.
         answers = [
-            "sock-eng",  # name (ask)
+            "Lab 01",  # name (ask) -- a human name with a space (the crash repro)
             "UTC",  # timezone (ask -- autocomplete degrades over the socket)
             "2000-01-01T00:00:00+00:00",  # authorized_start
             "2999-12-31T23:59:59+00:00",  # authorized_end
             "",  # daily windows
             "10.0.0.0/8",  # target networks
             "",  # allowed hosts
-            "nmap, curl",  # allowed tools
+            "*",  # allowed tools (wildcard = all)
             '["recon", "scan"]',  # allowed methods (multiselect -> JSON list)
             "phases",  # methodology (choose)
             "[]",  # taxonomies (multiselect)
             "cautious",  # stance (choose)
             "no",  # autonomous (confirm -> yes/no choose)
-            "",  # threat model
+            "no",  # threat model: decline CVSS environmental scoring
         ]
         frames = _drive_attached(daemon, ["engagement setup", *answers])
         # The wizard asked questions as frames of each kind...
@@ -268,12 +286,14 @@ def test_attach_wizard_creates_engagement_over_socket(tmp_path: Path) -> None:
         assert any("multiselect" in f for f in frames)
         assert any("choose" in f for f in frames)  # methodology/stance/confirm
         assert any("chunk" in f for f in frames)  # the step bar + "loaded" line
-        # ...and really created and hot-loaded the engagement through the core.
+        # ...and really created and hot-loaded the engagement WITHOUT crashing on
+        # the space in the name (which used to kill the daemon thread).
         assert core.engagement is not None
-        assert core.engagement.name == "sock-eng"
-        assert core.engagement.allowed_methods == frozenset({"recon", "scan"})
+        assert core.engagement.name == "Lab 01"  # display name kept verbatim
+        assert core.engagement.allowed_tools == frozenset({"*"})
         ws = core.workspace
         assert ws is not None
+        assert ws.root.name == "lab-01"  # directory is the safe slug
         _assert_workspace_tree(ws)
     finally:
         core.close()

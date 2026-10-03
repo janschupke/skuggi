@@ -149,6 +149,22 @@ def test_unauthorized_method_is_denied() -> None:
     assert "method" in verdict.reason
 
 
+def test_wildcard_tool_authorizes_an_unlisted_binary() -> None:
+    # allowed_tools is exactly {"*"} -- nmap is not named, yet is authorized.
+    eng = _engagement(allowed_tools=frozenset({"*"}))
+    verdict = check_command(parse_command("nmap 10.0.0.5", REGISTRY), eng, now=NOW)
+    assert verdict.allowed
+
+
+def test_wildcard_method_authorizes_an_unlisted_method() -> None:
+    # sqlmap's method (enumerate) is not in the default allowed methods; * allows it.
+    eng = _engagement(allowed_methods=frozenset({"*"}))
+    verdict = check_command(
+        parse_command("sqlmap -u https://scanme.example.com", REGISTRY), eng, now=NOW
+    )
+    assert verdict.allowed
+
+
 def test_in_scope_url_after_a_target_flag_is_allowed() -> None:
     """The unhack: a flag-forced in-scope URL passes the guard cleanly."""
     verdict = check_command(

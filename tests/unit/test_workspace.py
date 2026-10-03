@@ -104,13 +104,30 @@ def test_layout_override_changes_paths(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "bad", ["../../tmp/x", "/etc/skuggi", "a/b", "..", "~root", "", ".hidden"]
+    ("name", "slug"),
+    [
+        ("Lab 01", "lab-01"),  # a human name works
+        ("acme-2026", "acme-2026"),
+        ("MyEngagement", "myengagement"),
+        ("../../tmp/x", "tmp-x"),  # traversal collapses -- cannot escape the root
+        ("/etc/skuggi", "etc-skuggi"),
+        ("a/b", "a-b"),
+        ("~root", "root"),
+        (".hidden", "hidden"),
+    ],
 )
-def test_for_engagement_rejects_an_unsafe_name(tmp_path: Path, bad: str) -> None:
+def test_for_engagement_normalizes_to_a_safe_segment(
+    tmp_path: Path, name: str, slug: str
+) -> None:
+    ws = Workspace.for_engagement(tmp_path, name)
+    assert ws.root == tmp_path / slug
+    assert "/" not in slug
+    assert ".." not in slug
+
+
+@pytest.mark.parametrize("bad", ["", "..", "   ", "!!!", "///", "-"])
+def test_for_engagement_rejects_an_empty_or_unsafe_name(
+    tmp_path: Path, bad: str
+) -> None:
     with pytest.raises(ValueError, match="engagement name"):
         Workspace.for_engagement(tmp_path, bad)
-
-
-def test_for_engagement_accepts_a_safe_name(tmp_path: Path) -> None:
-    ws = Workspace.for_engagement(tmp_path, "acme-2026")
-    assert ws.root == tmp_path / "acme-2026"
