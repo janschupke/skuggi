@@ -19,6 +19,8 @@ from collections.abc import Callable
 from importlib.resources import files
 from typing import Protocol
 
+from skuggi.config.config import OLLAMA_BASE_URL_DEFAULT
+
 Ask = Callable[[str], str | None]
 # (prompt, options, default) -> the chosen option, or None if the operator aborts.
 Choose = Callable[[str, list[str], str | None], str | None]
@@ -37,7 +39,6 @@ _PROVIDER_LABELS: dict[str, str] = {
 _PROVIDERS = tuple(_PROVIDER_LABELS)
 # The documented key shapes (providers._key_from_auth_json pins the openai one).
 _KEY_PREFIX = {"openai": "sk-", "anthropic": "sk-ant-"}
-_DEFAULT_OLLAMA_URL = "http://localhost:11434"
 _CUSTOM = "custom…"
 
 
@@ -139,7 +140,7 @@ def _setup_api_key(
 
 
 def _setup_ollama(backend: SetupBackend, ask: Ask, notify: Notify) -> bool:
-    url = ask(f"ollama base url [{_DEFAULT_OLLAMA_URL}]: ")
+    url = ask(f"ollama base url [{OLLAMA_BASE_URL_DEFAULT}]: ")
     if url is None:
         notify("setup cancelled")
         return False

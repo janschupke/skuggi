@@ -29,11 +29,12 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from skuggi.common.logs import get_logger
+from skuggi.config.config import LLM_RESPONSE_TIMEOUT_S
 
 log = get_logger(__name__)
 
 _BINARY = "claude"
-_TIMEOUT_S = 600.0
+_TIMEOUT_S = LLM_RESPONSE_TIMEOUT_S
 
 
 class ClaudeCliError(RuntimeError):

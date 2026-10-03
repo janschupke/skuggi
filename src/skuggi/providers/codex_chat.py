@@ -36,7 +36,11 @@ from skuggi.agent.prompts import CODEX_DEFAULT_INSTRUCTIONS
 from skuggi.common.jwt import decode_claims
 from skuggi.common.logs import get_logger
 from skuggi.common.paths import ensure_dir
-from skuggi.config.config import CODEX_REFRESH_URL, CODEX_RESPONSES_BASE
+from skuggi.config.config import (
+    CODEX_REFRESH_URL,
+    CODEX_RESPONSES_BASE,
+    LLM_RESPONSE_TIMEOUT_S,
+)
 
 log = get_logger(__name__)
 
@@ -318,7 +322,7 @@ def build_codex_chat_model(
     """Assemble a CodexChatModel against the ChatGPT-account endpoint."""
     store = CodexTokenStore(auth_path, refresh_url=refresh_url)
     client = http_client or httpx.Client(
-        auth=CodexAuth(store), timeout=httpx.Timeout(60.0, read=600.0)
+        auth=CodexAuth(store), timeout=httpx.Timeout(60.0, read=LLM_RESPONSE_TIMEOUT_S)
     )
     headers = {
         # The SDK sends `Accept: application/json` even when streaming; the codex

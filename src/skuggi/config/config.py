@@ -42,7 +42,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from skuggi.common import home, logs
+from skuggi.common import execution, home, logs
 from skuggi.common.modes import Mode
 from skuggi.common.paths import ensure_parent
 
@@ -65,6 +65,16 @@ CODEX_RESPONSES_BASE = "https://chatgpt.com/backend-api/codex"
 CODEX_REFRESH_URL = "https://auth.openai.com/oauth/token"
 # The OAuth authorize endpoint for the in-app ChatGPT login (codex_login).
 CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
+
+# The default Ollama server. Single source: frontend.setup imports this for its
+# wizard prompt so the default shown and the Settings default never drift.
+OLLAMA_BASE_URL_DEFAULT = "http://localhost:11434"
+
+# Wall-clock ceiling on a single LLM completion: the codex SSE read timeout and
+# the `claude` CLI subprocess kill both derive from this one value, since they
+# express the same intent (how long to wait for one model response) and should
+# move together. Not a httpx connect timeout -- that stays short (60s).
+LLM_RESPONSE_TIMEOUT_S = 600.0
 
 # The persisted, `config`-editable settings file, under the config home.
 # Overridable so tests (and a multi-project user) can point elsewhere; env still
@@ -272,8 +282,9 @@ class Settings(BaseSettings):
     )
     # Where to look for / install tools: host PATH, the managed venv, or both.
     tool_source: ToolSource = "combine"
-    # Wall-clock cap on any single autonomously executed command.
-    command_timeout_s: float = 120.0
+    # Wall-clock cap on any single autonomously executed command. Single source
+    # in common.execution so Settings and the graph's GraphDeps never drift.
+    command_timeout_s: float = execution.DEFAULT_COMMAND_TIMEOUT_S
 
     # --- session logging & review ---
     # Free-typed shell commands whose first word is one of these are treated as
@@ -325,7 +336,7 @@ class Settings(BaseSettings):
         None, validation_alias="ANTHROPIC_API_KEY"
     )
     ollama_base_url: str = Field(
-        "http://localhost:11434", validation_alias="OLLAMA_BASE_URL"
+        OLLAMA_BASE_URL_DEFAULT, validation_alias="OLLAMA_BASE_URL"
     )
 
     def model_for(self, provider: Provider) -> str:

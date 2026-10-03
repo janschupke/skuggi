@@ -120,7 +120,7 @@ class GraphDeps:
     turn_id: Callable[[], int | None] = field(default=lambda: None)
     clock: Callable[[], datetime] | None = None
     cwd: Path | None = None
-    command_timeout_s: float = 120.0
+    command_timeout_s: float = execution.DEFAULT_COMMAND_TIMEOUT_S
     # Whether the provider supports native structured output; the chatgpt path
     # (False) uses protocol's JSON-contract fallback. See Settings.
     native_structured: bool = True

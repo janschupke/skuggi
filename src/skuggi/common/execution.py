@@ -79,6 +79,11 @@ def safe_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
 MAX_CAPTURE_BYTES = 262_144
 _TRUNCATED = "\n...[truncated]"
 
+# Wall-clock cap on any single autonomously executed command. One source of
+# truth: both config.Settings.command_timeout_s and the graph's GraphDeps
+# default reference this so the two can never drift apart.
+DEFAULT_COMMAND_TIMEOUT_S = 120.0
+
 # Sentinel exit codes for outcomes that are not a real process status. Negative
 # so they cannot collide with a real exit status (0-255) or a signal (reported
 # negative by Popen but never this large in magnitude).
