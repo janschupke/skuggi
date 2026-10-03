@@ -68,6 +68,9 @@ function /skuggi {{
   "$_skuggi_client" "$@"
   [[ $? -eq 42 ]] && exit 0
 }}
+# Disable filename globbing for /skuggi args so an unquoted natural-language
+# query (e.g. `/skuggi ask who are you?`) is not mangled by zsh's nomatch error.
+alias '/skuggi'='noglob /skuggi'
 function _skuggi_record {{
   case "$1" in
     /skuggi*|skuggi-client*|"$_skuggi_client"*) ;;

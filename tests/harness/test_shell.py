@@ -44,6 +44,14 @@ def test_zsh_hook_routes_skuggi_to_the_client(tmp_path: Path) -> None:
     assert "exit 0" in zshrc  # a client exit code of 42 leaves the shell
 
 
+def test_zsh_hook_disables_globbing_for_skuggi_args(tmp_path: Path) -> None:
+    # Without noglob, zsh glob-expands an unquoted `/skuggi ask who are you?` and
+    # aborts with "no matches found: you?" before the function runs.
+    build_shell_invocation("/bin/zsh", tmp_path, home=Path("/home/u"))
+    zshrc = (tmp_path / ".zshrc").read_text(encoding="utf-8")
+    assert "alias '/skuggi'='noglob /skuggi'" in zshrc
+
+
 def test_zsh_hook_forwards_free_typed_commands_via_preexec(tmp_path: Path) -> None:
     build_shell_invocation("/bin/zsh", tmp_path, home=Path("/home/u"), client=CLIENT)
     zshrc = (tmp_path / ".zshrc").read_text(encoding="utf-8")
