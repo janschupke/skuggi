@@ -40,3 +40,16 @@ docker compose -f tests/e2e/fixtures/lab/docker-compose.yml down -v
 Or set `SKUGGI_E2E_COMPOSE_UP=1` and let the `lab` fixture start and tear it down. The
 published HTTP port is discovered from `docker compose port web 80`, so a collision remap is
 handled automatically. See [testing.md](testing.md) for the full L5 layer description.
+
+## Network isolation (coexisting with the practice range)
+
+The lab network, gateway and in-container IP are parameterized
+(`LAB_SUBNET`/`LAB_GATEWAY`/`LAB_HOST_IP`, defaulting to `192.0.2.0/24` /
+`192.0.2.1` / `192.0.2.10`). The user-facing practice range in `labs/` defaults
+to the *same* TEST-NET-1 block, so a running practice lab would otherwise block
+this fixture's bring-up with a `pool overlaps` error. The `SKUGGI_E2E_COMPOSE_UP`
+path therefore tries a short list of non-overlapping candidate subnets (RFC 5737
+documentation ranges) in order and starts on the first free one, so the e2e
+fixture coexists with `labs/` without ever touching it. The loopback
+(`127.0.0.1:8080`) cases are unaffected by the remap; the direct-`192.0.2.10`
+cases use whichever IP the stack actually started on.

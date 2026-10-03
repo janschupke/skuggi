@@ -106,6 +106,16 @@ The two live layers (L4 eval, L5 e2e) are exempt via `_is_live`: eval needs a
 provider, e2e needs the network and subprocess blocks lifted to reach the lab
 and run real tools.
 
+Because that exemption also drops the home redirection, the e2e layer carries its
+own `isolate_e2e_homes` fixture (`tests/e2e/conftest.py`) that points
+`SKUGGI_CONFIG_HOME`/`SKUGGI_DATA_HOME`/`SKUGGI_CODEX_AUTH_PATH` and the cwd at a
+temp directory for every e2e test -- so an e2e test that seeds a config, writes a
+credential or logs a diagnostic lands in a throwaway home, not the operator's
+real one. `tests/e2e/test_isolation.py` is the live-layer analog of
+`test_suite_does_not_see_real_credentials`: it asserts the real homes are
+byte-for-byte unchanged after a representative run, and it needs no docker so it
+runs under `make e2e` whether or not the fixture is up.
+
 **`filterwarnings = ["error"]`.** Two ignores, both explained where they are
 declared. The live layers additionally exempt `ResourceWarning`, because real
 SDKs (and httpx's pooled connections) keep TLS sockets past the end of a test;
