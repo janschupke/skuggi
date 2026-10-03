@@ -25,7 +25,7 @@ def test_cmd_defaults_to_shell() -> None:
 
 
 def test_grouping_verbs_carry_nouns() -> None:
-    assert verbs.noun_names("show") >= {"config", "status", "tools", "db"}
+    assert verbs.noun_names("show") >= {"config", "status", "tools", "db", "grants"}
     assert verbs.noun_names("set") == {
         "provider",
         "model",
@@ -35,7 +35,7 @@ def test_grouping_verbs_carry_nouns() -> None:
         "thread",
     }
     assert verbs.noun_names("add") == {"note", "loot", "finding", "memory"}
-    assert verbs.noun_names("remove") == {"memory"}
+    assert verbs.noun_names("remove") == {"memory", "grants"}
 
 
 def test_plain_verb_has_no_nouns() -> None:

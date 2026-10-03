@@ -58,6 +58,12 @@ def test_help_and_dispatch_do_not_drift(tui: tuple[Tui, io.StringIO]) -> None:
     """
     app, _ = tui
     assert set(app._commands) == verbs.KNOWN - {"ask", "exit"}
+    # Each grouping verb's noun router must match its declared nouns exactly, so a
+    # new noun cannot be half-wired (declared but unrouted, or routed but hidden).
+    assert set(app._show_nouns) == verbs.noun_names("show")
+    assert set(app._set_nouns) == verbs.noun_names("set")
+    assert set(app._add_nouns) == verbs.noun_names("add")
+    assert set(app._remove_nouns) == verbs.noun_names("remove")
 
 
 def test_provider_switch_rebuilds_the_graph(tui: tuple[Tui, io.StringIO]) -> None:

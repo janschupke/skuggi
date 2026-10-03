@@ -116,6 +116,7 @@ VERBS: tuple[Verb, ...] = (
             Noun("trace", "the worker's tool calls on this thread"),
             Noun("threads", "conversation threads"),
             Noun("status", "readiness + a session glance"),
+            Noun("grants", "active session approval grants"),
         ),
     ),
     Verb(
@@ -154,7 +155,10 @@ VERBS: tuple[Verb, ...] = (
         "delete records",
         "<what>",
         group="state",
-        nouns=(Noun("memory", "forget a preference, or all of them", "<id> | all"),),
+        nouns=(
+            Noun("memory", "forget a preference, or all of them", "<id> | all"),
+            Noun("grants", "revoke all session approval grants"),
+        ),
     ),
     Verb(
         "engagement",

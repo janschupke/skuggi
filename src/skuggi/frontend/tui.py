@@ -154,6 +154,7 @@ class Tui:
             "trace": self._show_trace,
             "threads": self._show_threads,
             "status": self._show_status,
+            "grants": self._show_grants,
         }
         self._set_nouns: dict[str, Callable[[str], None]] = {
             "provider": self._set_provider,
@@ -171,6 +172,7 @@ class Tui:
         }
         self._remove_nouns: dict[str, Callable[[str], None]] = {
             "memory": self._remove_memory,
+            "grants": self._remove_grants,
         }
 
     # ----- delegated read state ----------------------------------------------
@@ -488,6 +490,7 @@ class Tui:
             notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
             propose=self.core.config.propose,
             apply=self.core.config.apply,
+            grants=self.core.grants,
         )
 
     def _set_autonomous(self, arg: str) -> None:
@@ -666,6 +669,10 @@ class Tui:
             dispatch.present_memory(dispatch.run_memory(self.core, f"forget {rest}"))
         )
 
+    def _remove_grants(self, _rest: str) -> None:
+        """Revoke every active session approval grant."""
+        self._emit(dispatch.present_grants_revoked(self.core.grants.revoke_all()))
+
     # ----- show <noun> -------------------------------------------------------
 
     def _show_config(self, _rest: str) -> None:
@@ -695,6 +702,9 @@ class Tui:
 
     def _show_db(self, _rest: str) -> None:
         self.console.print(dispatch.run_db_stats(self.core))
+
+    def _show_grants(self, _rest: str) -> None:
+        self._emit(dispatch.present_grants(self.core.grants.active()))
 
     def _show_status(self, _rest: str) -> None:
         self._emit(dispatch.present_status(dispatch.run_status(self.core), "repl"))

@@ -702,6 +702,21 @@ def present_mode(mode: str) -> Styled:
     return [render.info(f"mode: {mode}")]
 
 
+def present_grants(active: tuple[str, ...]) -> Styled:
+    """Render ``show grants``: the capabilities approved for this session."""
+    if not active:
+        return [render.plain("no active session grants")]
+    return [render.heading("session grants:")] + [
+        render.info(f"  {cap}") for cap in active
+    ]
+
+
+def present_grants_revoked(count: int) -> Styled:
+    """Render ``remove grants``: how many session grants were cleared."""
+    noun = "grant" if count == 1 else "grants"
+    return [render.plain(f"revoked {count} session {noun}")]
+
+
 def present_autonomous(state: bool) -> Styled:
     """Render an autonomous toggle, keeping the scope warning on BOTH surfaces."""
     if state:

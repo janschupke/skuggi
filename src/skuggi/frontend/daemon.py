@@ -366,6 +366,7 @@ class Daemon:
                 notify=lambda text: emit({"chunk": text + "\n"}),
                 propose=self.core.config.propose,
                 apply=self.core.config.apply,
+                grants=self.core.grants,
             )
         emit({"end": True, "exit": False})
 
@@ -484,6 +485,7 @@ class Daemon:
                 "trace": self._trace,
                 "threads": self._show_threads,
                 "status": self._show_status,
+                "grants": self._show_grants,
             },
         )
 
@@ -502,7 +504,11 @@ class Daemon:
         )
 
     def _remove(self, arg: str) -> Iterator[str]:
-        yield from self._route_noun("remove", arg, {"memory": self._remove_memory})
+        yield from self._route_noun(
+            "remove",
+            arg,
+            {"memory": self._remove_memory, "grants": self._remove_grants},
+        )
 
     # ----- control handlers (plain text over the socket) --------------------
 
@@ -617,6 +623,11 @@ class Daemon:
             dispatch.present_memory(dispatch.run_memory(self.core, f"forget {rest}"))
         )
 
+    def _remove_grants(self, _rest: str) -> Iterator[str]:
+        yield from self._emit(
+            dispatch.present_grants_revoked(self.core.grants.revoke_all())
+        )
+
     # ----- show <noun> -------------------------------------------------------
 
     def _show_config(self, _rest: str) -> Iterator[str]:
@@ -643,6 +654,9 @@ class Daemon:
 
     def _show_db(self, _rest: str) -> Iterator[str]:
         yield dispatch.run_db_stats(self.core) + "\n"
+
+    def _show_grants(self, _rest: str) -> Iterator[str]:
+        yield from self._emit(dispatch.present_grants(self.core.grants.active()))
 
     def _show_tools(self, rest: str) -> Iterator[str]:
         which = rest.strip().lower() or "all"

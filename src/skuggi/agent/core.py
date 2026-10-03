@@ -32,6 +32,7 @@ from pydantic import SecretStr, ValidationError
 from skuggi.agent import awareness
 from skuggi.agent.commandbook import CommandBook
 from skuggi.agent.config_controller import ConfigController
+from skuggi.agent.grants import SessionGrants
 from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
@@ -163,6 +164,9 @@ class AgentCore:
         self.prefs = self._prefs_ctx.__enter__()
 
         self.graph = self._build()
+
+        # Per-session approval grants for gated writes (config/install/scope/cmd).
+        self.grants = SessionGrants()
 
         # ----- sub-components (public; hold a back-ref and read live state) -
         self.doctor = ToolDoctor(self)

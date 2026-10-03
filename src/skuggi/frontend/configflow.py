@@ -13,23 +13,32 @@ confirm flow lives in exactly one place.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-Notify = Callable[[str], None]
+from skuggi.frontend.confirm import Choose, Notify, confirm_write
+
+if TYPE_CHECKING:
+    from skuggi.agent.grants import SessionGrants
+
 Propose = Callable[[str], list[tuple[str, str]]]
 Apply = Callable[[str, str], str]
-# (prompt, options, default) -> the chosen option, or None if the operator aborts.
-Choose = Callable[[str, list[str], str | None], str | None]
 
 
-def run_config_request(
+def run_config_request(  # noqa: PLR0913 -- keyword-only collaborators + the request
     request: str,
     *,
     choose: Choose,
     notify: Notify,
     propose: Propose,
     apply: Apply,
+    grants: SessionGrants,
 ) -> None:
-    """Propose edits for `request`, confirm from a menu, and apply on a yes."""
+    """Propose edits for `request`, confirm from a menu, and apply on a yes.
+
+    A config edit writes config.json, so it goes through the shared gated-write
+    confirm (``skuggi.frontend.confirm``): apply once, apply with a session grant,
+    or abort.
+    """
     proposals = propose(request)
     if not proposals:
         notify("config: no changes proposed")
@@ -37,7 +46,7 @@ def run_config_request(
     notify("proposed changes:")
     for key, value in proposals:
         notify(f"  {key} = {value}")
-    if choose("Apply these changes?", ["yes", "no"], "no") != "yes":
+    if not confirm_write("config", grants=grants, choose=choose, notify=notify):
         notify("config unchanged")
         return
     for key, value in proposals:
