@@ -168,6 +168,15 @@ class FindingRow:
     The ``cvss_*`` fields are populated when the finding carries a CVSS v3.1 vector
     (``cvss_vector`` + ``cvss_version`` reconstruct every score); they are ``None``
     for an info/manual finding scored only by ``severity``.
+
+    Model-facing boundary: storing a finding raw is fine (this row is the record
+    behind the report), but reaching the model is not. ``evidence`` is the raw
+    proof -- a captured response, a credential dump -- and is *never* put into a
+    request: it is absent from ``FindingBrief`` (``graph._finding_briefs``, which
+    also redacts the title) and from ``transcript._finding_block``. ``title`` and
+    ``description`` do reach the model (brief title; review transcript), so both
+    are passed through redaction on those paths. Keep ``evidence`` out of any new
+    model-facing projection.
     """
 
     id: int
