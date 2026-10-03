@@ -2,7 +2,7 @@
 
 A sub-component of :class:`~skuggi.agent.core.AgentCore` (``core.archive``). It
 reads the live ledger off the core each call -- important because
-``load_engagement`` hot-swaps the ledger, and a cached handle would render or
+``adopt_engagement`` hot-swaps the ledger, and a cached handle would render or
 review the pre-swap database.
 """
 

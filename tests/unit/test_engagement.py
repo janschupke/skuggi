@@ -479,7 +479,7 @@ def test_parse_extracts_input_files_separate_and_glued() -> None:
 
 
 def _ws(tmp_path: Path) -> Workspace:
-    ws = Workspace.for_engagement(tmp_path / "engagements", "e")
+    ws = Workspace.at(tmp_path / "eng")
     ws.ensure()
     return ws
 

@@ -64,19 +64,22 @@ _REGISTRY_JSON = """
 """
 
 
-def offline_settings(tmp_path: Path, *, engagement: str | None = None) -> Settings:
+def offline_settings(
+    tmp_path: Path, *, engagement_root: Path | None = None
+) -> Settings:
     """Settings that construct without credentials or network (provider=ollama).
 
     The one place the harness tests describe an offline session: a fake-provider
-    Settings with all state redirected under `tmp_path`. `engagement` opts the
-    session into a loaded scope (paired with `pentest_configs`).
+    Settings with all state redirected under `tmp_path`. `engagement_root` is an
+    explicit engagement directory override; left ``None`` the harness probes the
+    current directory (where `pentest_configs` writes its scope).
     """
     return Settings(
         provider="ollama",
         sqlite_path=tmp_path / "sessions.db",
         faiss_path=tmp_path / "faiss",
         history_path=tmp_path / ".repl_history",
-        engagement=engagement,
+        engagement_root=engagement_root,
     )
 
 
@@ -141,8 +144,9 @@ def isolate_credentials(
     3. `codex_chat`'s fallback auth.json path, resolved at call time from
        `SKUGGI_CODEX_AUTH_PATH` (so setting that env var below redirects it;
        no module monkeypatch needed).
-    4. chdir is still required: `engagements_dir` stays cwd-relative by design,
-       so without it a test would create an `engagements/` tree in the repo.
+    4. chdir is still required: the engagement root defaults to the current
+       directory (cwd probe / `set engagement` with no path), so without it a test
+       could discover or scaffold a `scope.json` tree in the repo.
 
     Get any of these wrong and the suite passes while reading real credentials --
     a bad outcome for a project whose subject matter is credential files. Leak 2
@@ -240,16 +244,14 @@ def reset_logging() -> Iterator[None]:
 def pentest_configs() -> Callable[..., Path]:
     """Write a workspace scope.json + the harness tool registry.
 
-    Each goes where its own default points, which is the two halves of the
-    config/data split: the scope under ``engagements/test-eng/`` relative to the
-    temp cwd `isolate_credentials` chdirs into, and the registry into the config
-    home that same fixture redirects. A ``Settings(engagement="test-eng")`` built
-    afterwards finds both at their defaults. Returns the workspace directory.
+    The engagement IS the current directory: the scope lands at ``./scope.json``
+    (the temp cwd `isolate_credentials` chdirs into), and the registry into the
+    config home that same fixture redirects. A default ``offline_settings`` built
+    afterwards adopts the engagement by probing cwd. Returns the workspace dir.
     """
 
     def write(*, autonomous: bool = False) -> Path:
-        workspace = Path("engagements") / ENGAGEMENT_NAME
-        workspace.mkdir(parents=True, exist_ok=True)
+        workspace = Path.cwd()
         (workspace / "scope.json").write_text(
             _SCOPE_JSON.format(autonomous="true" if autonomous else "false"),
             encoding="utf-8",

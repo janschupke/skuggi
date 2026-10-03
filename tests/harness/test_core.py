@@ -29,8 +29,10 @@ from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import StructuredChatModel
 
 
-def _build_core(tmp_path: Path, *, engagement: str | None = "test-eng") -> AgentCore:
-    core = AgentCore(offline_settings(tmp_path, engagement=engagement))
+def _build_core(tmp_path: Path) -> AgentCore:
+    # The engagement (if any) is adopted by probing cwd, where `pentest_configs`
+    # writes its scope; a test that skips that fixture boots agent-only.
+    core = AgentCore(offline_settings(tmp_path))
     wire_offline_core(core)
     return core
 
@@ -157,7 +159,7 @@ def test_record_finding_and_journals(core: AgentCore) -> None:
 
 
 def test_journals_need_an_engagement_but_findings_do_not(tmp_path: Path) -> None:
-    core = _build_core(tmp_path, engagement=None)
+    core = _build_core(tmp_path)
     try:
         assert core.workspace is None
         # No workspace -> no notes/loot file to write.
@@ -190,7 +192,7 @@ def test_ingest_indexes_a_file(core: AgentCore, tmp_path: Path) -> None:
 
 
 def test_no_engagement_degrades(tmp_path: Path) -> None:
-    core = _build_core(tmp_path, engagement=None)
+    core = _build_core(tmp_path)
     try:
         assert core.engagement is None
         assert core.autonomous is False
@@ -292,7 +294,7 @@ def test_search_commands_matches_by_substring(core: AgentCore) -> None:
 
 
 def test_plan_cmd_without_engagement_skips_scope(tmp_path: Path) -> None:
-    core = _build_core(tmp_path, engagement=None)
+    core = _build_core(tmp_path)
     try:
         core.commands = _ALIASES
         plan = core.cmds.plan("nmap-host")
@@ -355,11 +357,15 @@ def test_create_engagement_rejects_invalid_scope(core: AgentCore) -> None:
         core.create_engagement({"name": "bad"})  # missing required fields
 
 
-def test_load_engagement_reopens_ledger_at_new_path(core: AgentCore) -> None:
-    core.create_engagement(_valid_scope("beta"))
+def test_adopt_engagement_reopens_ledger_at_new_path(
+    core: AgentCore, tmp_path: Path
+) -> None:
+    beta = tmp_path / "beta"
+    core.create_engagement(_valid_scope("beta"), root=beta)
     assert core.workspace is not None
-    # the ledger now lives under the beta workspace and has this session
-    assert core.workspace.ledger_path.parent.name == "beta"
+    # the ledger now lives under the beta root (not the cwd engagement)
+    assert core.workspace.root == beta
+    assert core.workspace.ledger_path.parent == beta
     assert core.ledger.findings_for(core.session_id) == []
 
 

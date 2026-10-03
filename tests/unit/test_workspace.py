@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.engagement.workspace import Workspace, WorkspaceLayout
+from skuggi.engagement.workspace import (
+    Workspace,
+    WorkspaceLayout,
+    has_engagement,
+    safe_engagement_name,
+)
 
 
 def test_default_layout_lists_every_directory() -> None:
@@ -23,19 +28,19 @@ def test_default_layout_lists_every_directory() -> None:
 
 
 def test_ensure_creates_inputs_and_evidence(tmp_path: Path) -> None:
-    ws = Workspace.for_engagement(tmp_path / "engagements", "acme-2026")
+    ws = Workspace.at(tmp_path / "eng")
     ws.ensure()
     assert ws.inputs_dir.is_dir()
     assert ws.evidence_dir.is_dir()
 
 
 def test_vault_path_is_a_root_dotfile(tmp_path: Path) -> None:
-    ws = Workspace.for_engagement(tmp_path / "e", "x")
+    ws = Workspace.at(tmp_path / "e")
     assert ws.vault_path == ws.root / ".vault.db"
 
 
 def test_resolve_within_allows_a_confined_path(tmp_path: Path) -> None:
-    ws = Workspace.for_engagement(tmp_path / "e", "x")
+    ws = Workspace.at(tmp_path / "e")
     ws.ensure()
     resolved = ws.resolve_within(ws.inputs_dir, "rockyou.txt")
     assert resolved == (ws.inputs_dir / "rockyou.txt").resolve()
@@ -43,14 +48,14 @@ def test_resolve_within_allows_a_confined_path(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("escape", ["../../etc/passwd", "../../../tmp/x", "../loot/x"])
 def test_resolve_within_rejects_traversal(tmp_path: Path, escape: str) -> None:
-    ws = Workspace.for_engagement(tmp_path / "e", "x")
+    ws = Workspace.at(tmp_path / "e")
     ws.ensure()
     with pytest.raises(ValueError, match="escapes the workspace"):
         ws.resolve_within(ws.inputs_dir, escape)
 
 
 def test_resolve_within_rejects_a_symlink_out(tmp_path: Path) -> None:
-    ws = Workspace.for_engagement(tmp_path / "e", "x")
+    ws = Workspace.at(tmp_path / "e")
     ws.ensure()
     secret = (tmp_path / "secret.txt").resolve()
     secret.write_text("SECRET", encoding="utf-8")
@@ -60,9 +65,10 @@ def test_resolve_within_rejects_a_symlink_out(tmp_path: Path) -> None:
         ws.resolve_within(ws.inputs_dir, "link.txt")
 
 
-def test_derives_paths_from_the_engagement_name(tmp_path: Path) -> None:
-    ws = Workspace.for_engagement(tmp_path / "engagements", "acme-2026")
-    assert ws.root == tmp_path / "engagements" / "acme-2026"
+def test_derives_paths_from_the_root(tmp_path: Path) -> None:
+    root = tmp_path / "acme-2026"
+    ws = Workspace.at(root)
+    assert ws.root == root
     assert ws.scope_path == ws.root / "scope.json"
     assert ws.ledger_path == ws.root / "ledger.db"
     assert ws.reports_dir == ws.root / "reports"
@@ -72,7 +78,7 @@ def test_derives_paths_from_the_engagement_name(tmp_path: Path) -> None:
 
 
 def test_ensure_creates_the_tree(tmp_path: Path) -> None:
-    ws = Workspace.for_engagement(tmp_path / "engagements", "acme-2026")
+    ws = Workspace.at(tmp_path / "eng")
     ws.ensure()
     assert ws.root.is_dir()
     assert ws.reports_dir.is_dir()
@@ -85,7 +91,7 @@ def test_ensure_creates_the_tree(tmp_path: Path) -> None:
 
 
 def test_ensure_is_idempotent(tmp_path: Path) -> None:
-    ws = Workspace.for_engagement(tmp_path / "engagements", "acme-2026")
+    ws = Workspace.at(tmp_path / "eng")
     ws.ensure()
     ws.ensure()  # must not raise
     assert ws.root.is_dir()
@@ -93,14 +99,23 @@ def test_ensure_is_idempotent(tmp_path: Path) -> None:
 
 def test_layout_override_changes_paths(tmp_path: Path) -> None:
     layout = WorkspaceLayout(reports="out", recon="scans")
-    ws = Workspace.for_engagement(tmp_path / "e", "x", layout=layout)
+    ws = Workspace.at(tmp_path / "e", layout=layout)
     ws.ensure()
     assert ws.reports_dir == ws.root / "out"
     assert ws.recon_dir == ws.root / "scans"
     assert (ws.root / "out").is_dir()
 
 
-# --- S5: an engagement name must not traverse out of engagements_dir --------
+def test_has_engagement_detects_a_scope_file(tmp_path: Path) -> None:
+    root = tmp_path / "eng"
+    root.mkdir()
+    assert not has_engagement(root)  # empty dir is not an engagement
+    (root / "scope.json").write_text("{}", encoding="utf-8")
+    assert has_engagement(root)
+    assert not has_engagement(tmp_path / "missing")  # absent root
+
+
+# --- the scope NAME label (no longer a directory segment) -------------------
 
 
 @pytest.mark.parametrize(
@@ -109,25 +124,16 @@ def test_layout_override_changes_paths(tmp_path: Path) -> None:
         ("Lab 01", "lab-01"),  # a human name works
         ("acme-2026", "acme-2026"),
         ("MyEngagement", "myengagement"),
-        ("../../tmp/x", "tmp-x"),  # traversal collapses -- cannot escape the root
-        ("/etc/skuggi", "etc-skuggi"),
         ("a/b", "a-b"),
         ("~root", "root"),
         (".hidden", "hidden"),
     ],
 )
-def test_for_engagement_normalizes_to_a_safe_segment(
-    tmp_path: Path, name: str, slug: str
-) -> None:
-    ws = Workspace.for_engagement(tmp_path, name)
-    assert ws.root == tmp_path / slug
-    assert "/" not in slug
-    assert ".." not in slug
+def test_safe_engagement_name_normalizes_a_label(name: str, slug: str) -> None:
+    assert safe_engagement_name(name) == slug
 
 
 @pytest.mark.parametrize("bad", ["", "..", "   ", "!!!", "///", "-"])
-def test_for_engagement_rejects_an_empty_or_unsafe_name(
-    tmp_path: Path, bad: str
-) -> None:
+def test_safe_engagement_name_rejects_an_empty_or_unsafe_label(bad: str) -> None:
     with pytest.raises(ValueError, match="engagement name"):
-        Workspace.for_engagement(tmp_path, bad)
+        safe_engagement_name(bad)

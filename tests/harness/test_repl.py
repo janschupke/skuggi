@@ -371,7 +371,7 @@ def test_add_and_list_with_engagement(
     pentest_configs()
     buffer = io.StringIO()
     app = Tui(
-        offline_settings(tmp_path, engagement="test-eng"),
+        offline_settings(tmp_path),
         console=Console(file=buffer, width=100),
     )
     wire_offline_core(app.core)

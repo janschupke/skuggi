@@ -105,12 +105,18 @@ def test_install_table_accepts_a_locked_down_env_file(
     assert "0600" in body
 
 
-def test_install_table_reports_the_engagement(
-    monkeypatch: pytest.MonkeyPatch,
+def test_install_table_reports_the_engagement_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("SKUGGI_ENGAGEMENT", "acme-2026")
-    assert "acme-2026" in _render(Settings())
-    monkeypatch.delenv("SKUGGI_ENGAGEMENT")
+    root = tmp_path / "eng"
+    root.mkdir()
+    (root / "scope.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("SKUGGI_ENGAGEMENT_ROOT", str(root))
+    body = _render(Settings())
+    assert "scope.json found" in body
+    assert "agent-only" not in body
+    monkeypatch.delenv("SKUGGI_ENGAGEMENT_ROOT")
+    # No override and the isolated test cwd holds no scope -> agent-only.
     assert "agent-only" in _render(Settings())
 
 

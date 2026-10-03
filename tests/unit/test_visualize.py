@@ -210,23 +210,23 @@ def _redirect_homes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv(home.DATA_HOME_ENV, str(tmp_path / "data-home"))
 
 
-def test_main_writes_for_a_named_engagement(
+def test_main_writes_for_an_engagement_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _redirect_homes(monkeypatch, tmp_path)
-    engagements = tmp_path / "engagements"
-    (engagements / "acme").mkdir(parents=True)
+    root = tmp_path / "acme"
+    root.mkdir(parents=True)
     out = tmp_path / "out"
-    rc = main(["acme", "--engagements-dir", str(engagements), "-o", str(out)])
+    rc = main([str(root), "-o", str(out)])
     assert rc == 0
-    assert list(out.glob("acme-*.html"))
+    assert list(out.glob("acme-*.html"))  # named from the root dir when no scope
 
 
-def test_main_rejects_an_unknown_engagement(
+def test_main_rejects_a_missing_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _redirect_homes(monkeypatch, tmp_path)
-    rc = main(["ghost", "--engagements-dir", str(tmp_path / "engagements")])
+    rc = main([str(tmp_path / "ghost")])  # no such directory
     assert rc == 2
 
 

@@ -96,16 +96,21 @@ fixed homes, so every invocation reads the same harness (see
 [Configuration](#configuration)); only the engagement workspace is relative to
 where you are, because that is where the client's data belongs.
 
-To start an engagement, `cd` to where you want its workspace to live:
+To start an engagement, point skuggi at a directory — that directory *is* the
+engagement (its `scope.json`, ledger, recon output and reports live inside it):
 
 ```sh
 mkdir -p ~/work/acme-2026 && cd ~/work/acme-2026
-cp ~/.config/skuggi/scope.example.json ./scope-draft.json   # or use the wizard
-export SKUGGI_ENGAGEMENT=acme-2026
-skuggi                                   # → /skuggi engagement setup
+skuggi
+/skuggi set engagement          # adopt the current directory (scaffolds a scope.json)
+/skuggi engagement setup        # fill the scope in with the wizard
 ```
 
-With no `SKUGGI_ENGAGEMENT` set, skuggi runs agent-only (no scope, no ledger).
+`set engagement <path>` adopts (and, if needed, creates + scaffolds) another
+directory instead of the current one. With no engagement — no `scope.json` in the
+current directory and no `SKUGGI_ENGAGEMENT_ROOT` override — skuggi runs agent-only
+(no scope, no ledger). The adopted root is session-scoped and is not persisted;
+a restart re-discovers it by probing the current directory.
 
 Installing from an existing checkout moves any `configs/` and `data/` you already
 had into the two homes, once — that state is gitignored, so it is not left behind.
@@ -255,9 +260,9 @@ not a target — and lives in `./data/preferences.db`, separate from the ledger.
 Schedule, Targets, Capabilities, Approach) with a horizontal step bar. Methods,
 methodology, taxonomies and stance are dropdowns/checklists; timezone and tools
 autocomplete (in the REPL); the authorized window is optional (a blank start/end
-means no time bound). It validates the answers, writes
-`engagements/<name>/scope.json`, and **hot-reloads** the boundary into the
-running session — no restart. A rejected answer re-asks only the field that
+means no time bound). It validates the answers, writes `scope.json` into the
+active engagement root, and **hot-reloads** the boundary into the running
+session — no restart. A rejected answer re-asks only the field that
 failed, keeping everything else; a blank keeps the current value when editing;
 `Ctrl-C`/`Esc` cancels.
 
@@ -361,7 +366,7 @@ the subcommand is the confirmation.
 ## Findings, the ledger and reports
 
 The harness persists to a per-engagement SQLite **ledger**
-([src/skuggi/persistence/ledger.py](src/skuggi/persistence/ledger.py), `engagements/<name>/ledger.db`),
+([src/skuggi/persistence/ledger.py](src/skuggi/persistence/ledger.py), `<engagement root>/ledger.db`),
 separate from the checkpointer, with `sessions`, `commands`, `findings` and
 `finding_refs` tables. A finding links to its session and (by default) to the most
 recent command, so it is always traceable. `/report` writes a Markdown report into
@@ -435,11 +440,13 @@ uv sync --group pdf           # if you skipped `make install`
 
 ## The per-engagement workspace
 
-Each engagement operates in `engagements/<name>/`
-([src/skuggi/engagement/workspace.py](src/skuggi/engagement/workspace.py)), created on startup:
+An engagement *is* a directory — the root you adopt with `set engagement`
+([src/skuggi/engagement/workspace.py](src/skuggi/engagement/workspace.py)). There is no
+`engagements/<name>/` wrapper; the root you point at holds the workspace directly,
+created on adoption:
 
 ```
-engagements/<name>/
+<engagement root>/
   scope.json            # the engagement boundary (the engagement setup)
   findings/             # per-finding artefacts (structured records are in the ledger)
   notes/notes.md        # `/skuggi add note` — timestamped operator notes
@@ -455,8 +462,9 @@ engagements/<name>/
 ```
 
 The layout is configurable
-([src/skuggi/templates/layout.example.json](src/skuggi/templates/layout.example.json)). Everything under
-`engagements/` is gitignored.
+([src/skuggi/templates/layout.example.json](src/skuggi/templates/layout.example.json)). Keep your
+engagement roots out of version control (or gitignore them) — they hold the ledger
+and loot.
 
 ## Configuration
 
@@ -472,11 +480,13 @@ standard `XDG_*` variables, each with a `SKUGGI_*` override in front of it:
 | **Config home** | `~/.config/skuggi` | `SKUGGI_CONFIG_HOME`, else `XDG_CONFIG_HOME/skuggi` | `config.json`, `tools.json`, `layout.json`, `commands.json`, `env` |
 | **Data home** | `~/.local/share/skuggi` | `SKUGGI_DATA_HOME`, else `XDG_DATA_HOME/skuggi` | `sessions.db`, `preferences.db`, `faiss_index/`, `toolbox/`, `.repl_history` |
 
-**`./engagements/<name>/` stays relative to your working directory.** That is the
+**The engagement root stays relative to your working directory.** That is the
 one deliberate exception, and the reason for the split: an engagement's scope,
-ledger, recon output and reports belong to the client directory you ran skuggi
-in, not to a global dotdir. Harness config is about *you*; a workspace is about
-*a case*. `skuggi-doctor` prints where every one of these resolved.
+ledger, recon output and reports belong to the directory you adopted (the current
+one by default, or `set engagement <path>`), not to a global dotdir. Harness
+config is about *you*; a workspace is about *a case*. The root is session-scoped —
+an explicit `SKUGGI_ENGAGEMENT_ROOT` overrides the cwd probe, but nothing is
+persisted. `skuggi-doctor` prints where every one of these resolved.
 
 Values resolve in priority order, highest first:
 
@@ -494,7 +504,7 @@ So a one-off `SKUGGI_PROVIDER=anthropic` still wins for a single run. Config tie
 - **Harness config** (shared, same home): the recognized-tool registry
   `tools.json`, the optional workspace-layout override `layout.json`, and the
   optional `cmd` cheatsheet `commands.json`.
-- **Engagement setup** (per-case, in `./engagements/<name>/scope.json`): the
+- **Engagement setup** (per-case, in `<engagement root>/scope.json`): the
   boundary above.
 
 A path you set explicitly is taken as written, so a *relative* one still resolves
@@ -537,8 +547,8 @@ Harness state, in the **data home** (`~/.local/share/skuggi`):
 
 Per-case, **relative to your working directory**:
 
-- `./engagements/<name>/` — the engagement workspace: its scope, ledger, recon
-  output and reports (gitignored)
+- `<engagement root>/` — the directory you adopt with `set engagement` (cwd by
+  default): its scope, ledger, recon output and reports (keep it out of git)
 
 The templates themselves ship inside the package
 ([src/skuggi/templates/](src/skuggi/templates/)) so that an install with no

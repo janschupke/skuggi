@@ -23,6 +23,7 @@ from skuggi.common import home, palette
 from skuggi.common.logs import get_logger, setup_logging
 from skuggi.config.config import PROVIDERS, Settings, config_path
 from skuggi.config.configs import ConfigError, load_registry
+from skuggi.engagement.workspace import has_engagement
 from skuggi.frontend import shell
 from skuggi.providers import providers
 from skuggi.tooling import probe
@@ -270,12 +271,14 @@ def install_table(settings: Settings) -> Table:
                 palette.paint("all current", palette.SUCCESS),
                 str(Path(skuggi_path).resolve().parent),
             )
-    table.add_row(
-        "engagement",
-        "",
-        settings.engagement or "(none -- agent-only, no scope or ledger)",
+    root = (settings.engagement_root or Path.cwd()).expanduser()
+    source = "override" if settings.engagement_root is not None else "cwd probe"
+    detected = (
+        "scope.json found"
+        if has_engagement(root)
+        else "no scope.json (agent-only, no scope or ledger)"
     )
-    table.add_row("engagements dir", "", str(settings.engagements_dir.resolve()))
+    table.add_row("engagement root", f"({source})", f"{root.resolve()} -- {detected}")
     return table
 
 

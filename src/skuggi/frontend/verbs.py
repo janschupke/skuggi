@@ -125,6 +125,11 @@ VERBS: tuple[Verb, ...] = (
         "<what>",
         group="state",
         nouns=(
+            Noun(
+                "engagement",
+                "adopt an engagement root (cwd by default), scaffolding if absent",
+                "[<path>]",
+            ),
             Noun("provider", "switch provider (interactive with no name)", "[<name>]"),
             Noun("model", "switch model (interactive with no name)", "[<name>]"),
             Noun("mode", "operating mode", "<pentest|redteam|blueteam>"),
@@ -163,8 +168,8 @@ VERBS: tuple[Verb, ...] = (
     ),
     Verb(
         "engagement",
-        "run setup, scaffold a scope file, or set the threat model",
-        "<setup|scaffold|threat-model>",
+        "run the setup wizard, or set the threat model",
+        "<setup|threat-model>",
         group="engagement",
     ),
     Verb(
@@ -220,8 +225,8 @@ VERBS: tuple[Verb, ...] = (
     ),
     Verb(
         "reconcile",
-        "update installed config from the packaged templates (diff/overwrite)",
-        "[list | diff <file> | overwrite <file>]",
+        "update installed config from the packaged templates",
+        "[diff <file> | <file> | all]",
         group="system",
     ),
     Verb("clear", "clear the screen", group="system"),

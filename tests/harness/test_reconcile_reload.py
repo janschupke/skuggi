@@ -1,4 +1,4 @@
-"""L3: `reconcile overwrite` reloads config, so `cmd` reflects it without restart.
+"""L3: `reconcile <file>` reloads config, so `cmd` reflects it without restart.
 
 The bug this guards: an install seeded from an older template has a ``tools.json``
 missing a tool's output convention, so ``cmd nmap-full`` renders without the

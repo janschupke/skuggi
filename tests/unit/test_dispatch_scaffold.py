@@ -1,4 +1,4 @@
-"""L1: the presentation-free ``engagement scaffold`` outcome."""
+"""L1: the presentation-free scope-scaffold outcome (used by `set engagement`)."""
 
 from __future__ import annotations
 

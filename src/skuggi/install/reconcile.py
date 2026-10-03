@@ -37,7 +37,7 @@ State = Literal["up_to_date", "drifted", "missing"]
 
 # Installed filename -> packaged template filename, taken from init's seed map so
 # the two can never diverge. ``scope.example.json`` is deliberately absent: a
-# scope is per-engagement case data reconciled via ``engagement scaffold``, not
+# scope is per-engagement case data seeded via ``set engagement``, not
 # harness config.
 _PAIRS: dict[str, str] = {installed: template for template, installed in SEEDED}
 

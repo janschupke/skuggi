@@ -24,7 +24,7 @@ from tests.fakes import RoleScriptedChatModel, ScriptedChatModel
 @pytest.fixture
 def core(tmp_path: Path, pentest_configs: Callable[..., Path]) -> Iterator[AgentCore]:
     pentest_configs()
-    built = AgentCore(offline_settings(tmp_path, engagement="test-eng"))
+    built = AgentCore(offline_settings(tmp_path))
     wire_offline_core(built)
     yield built
     built.close()

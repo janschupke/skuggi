@@ -1,18 +1,20 @@
 """Per-engagement workspace: the on-disk directory one engagement operates in.
 
-Each engagement is a directory under ``engagements/<name>/`` with a fixed but
-*configurable* layout -- ``scope.json`` (the engagement setup), plus ``findings``,
-``notes``, ``recon`` (with ``nmap``/``dirs``/``domains``/``web`` subdirs),
-``reports``, ``scripts``, ``tests`` and ``loot``. Keeping outputs inside the
-workspace is what makes a session
-self-contained and traceable: the ledger, the Markdown reports and any tool
-output all land next to the scope that authorized them.
+An engagement *is* a directory -- the root you point skuggi at -- with a fixed but
+*configurable* layout: ``scope.json`` (the engagement setup) living directly
+inside it, plus ``findings``, ``notes``, ``recon`` (with
+``nmap``/``dirs``/``domains``/``web`` subdirs), ``reports``, ``scripts``,
+``tests`` and ``loot``. There is no ``engagements/<name>/`` wrapper; the root is
+chosen per engagement (``set engagement [<path>]``, or the current directory).
+Keeping outputs inside the workspace is what makes a session self-contained and
+traceable: the ledger, the Markdown reports and any tool output all land next to
+the scope that authorized them.
 
 ``WorkspaceLayout`` is a frozen model so the folder names can be overridden from
 ``configs/layout.json`` (harness-level) without touching code; ``Workspace``
-turns a layout plus an engagement name into concrete paths and creates the tree.
-This is the analogue of ``open_ledger``'s parent-dir discipline: ``ensure`` is
-idempotent and the only thing that writes directories.
+turns a layout plus a root path into concrete paths and creates the tree. This is
+the analogue of ``open_ledger``'s parent-dir discipline: ``ensure`` is idempotent
+and the only thing that writes directories.
 """
 
 from __future__ import annotations
@@ -25,21 +27,20 @@ from pydantic import BaseModel, ConfigDict
 
 from skuggi.common.paths import ensure_dir
 
-# An engagement name becomes a directory under ``engagements/``. The display
-# name is free text (``Lab 01``); the directory is a *slug* derived from it, so a
-# human name works while the on-disk segment stays safe. Normalising here -- the
-# single choke point for the segment -- means a name like ``../../tmp/x`` or
-# ``/etc/skuggi`` cannot escape the workspace root: ``/`` and other unsafe
-# characters collapse to ``-``, the result must start alphanumeric, and ``..``
-# can never survive (``engagements_dir / slug`` can then only descend one level).
+# The engagement's display name is free text (``Lab 01``) and is validated into a
+# safe token so it can label the ledger/session/report without surprises. It is NO
+# LONGER a path segment (the engagement root is chosen directly), so this only
+# rejects a name that reduces to nothing usable -- it never names a directory.
 _SAFE_SLUG = re.compile(r"[a-z0-9][a-z0-9._-]*")
 
 
 def safe_engagement_name(name: str) -> str:
-    """Slugify `name` into one safe path segment (``Lab 01`` -> ``lab-01``).
+    """Normalise `name` into one safe token (``Lab 01`` -> ``lab-01``).
 
-    Raises ``ValueError`` only when the name reduces to nothing usable (empty,
-    all-punctuation, or a bare ``..``) -- the caller surfaces that as a re-ask.
+    Used to validate the scope ``name`` label (ledger/session/report slug), not to
+    name a directory. Raises ``ValueError`` only when the name reduces to nothing
+    usable (empty, all-punctuation, or a bare ``..``) -- the caller surfaces that
+    as a re-ask.
     """
     slug = re.sub(r"[^a-z0-9._-]+", "-", name.strip().lower())
     slug = re.sub(r"-{2,}", "-", slug).strip("-._")
@@ -49,25 +50,15 @@ def safe_engagement_name(name: str) -> str:
     return slug
 
 
-def list_engagements(
-    engagements_dir: Path, layout: WorkspaceLayout | None = None
-) -> list[str]:
-    """On-disk engagement segment names under `engagements_dir` (sorted).
+def has_engagement(root: Path, layout: WorkspaceLayout | None = None) -> bool:
+    """Whether `root` is an engagement directory (holds a scope file).
 
-    A directory counts only if it holds a scope file, so an empty or half-created
-    folder is ignored. Used to auto-adopt the sole engagement at boot when none is
-    configured; a missing `engagements_dir` yields ``[]``. The names are already
-    safe slugs, so ``Workspace.for_engagement`` re-slugifies them to themselves.
+    The single-directory probe behind cwd discovery and the explicit-override
+    check: an empty or half-created folder (no ``scope.json``) is not an
+    engagement. A missing `root` yields ``False``.
     """
     resolved = layout or WorkspaceLayout()
-    root = engagements_dir.expanduser()
-    if not root.is_dir():
-        return []
-    return sorted(
-        child.name
-        for child in root.iterdir()
-        if child.is_dir() and (child / resolved.scope_file).is_file()
-    )
+    return (root.expanduser() / resolved.scope_file).is_file()
 
 
 class WorkspaceLayout(BaseModel):
@@ -121,17 +112,15 @@ class Workspace:
     layout: WorkspaceLayout
 
     @classmethod
-    def for_engagement(
-        cls, engagements_dir: Path, name: str, *, layout: WorkspaceLayout | None = None
-    ) -> Workspace:
-        """The workspace for `name` under `engagements_dir`.
+    def at(cls, root: Path, *, layout: WorkspaceLayout | None = None) -> Workspace:
+        """The workspace rooted at `root` -- the engagement directory itself.
 
-        `name` is validated as a single safe path segment so it cannot traverse
-        out of ``engagements_dir`` -- this is the one choke point both
-        ``create_engagement`` and ``skuggi-visualize`` route through.
+        `root` *is* the engagement: its ``scope.json``, ledger, recon output and
+        reports live directly inside it. The one constructor both
+        ``adopt_engagement`` and ``skuggi-visualize`` route through.
         """
         return cls(
-            root=engagements_dir.expanduser() / safe_engagement_name(name),
+            root=root.expanduser(),
             layout=layout or WorkspaceLayout(),
         )
 

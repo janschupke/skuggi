@@ -42,8 +42,8 @@ make lab-list                                 # every lab, tier, ports, up/down 
 make lab-up      LAB=01-trivial-goat-cms       # build + start (loopback-only)
 make lab-verify  LAB=01-trivial-goat-cms       # assert the planted loot seeded
 uv run python labs/labctl scope 01-trivial-goat-cms --install   # -> ./engagements/<id>/scope.json
-export SKUGGI_ENGAGEMENT=01-trivial-goat-cms
-uv run skuggi                                  # run the engagement
+export SKUGGI_ENGAGEMENT_ROOT=./engagements/01-trivial-goat-cms
+uv run skuggi                                  # run the engagement (or: /skuggi set engagement ./engagements/<id>)
 make lab-restore LAB=01-trivial-goat-cms       # revert the TARGET to pristine, keep your work
 make lab-wipe    LAB=01-trivial-goat-cms       # nuke the target AND ./engagements/<id>
 ```

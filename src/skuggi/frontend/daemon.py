@@ -44,6 +44,7 @@ from skuggi.frontend import (
     wizard,
 )
 from skuggi.frontend.prompter import Prompter
+from skuggi.install import reconcile
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import finding_line
 from skuggi.tooling.commands import CommandAlias
@@ -93,7 +94,60 @@ class Daemon:
         with self._lock:
             yield from self._dispatch(msg)
 
-    def run_attached(
+    def _completion_tree(self) -> dict[str, object]:
+        """A NestedCompleter-shaped vocabulary for the chat loop + ``--complete``.
+
+        ``{verb: {noun: None, ...} | None}`` -- grouping verbs expand to their
+        nouns, ``cmd`` to the cheatsheet names, ``reconcile`` to the config files
+        (and ``diff``/``all``). Built from the one verb registry plus the live
+        core, so it never drifts from what the dispatch actually accepts.
+        """
+        tree: dict[str, object] = {}
+        for verb in verbs.VERBS:
+            nouns = verbs.nouns_of(verb.name)
+            tree[verb.name] = {n.name: None for n in nouns} if nouns else None
+        tree["cmd"] = dict.fromkeys(self.core.commands.names())
+        files: dict[str, object] = dict.fromkeys(reconcile.known_names())
+        tree["reconcile"] = {"diff": dict(files), "all": None, **files}
+        return tree
+
+    def _complete(self, words: list[str]) -> list[str]:
+        """Candidates following the already-complete tokens `words` (host-shell TAB).
+
+        Walks the completion tree by the complete tokens and returns the keys at
+        that node (sorted); the shell filters them by the word being typed.
+        """
+        node: object = self._completion_tree()
+        for tok in words:
+            if isinstance(node, dict) and tok in node:
+                node = node[tok]
+            else:
+                return []
+        return sorted(node) if isinstance(node, dict) else []
+
+    def _prompt_frame(self, *, ready: bool) -> dict[str, object]:
+        """The "your turn" frame: engagement context, plus the one-time handshake.
+
+        Sent before each chat-loop prompt so the client can render
+        ``🐐 [<engagement>] >`` and refresh it after a ``set engagement``. The
+        first frame also carries ``ready`` (history path + completion tree) so the
+        thin client can build its prompt_toolkit session without loading config.
+        """
+        eng = self.core.engagement
+        frame: dict[str, object] = {
+            "prompt": {
+                "engagement": eng.name if eng is not None else None,
+                "autonomous": self.core.autonomous,
+            }
+        }
+        if ready:
+            frame["ready"] = {
+                "history_path": str(self.core.settings.history_path),
+                "tree": self._completion_tree(),
+            }
+        return frame
+
+    def run_attached(  # noqa: PLR0912 -- one branch per interactive attach mode
         self,
         read_line: Callable[[], str | None],
         emit: Callable[[dict[str, object]], None],
@@ -116,7 +170,13 @@ class Daemon:
         wrapped-shell prompt (so hints use the ``/skuggi`` grammar).
         """
         self._local.surface = "chat" if mode == "loop" else "shell"
+        first = mode == "loop"
         while True:
+            if mode == "loop":
+                # Signal "your turn" with the current engagement context; the first
+                # frame also hands over the history path + completion vocabulary.
+                emit(self._prompt_frame(ready=first))
+                first = False
             line = read_line()
             if line is None:  # client disconnected
                 return
@@ -499,6 +559,13 @@ class Daemon:
             self.core.record_passthrough(str(msg.get("text", "")))
             yield {"end": True, "exit": False}
             return
+        if msg.get("op") == "complete":
+            # A host-shell TAB (the `/skuggi` completion hook): candidates for the
+            # argv so far. One frame, no side effects.
+            raw = msg.get("words")
+            words = [str(w) for w in raw] if isinstance(raw, list) else []
+            yield {"candidates": self._complete(words), "end": True, "exit": False}
+            return
         verb, rest = verbs.split_verb(str(msg.get("text", "")))
         if verbs.is_exit(verb):
             yield {"chunk": "leaving\n"}
@@ -614,6 +681,7 @@ class Daemon:
             "set",
             arg,
             {
+                "engagement": self._set_engagement,
                 "provider": self._set_provider,
                 "model": self._set_model,
                 "mode": self._mode,
@@ -821,21 +889,21 @@ class Daemon:
             hint = self._cmd("engagement setup")
             yield f"engagement setup is interactive -- run {hint}\n"
             return
-        if first == "scaffold":
-            yield from self._scaffold()
-            return
         if first == "threat-model":
             rest = arg.split(maxsplit=1)[1] if len(arg.split()) > 1 else ""
             yield dispatch.run_threat_model(self.core, rest) + "\n"
             return
         yield (
-            f"usage: {self._cmd('engagement setup | scaffold | threat-model')} -- "
+            f"usage: {self._cmd('engagement setup | threat-model')} -- "
+            f"adopt/scaffold a root with {self._cmd('set engagement [<path>]')}, "
             f"scope summary is {self._cmd('show engagement')}\n"
         )
 
-    def _scaffold(self) -> Iterator[str]:
+    def _set_engagement(self, arg: str) -> Iterator[str]:
         yield from self._emit(
-            dispatch.present_scaffold(dispatch.run_scaffold(Path.cwd()))
+            dispatch.present_set_engagement(
+                dispatch.run_set_engagement(self.core, arg), self._surface()
+            )
         )
 
     def _config(self, arg: str) -> Iterator[str]:

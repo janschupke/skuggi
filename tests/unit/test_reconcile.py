@@ -100,6 +100,12 @@ class _StubCore:
     def reconcile_overwrite(self, name: str) -> Path | None:
         return reconcile.overwrite(self._dir, name)
 
+    def reconcile_overwrite_all(self) -> tuple[tuple[str, Path | None], ...]:
+        return tuple(
+            (name, reconcile.overwrite(self._dir, name))
+            for name in reconcile.drifted(self._dir)
+        )
+
 
 def _run(config_dir: Path, arg: str) -> list[str]:
     core = _StubCore(config_dir)
@@ -107,23 +113,35 @@ def _run(config_dir: Path, arg: str) -> list[str]:
     return [line.text for line in dispatch.present_reconcile(outcome, "repl")]
 
 
-def test_present_list_flags_a_drifted_file(tmp_path: Path) -> None:
+def test_present_list_flags_a_drifted_file_with_magnitude(tmp_path: Path) -> None:
     _write(tmp_path, _TOOLS, b'{"tools": []}')
-    texts = _run(tmp_path, "list")
-    assert any(_TOOLS in t and "drifted" in t for t in texts)
-    assert any("reconcile overwrite" in t for t in texts)
+    texts = _run(tmp_path, "")  # no argument lists every file
+    # The drifted row carries its state and a (+added -removed) magnitude.
+    assert any(_TOOLS in t and "drifted" in t and "(+" in t for t in texts)
+    assert any("reconcile all" in t for t in texts)
 
 
-def test_present_overwrite_reports_the_backup(tmp_path: Path) -> None:
+def test_present_bare_filename_overwrites_and_reports_the_backup(
+    tmp_path: Path,
+) -> None:
     _write(tmp_path, _TOOLS, b'{"tools": []}')
-    texts = _run(tmp_path, f"overwrite {_TOOLS}")
+    texts = _run(tmp_path, _TOOLS)  # a bare known file name overwrites it
     assert any("updated from the packaged template" in t for t in texts)
     assert any("backup saved" in t for t in texts)
 
 
+def test_present_all_overwrites_every_drifted_file(tmp_path: Path) -> None:
+    _write(tmp_path, _TOOLS, b'{"tools": []}')
+    texts = _run(tmp_path, "all")
+    assert any("updated from the packaged templates" in t for t in texts)
+    assert any(_TOOLS in t for t in texts)
+
+
 def test_present_unknown_and_usage(tmp_path: Path) -> None:
     assert any("unknown config file" in t for t in _run(tmp_path, "diff nope.json"))
-    assert any("usage:" in t for t in _run(tmp_path, "wat"))
+    # A bare unknown token is an unknown file; `diff` with no file is the usage.
+    assert any("unknown config file" in t for t in _run(tmp_path, "wat"))
+    assert any("usage:" in t for t in _run(tmp_path, "diff"))
 
 
 def test_present_diff_up_to_date_says_so(tmp_path: Path) -> None:

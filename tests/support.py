@@ -50,18 +50,16 @@ def engaged_core(
 ) -> AgentCore:
     """Construct an :class:`AgentCore` for ``scope`` with all state under ``tmp_path``.
 
-    ``scope`` is written to ``<tmp>/engagements/<name>/scope.json`` before the
-    core loads it. ``provider="ollama"`` constructs without credentials; pass a
-    real provider (eval) to keep a live model.
+    ``scope`` is written to ``<tmp>/engagement/scope.json`` before the core loads
+    it (the directory IS the engagement). ``provider="ollama"`` constructs without
+    credentials; pass a real provider (eval) to keep a live model.
     """
-    name = str(scope["name"])
-    workspace = tmp_path / "engagements" / name
+    workspace = tmp_path / "engagement"
     workspace.mkdir(parents=True, exist_ok=True)
     (workspace / "scope.json").write_text(json.dumps(scope), encoding="utf-8")
     settings = Settings(
         provider=provider,
-        engagements_dir=tmp_path / "engagements",
-        engagement=name,
+        engagement_root=workspace,
         registry_path=registry_path,
         sqlite_path=tmp_path / "sessions.db",
         faiss_path=tmp_path / "faiss",

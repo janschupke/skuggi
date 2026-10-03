@@ -6,7 +6,7 @@ recurs (and can reason about it as one thing), reversible so the harness can put
 the real value back into a command it runs for a tool -- never into the model's
 context. The vault is that mapping.
 
-It is a 0600 SQLite file under ``engagements/<name>/`` and is **never**
+It is a 0600 SQLite file at the engagement root and is **never**
 serialized into any request, brief, report or dashboard. Placeholder ids are an
 HMAC of the value under a per-vault random salt, so the id leaks nothing about
 the secret and two distinct values never collide to the same token; the salt

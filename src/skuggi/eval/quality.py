@@ -42,13 +42,12 @@ def build_live_core(  # pragma: no cover
     settings: Settings, scope: EngagementConfig, tmp: Path
 ) -> AgentCore:
     """An ``AgentCore`` on the real provider for ``scope``, state under ``tmp``."""
-    workspace = tmp / "engagements" / scope.name
+    workspace = tmp / "engagement"
     ensure_dir(workspace)
     (workspace / "scope.json").write_text(scope.model_dump_json(), encoding="utf-8")
     live = settings.model_copy(
         update={
-            "engagements_dir": tmp / "engagements",
-            "engagement": scope.name,
+            "engagement_root": workspace,
             "sqlite_path": tmp / "sessions.db",
             "faiss_path": tmp / "faiss",
             "history_path": tmp / ".repl_history",

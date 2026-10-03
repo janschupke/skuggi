@@ -149,7 +149,7 @@ def initialise(
         )
         lines.append(
             "  review with `reconcile diff <file>`, update with "
-            "`reconcile overwrite <file>` (a timestamped backup is saved)."
+            "`reconcile <file>` or `reconcile all` (a timestamped backup is saved)."
         )
 
     lines.append("")

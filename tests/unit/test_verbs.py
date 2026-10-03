@@ -27,6 +27,7 @@ def test_cmd_defaults_to_shell() -> None:
 def test_grouping_verbs_carry_nouns() -> None:
     assert verbs.noun_names("show") >= {"config", "status", "tools", "db", "grants"}
     assert verbs.noun_names("set") == {
+        "engagement",
         "provider",
         "model",
         "mode",

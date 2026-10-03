@@ -16,7 +16,7 @@ Storage paths are **absolute by default**, resolved under the two homes in
 ``skuggi.home`` (see that module for the config/data split). ``skuggi`` is an
 installed command run from anywhere, so a cwd-relative default would scatter a
 fresh empty ``configs/`` and ``data/`` into whatever directory the operator
-happened to be standing in. The one exception is ``engagements_dir``, which stays
+happened to be standing in. The one exception is ``engagement_root``, which stays
 relative on purpose: an engagement's workspace belongs to the client directory
 you ran skuggi in. A relative path supplied explicitly -- by env var or by the
 JSON -- is still honoured, and still resolves against the working directory.
@@ -254,17 +254,22 @@ class Settings(BaseSettings):
     commands_path: Path = Field(
         default_factory=lambda: home.config_home() / "commands.json"
     )
-    # Engagement setup lives in a per-engagement workspace under this root; the
-    # active engagement selects the directory (engagements/<engagement>/). Its
-    # scope.json, ledger and reports live inside that workspace.
+    # An engagement IS a directory: its scope.json, ledger, recon output, notes,
+    # loot and reports all live directly inside this root. There is no
+    # ``engagements/<name>/`` wrapper -- the root you point at is the engagement.
     #
-    # The ONE path that stays relative to the working directory, and the reason
-    # the config/data split in `skuggi.home` exists: an engagement's scope, ledger
-    # and recon output belong to the client directory you ran skuggi in, not to a
-    # global dotdir. With no active engagement the harness runs agent-only and
-    # falls back to the data home.
-    engagements_dir: Path = Path("./engagements")
-    engagement: str | None = None
+    # This is the ONE path that stays relative to the working directory, and the
+    # reason the config/data split in `skuggi.home` exists: an engagement's scope,
+    # ledger and recon output belong to the client directory you ran skuggi in,
+    # not to a global dotdir. ``None`` means "probe the current directory"; an
+    # explicit value (env ``SKUGGI_ENGAGEMENT_ROOT`` or the JSON) overrides and is
+    # honoured only when it holds a scope.json. With no engagement resolved the
+    # harness runs agent-only and falls back to the data home.
+    #
+    # Deliberately NOT written back by ``set engagement`` -- the active root is a
+    # cwd-scoped, session choice, so a machine-global pointer would be a category
+    # error (restart recovery is cwd probing, see AgentCore._resolve_engagement_root).
+    engagement_root: Path | None = None
     managed_tools_dir: Path = Field(
         default_factory=lambda: home.data_home() / "toolbox"
     )

@@ -98,8 +98,8 @@ def _provider_then_keep_model(provider: str) -> setup.Choose:
     return choose
 
 
-def _core(tmp_path: Path, *, engagement: str | None = None) -> AgentCore:
-    settings = offline_settings(tmp_path, engagement=engagement).model_copy(
+def _core(tmp_path: Path) -> AgentCore:
+    settings = offline_settings(tmp_path).model_copy(
         update={"registry_path": DEFAULT_REGISTRY}
     )
     core = AgentCore(settings)
@@ -136,10 +136,12 @@ def test_wizard_creates_workspace_tree_and_scope_roundtrips(tmp_path: Path) -> N
 
 def test_create_engagement_accepts_a_human_name(tmp_path: Path) -> None:
     core = _core(tmp_path)
-    eng = core.create_engagement({"name": "Lab 01", "timezone": "UTC"})
-    assert eng.name == "Lab 01"  # display name preserved
+    root = tmp_path / "client-dir"
+    eng = core.create_engagement({"name": "Lab 01", "timezone": "UTC"}, root=root)
+    assert eng.name == "Lab 01"  # display name preserved verbatim
     assert core.workspace is not None
-    assert core.workspace.root.name == "lab-01"  # directory slugified
+    assert core.workspace.root == root  # the chosen root IS the engagement dir
+    assert core.workspace.scope_path.is_file()
 
 
 def test_create_engagement_reasks_on_an_unusable_name(tmp_path: Path) -> None:
@@ -187,23 +189,36 @@ def test_run_setup_api_key_writes_env_and_reresolves(tmp_path: Path) -> None:
 # --- in-process: engagement lifecycle --------------------------------------
 
 
-def test_load_engagement_hot_reload_swaps_ledger_and_session(tmp_path: Path) -> None:
+def _min_scope(name: str) -> dict[str, object]:
+    return {
+        "name": name,
+        "timezone": "UTC",
+        "authorized_start": "2026-01-01T00:00:00+00:00",
+        "authorized_end": "2026-12-31T23:59:59+00:00",
+        "target_networks": ["10.0.0.0/24"],
+        "allowed_tools": ["nmap"],
+        "allowed_methods": ["scan"],
+    }
+
+
+def test_adopt_engagement_hot_reload_swaps_ledger_and_session(tmp_path: Path) -> None:
     core = _core(tmp_path)
-    _run_wizard(core, "eng-a")
+    root_a, root_b = tmp_path / "a", tmp_path / "b"
+    core.create_engagement(_min_scope("eng-a"), root=root_a)
     core.journal.record_finding(severity="high", title="finding only in A")
     ws_a = core.workspace
     assert ws_a is not None
     a_ledger = ws_a.ledger_path
     a_session = core.session_id
 
-    _run_wizard(core, "eng-b")
+    core.create_engagement(_min_scope("eng-b"), root=root_b)
     ws_b = core.workspace
     assert ws_b is not None
     assert core.session_id != a_session
     assert ws_b.ledger_path != a_ledger
     assert core.journal.findings() == []  # B's ledger is a different, clean file
 
-    core.load_engagement("eng-a")
+    core.adopt_engagement(root_a)
     ws_reload = core.workspace
     assert ws_reload is not None
     assert ws_reload.ledger_path == a_ledger  # reattached to A's ledger file
@@ -295,7 +310,10 @@ def test_attach_wizard_creates_engagement_over_socket(tmp_path: Path) -> None:
         assert core.engagement.allowed_tools == frozenset({"*"})
         ws = core.workspace
         assert ws is not None
-        assert ws.root.name == "lab-01"  # directory is the safe slug
+        # The wizard wrote into the active engagement root (the cwd here); the
+        # human name is a label, no longer the directory name.
+        assert ws.root == Path.cwd()
+        assert ws.scope_path.is_file()
         _assert_workspace_tree(ws)
     finally:
         core.close()

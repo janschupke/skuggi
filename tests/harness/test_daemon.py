@@ -17,7 +17,7 @@ from tests.conftest import offline_settings, wire_offline_core
 
 
 def _core(tmp_path: Path) -> AgentCore:
-    core = AgentCore(offline_settings(tmp_path, engagement="test-eng"))
+    core = AgentCore(offline_settings(tmp_path))
     wire_offline_core(core)
     return core
 
@@ -40,6 +40,24 @@ def _responses(daemon: Daemon, msg: dict[str, object]) -> list[dict[str, object]
 
 def test_op_exit_signals_shell_exit(daemon: Daemon) -> None:
     assert _responses(daemon, {"op": "exit"}) == [{"end": True, "exit": True}]
+
+
+def _candidates(daemon: Daemon, words: list[str]) -> list[str]:
+    [frame] = daemon.handle_request({"op": "complete", "words": words})
+    cands = frame["candidates"]
+    assert isinstance(cands, list)
+    return cands
+
+
+def test_complete_op_walks_the_verb_noun_tree(daemon: Daemon) -> None:
+    top = _candidates(daemon, [])
+    assert {"show", "set", "cmd", "reconcile", "help"} <= set(top)
+    assert "engagement" in _candidates(daemon, ["set"])  # grouping-verb noun
+    assert "engagement" in _candidates(daemon, ["show"])
+    recon = _candidates(daemon, ["reconcile"])
+    assert {"diff", "all", "config.json", "tools.json"} <= set(recon)
+    assert "config.json" in _candidates(daemon, ["reconcile", "diff"])
+    assert _candidates(daemon, ["bogus-verb"]) == []  # unknown -> no candidates
 
 
 def test_blank_input_just_ends(daemon: Daemon) -> None:
@@ -97,7 +115,7 @@ def test_slash_add_usage_and_bad_severity(daemon: Daemon) -> None:
 
 
 def test_slash_add_note_without_engagement(tmp_path: Path) -> None:
-    core = AgentCore(offline_settings(tmp_path, engagement=None))
+    core = AgentCore(offline_settings(tmp_path))
     wire_offline_core(core)
     unscoped = Daemon(core)
     try:
@@ -331,7 +349,11 @@ def test_attach_routes_multiple_lines_over_one_session(daemon: Daemon) -> None:
 def test_attach_stops_when_client_disconnects(daemon: Daemon) -> None:
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: None, emitted.append)  # immediate EOF
-    assert emitted == []
+    # The loop emits the one "your turn" handshake frame, then the client
+    # disconnects before sending a line, so nothing else follows.
+    assert len(emitted) == 1
+    assert "prompt" in emitted[0]
+    assert "ready" in emitted[0]
 
 
 def test_attach_continues_after_a_non_exit_turn(daemon: Daemon) -> None:
@@ -619,13 +641,16 @@ def test_findings_review_usage(daemon: Daemon) -> None:
     assert "show findings" in out
 
 
-def test_engagement_scaffold_over_socket(
-    daemon: Daemon, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_set_engagement_scaffolds_and_adopts_over_socket(
+    daemon: Daemon, tmp_path: Path
 ) -> None:
-    monkeypatch.chdir(tmp_path)
-    out = _chunks(daemon, {"op": "input", "text": "engagement scaffold"})
+    root = tmp_path / "new-eng"
+    out = _chunks(daemon, {"op": "input", "text": f"set engagement {root}"})
     assert "scaffolded" in out
-    assert (tmp_path / "scope.json").is_file()
+    assert "adopted engagement" in out
+    assert (root / "scope.json").is_file()
+    assert daemon.core.workspace is not None
+    assert daemon.core.workspace.root == root
 
 
 def test_cmd_resolve_does_not_invoke_the_planner(daemon: Daemon) -> None:

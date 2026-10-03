@@ -3,7 +3,8 @@
 skuggi is installed as a command (``uv tool install --editable``) and launched
 from wherever the operator happens to be, so "the harness's config" and "the
 directory I am standing in" are two different things. This module resolves the
-first; the second stays with ``Settings.engagements_dir``.
+first; the second stays with ``Settings.engagement_root`` (the engagement
+directory, cwd by default).
 
 The split is deliberate:
 

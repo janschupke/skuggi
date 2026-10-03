@@ -77,7 +77,7 @@ def run_db_stats(core: AgentCore) -> str:
     )
 
 
-# ----- engagement scaffold --------------------------------------------------
+# ----- set engagement --------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class Scaffolded:
     """The scope template was copied to `path`."""
@@ -117,6 +117,86 @@ def run_scaffold(dest_dir: Path) -> ScaffoldOutcome:
     except OSError as exc:
         return ScaffoldError(str(exc))
     return Scaffolded(target)
+
+
+# ----- set engagement -------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class EngagementAdopted:
+    """An existing engagement at `root` was adopted (`name` is its scope name)."""
+
+    name: str
+    root: Path
+
+
+@dataclass(frozen=True, slots=True)
+class EngagementScaffolded:
+    """`root` had no scope; the template was scaffolded to `scope_path` and adopted."""
+
+    name: str
+    root: Path
+    scope_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class SetEngagementError:
+    """Creating, scaffolding or loading the engagement failed (`message`)."""
+
+    message: str
+
+
+SetEngagementOutcome = EngagementAdopted | EngagementScaffolded | SetEngagementError
+
+
+def run_set_engagement(core: AgentCore, arg: str) -> SetEngagementOutcome:
+    """Adopt the engagement rooted at `arg` (cwd when empty), scaffolding if absent.
+
+    The root *is* the engagement directory. It is created if missing; a directory
+    without a ``scope.json`` is seeded from the packaged template; then the root is
+    adopted (scope + ledger + vault hot-reloaded). A bad path or an invalid scope
+    is returned as an error for the front-end to re-ask, never a crash.
+    """
+    raw = arg.strip()
+    root = (Path(raw).expanduser() if raw else Path.cwd()).resolve()
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return SetEngagementError(f"cannot create {root}: {exc}")
+    scaffolded = False
+    if not (root / _SCOPE_OUT).is_file():
+        outcome = run_scaffold(root)
+        if isinstance(outcome, ScaffoldError):
+            return SetEngagementError(outcome.message)
+        scaffolded = True
+    try:
+        scope = core.adopt_engagement(root)
+    except ConfigError as exc:
+        return SetEngagementError(str(exc))
+    if scaffolded:
+        return EngagementScaffolded(
+            name=scope.name, root=root, scope_path=root / _SCOPE_OUT
+        )
+    return EngagementAdopted(name=scope.name, root=root)
+
+
+def present_set_engagement(
+    outcome: SetEngagementOutcome, surface: verbs.Surface
+) -> Styled:
+    """Render a ``set engagement`` outcome identically on both surfaces."""
+    match outcome:
+        case EngagementAdopted(name, root):
+            return [render.success(f"adopted engagement {name!r} at {root}")]
+        case EngagementScaffolded(name, root, scope_path):
+            return [
+                render.info(f"scaffolded a scope template at {scope_path}"),
+                render.success(f"adopted engagement {name!r} at {root}"),
+                render.info(
+                    "edit the scope with "
+                    + verbs.cmd("engagement setup", surface)
+                    + f" or by editing {scope_path}"
+                ),
+            ]
+        case SetEngagementError(message):
+            return [render.danger(f"could not set engagement: {message}")]
 
 
 # ----- provider -------------------------------------------------------------
@@ -686,17 +766,6 @@ def present_install(outcome: InstallOutcome) -> Styled:
             return [render.danger(f"install failed or unavailable for {binary}")]
 
 
-def present_scaffold(outcome: ScaffoldOutcome) -> Styled:
-    """Render an ``engagement scaffold`` outcome."""
-    match outcome:
-        case Scaffolded(path):
-            return [render.success(f"scaffolded {path}")]
-        case ScaffoldExists(path):
-            return [render.warning(f"{path} already exists -- not overwritten")]
-        case ScaffoldError(message):
-            return [render.danger(f"scaffold failed: {message}")]
-
-
 def present_mode(mode: str) -> Styled:
     """Render a mode switch."""
     return [render.info(f"mode: {mode}")]
@@ -780,10 +849,19 @@ def present_status(readiness_now: Readiness, surface: verbs.Surface) -> Styled:
 
 # ----- config reconcile -----------------------------------------------------
 @dataclass(frozen=True, slots=True)
-class ReconcileList:
-    """The status of every reconcilable config file (``reconcile`` / ``list``)."""
+class ReconcileRow:
+    """A config file's status plus its drift magnitude (±lines; 0/0 unless drifted)."""
 
-    items: tuple[reconcile.FileStatus, ...]
+    status: reconcile.FileStatus
+    added: int
+    removed: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileList:
+    """The status + drift magnitude of every reconcilable config file."""
+
+    rows: tuple[ReconcileRow, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -803,6 +881,13 @@ class ReconcileOverwritten:
 
 
 @dataclass(frozen=True, slots=True)
+class ReconcileAll:
+    """Every drifted file was overwritten; `results` is ``(name, backup)`` per file."""
+
+    results: tuple[tuple[str, Path | None], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ReconcileUnknown:
     """`name` is not a reconcilable config file."""
 
@@ -811,35 +896,65 @@ class ReconcileUnknown:
 
 @dataclass(frozen=True, slots=True)
 class ReconcileUsage:
-    """No/!unrecognised subcommand -- the front-end shows the usage line."""
+    """An unrecognised subcommand -- the front-end shows the usage line."""
 
 
 ReconcileOutcome = (
     ReconcileList
     | ReconcileDiff
     | ReconcileOverwritten
+    | ReconcileAll
     | ReconcileUnknown
     | ReconcileUsage
 )
 
 
-def run_reconcile(core: AgentCore, arg: str) -> ReconcileOutcome:
-    """Parse ``reconcile [list | diff <file> | overwrite <file>]`` and act.
+def _magnitude(text: str) -> tuple[int, int]:
+    """Count (added, removed) content lines in a unified diff (headers excluded)."""
+    added = sum(
+        1 for ln in text.splitlines() if ln.startswith("+") and not ln.startswith("+++")
+    )
+    removed = sum(
+        1 for ln in text.splitlines() if ln.startswith("-") and not ln.startswith("---")
+    )
+    return added, removed
 
-    ``overwrite`` is the only mutating path; it backs up the current file and
-    reloads the in-memory config (both inside ``core.reconcile_overwrite``).
+
+def run_reconcile(core: AgentCore, arg: str) -> ReconcileOutcome:  # noqa: PLR0911
+    """Parse ``reconcile [diff <file> | <file> | all]`` and act.
+
+    No argument lists every file with its drift magnitude. A bare ``<file>``
+    overwrites it from the template (backing up); ``all`` overwrites every drifted
+    file; ``diff <file>`` shows the pending diff without writing. Overwriting is
+    the only mutating path and reloads the in-memory config (inside the core).
     """
     sub, _, rest = arg.partition(" ")
     sub, rest = sub.strip().lower(), rest.strip()
-    if not sub or sub == "list":
-        return ReconcileList(core.reconcile_status())
-    if sub not in {"diff", "overwrite"} or not rest:
-        return ReconcileUsage()
-    if not reconcile.is_known(rest):
-        return ReconcileUnknown(rest)
+    if not sub:
+        rows = tuple(
+            ReconcileRow(
+                s,
+                *(
+                    _magnitude(core.reconcile_diff(s.name))
+                    if s.state == "drifted"
+                    else (0, 0)
+                ),
+            )
+            for s in core.reconcile_status()
+        )
+        return ReconcileList(rows)
+    if sub == "all":
+        return ReconcileAll(core.reconcile_overwrite_all())
     if sub == "diff":
+        if not rest:
+            return ReconcileUsage()
+        if not reconcile.is_known(rest):
+            return ReconcileUnknown(rest)
         return ReconcileDiff(rest, core.reconcile_diff(rest))
-    return ReconcileOverwritten(rest, core.reconcile_overwrite(rest))
+    # A bare known file name overwrites it (the old `overwrite <file>`, redundant).
+    if reconcile.is_known(sub):
+        return ReconcileOverwritten(sub, core.reconcile_overwrite(sub))
+    return ReconcileUnknown(sub)
 
 
 _RECONCILE_STYLE = {
@@ -860,7 +975,7 @@ def _diff_line(line: str) -> render.Line:
     return render.plain(line)
 
 
-def present_reconcile(  # noqa: PLR0911 -- one return per outcome
+def present_reconcile(  # noqa: PLR0911, PLR0912 -- one branch per outcome
     outcome: ReconcileOutcome, surface: verbs.Surface
 ) -> Styled:
     """Render a ``reconcile`` outcome identically on both surfaces."""
@@ -869,9 +984,7 @@ def present_reconcile(  # noqa: PLR0911 -- one return per outcome
             return [
                 render.warning(
                     "usage: "
-                    + verbs.cmd(
-                        "reconcile [list | diff <file> | overwrite <file>]", surface
-                    )
+                    + verbs.cmd("reconcile [diff <file> | <file> | all]", surface)
                 )
             ]
         case ReconcileUnknown(name):
@@ -879,17 +992,27 @@ def present_reconcile(  # noqa: PLR0911 -- one return per outcome
             return [
                 render.danger(f"unknown config file {name!r}; choose one of: {choices}")
             ]
-        case ReconcileList(items):
+        case ReconcileList(rows):
             lines: Styled = [render.heading("installed config vs packaged templates:")]
-            lines += [
-                _RECONCILE_STYLE[s.state](f"  {s.name:<16} {s.state}") for s in items
-            ]
-            if any(s.state == "drifted" for s in items):
+            for row in rows:
+                s = row.status
+                mag = (
+                    f"  (+{row.added} \N{MINUS SIGN}{row.removed})"
+                    if s.state == "drifted"
+                    else ""
+                )
+                text = f"  {s.name:<16} {s.state}{mag}"
+                lines.append(_RECONCILE_STYLE[s.state](text))
+            drifted = [r.status.name for r in rows if r.status.state == "drifted"]
+            if drifted:
                 lines.append(
                     render.info(
-                        "update a drifted file: "
-                        + verbs.cmd("reconcile overwrite <file>", surface)
-                        + " (a backup is saved)"
+                        "update one with "
+                        + verbs.cmd("reconcile <file>", surface)
+                        + ", all with "
+                        + verbs.cmd("reconcile all", surface)
+                        + " (a backup is saved); inspect with "
+                        + verbs.cmd("reconcile diff <file>", surface)
                     )
                 )
             return lines
@@ -903,7 +1026,7 @@ def present_reconcile(  # noqa: PLR0911 -- one return per outcome
             lines.append(
                 render.info(
                     "apply with "
-                    + verbs.cmd(f"reconcile overwrite {name}", surface)
+                    + verbs.cmd(f"reconcile {name}", surface)
                     + " (a backup is saved)"
                 )
             )
@@ -913,6 +1036,15 @@ def present_reconcile(  # noqa: PLR0911 -- one return per outcome
             if backup is not None:
                 return [done, render.info(f"backup saved: {backup}")]
             return [done]
+        case ReconcileAll(results):
+            if not results:
+                return [render.success("all config files already up to date")]
+            lines = [render.heading("updated from the packaged templates:")]
+            for name, backup in results:
+                lines.append(render.success(f"  {name}"))
+                if backup is not None:
+                    lines.append(render.info(f"    backup saved: {backup}"))
+            return lines
 
 
 # ----- sessions -------------------------------------------------------------
@@ -950,10 +1082,15 @@ def run_sessions(core: AgentCore) -> list[SessionCount]:
 
 
 def present_sessions(rows: list[SessionCount]) -> Styled:
-    """Render ``show sessions`` as one compact line per session."""
+    """Render ``show sessions`` as one compact line per session, with a legend."""
     if not rows:
         return empty("sessions")
-    lines: Styled = []
+    lines: Styled = [
+        render.heading(
+            "sessions in this engagement "
+            "(id · started · mode · Nt turns · Nc commands · Nf findings; * = current):"
+        )
+    ]
     for s in rows:
         mark = " *" if s.current else ""
         lines.append(
@@ -975,7 +1112,12 @@ def present_threads(rows: list[ThreadSummary], current: str) -> Styled:
     """Render ``show threads`` so each thread is recognisable and resumable."""
     if not rows:
         return empty("threads")
-    lines: Styled = []
+    lines: Styled = [
+        render.heading(
+            "threads on this engagement "
+            "(id · Nt turns · last activity · first prompt; * = current):"
+        )
+    ]
     for t in rows:
         mark = " *" if t.thread_id == current else ""
         label = _snippet(t.first_prompt) if t.first_prompt else "(no prompts yet)"

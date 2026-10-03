@@ -4,7 +4,7 @@ A sub-component of :class:`~skuggi.agent.core.AgentCore`: it resolves and
 scope-checks cheatsheet aliases and persists edits to the alias registry. It
 reads the live ``commands`` registry, tool registry, engagement and ledger off
 the core each call (``commands`` is reassigned by tests and by its own ``_save``;
-the ledger is hot-swapped by ``load_engagement``), so nothing is cached.
+the ledger is hot-swapped by ``adopt_engagement``), so nothing is cached.
 """
 
 from __future__ import annotations

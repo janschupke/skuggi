@@ -66,7 +66,8 @@ from skuggi.engagement.engagement import (
 from skuggi.engagement.workspace import (
     Workspace,
     WorkspaceLayout,
-    list_engagements,
+    has_engagement,
+    safe_engagement_name,
 )
 from skuggi.install import envfile, reconcile
 from skuggi.install import update as updater
@@ -189,42 +190,32 @@ class AgentCore:
             return WorkspaceLayout()
 
     def _open_workspace(self) -> Workspace | None:
-        name = self._resolve_engagement_name()
-        if name is None:
+        root = self._resolve_engagement_root()
+        if root is None:
             # Descriptive only; the front-end appends a grammar-correct hint to
             # create one (an env var is not the operator-facing answer).
             log.info("no engagement selected; running agent-only")
             self.warnings.append("no engagement selected; running agent-only")
             return None
-        # Remember the resolved name so the rest of the core sees it (discovery
-        # may have adopted it from disk without a configured value).
-        if self.settings.engagement != name:
-            self.settings = self.settings.model_copy(update={"engagement": name})
-        ws = Workspace.for_engagement(
-            self.settings.engagements_dir, name, layout=self.layout
-        )
+        ws = Workspace.at(root, layout=self.layout)
         ws.ensure()
         return ws
 
-    def _resolve_engagement_name(self) -> str | None:
-        """Which engagement to load: an explicit override, else a sole discovered one.
+    def _resolve_engagement_root(self) -> Path | None:
+        """Which directory is the active engagement: an explicit override, else cwd.
 
         Nothing is auto-persisted -- an engagement is cwd-scoped. An explicit
-        ``engagement`` (env/JSON) is honoured when its directory exists in this
-        cwd; otherwise, and whenever that directory is absent, recovery is pure
-        cwd-local discovery (``engagements_dir`` is cwd-relative). Returns
-        ``None`` for agent-only (no override and not exactly one on disk).
+        ``engagement_root`` (env/JSON) is honoured when it holds a ``scope.json``;
+        otherwise recovery is a probe of the current directory. Returns ``None``
+        for agent-only (no override and no scope.json in cwd).
         """
-        configured = self.settings.engagement
-        engagements_dir = self.settings.engagements_dir
-        if configured:
-            scope = Workspace.for_engagement(
-                engagements_dir, configured, layout=self.layout
-            ).scope_path
-            if scope.is_file():
-                return configured
-        discovered = list_engagements(engagements_dir, self.layout)
-        return discovered[0] if len(discovered) == 1 else None
+        configured = self.settings.engagement_root
+        if configured is not None and has_engagement(configured, self.layout):
+            return configured
+        cwd = Path.cwd()
+        if has_engagement(cwd, self.layout):
+            return cwd
+        return None
 
     def _load_scope(self) -> EngagementConfig | None:
         if self.workspace is None:
@@ -570,12 +561,15 @@ class AgentCore:
         """The loaded scope summary, or None when no engagement is loaded."""
         return self.engagement.describe() if self.engagement is not None else None
 
-    def create_engagement(self, raw: dict[str, object]) -> EngagementConfig:
-        """Validate a scope dict, persist it to the engagement's scope.json, load it.
+    def create_engagement(
+        self, raw: dict[str, object], *, root: Path | None = None
+    ) -> EngagementConfig:
+        """Validate a scope dict, persist it to the engagement's scope.json, adopt it.
 
         Raises ``ConfigError`` if the scope does not validate (the wizard shows
-        the reason and re-asks). On success the scope is written under
-        ``engagements/<name>/`` and hot-loaded via ``load_engagement``.
+        the reason and re-asks). The scope is written to ``scope.json`` directly
+        inside `root` -- the active engagement root, or the current directory when
+        none is open -- and hot-adopted via ``adopt_engagement``.
         """
         try:
             scope = EngagementConfig.model_validate(raw)
@@ -588,23 +582,28 @@ class AgentCore:
                 for err in exc.errors()
             )
             raise InvalidScopeError(summary or str(exc), keys) from exc
-        # Past pydantic, the name still has to become a safe directory segment and
-        # the tree has to be writable. A bad name (e.g. one that slugifies to
-        # nothing) or a disk error must re-ask the name, never crash the wizard.
+        # Past pydantic, the tree still has to be writable; a disk error must
+        # re-ask rather than crash the wizard. The name no longer names a
+        # directory, but it is still the ledger/report label, so an unusable one
+        # (empty, all-punctuation) is re-asked rather than left to corrupt a slug.
+        target = root if root is not None else self._active_root()
         try:
-            workspace = Workspace.for_engagement(
-                self.settings.engagements_dir, scope.name, layout=self.layout
-            )
+            safe_engagement_name(scope.name)
+            workspace = Workspace.at(target, layout=self.layout)
             workspace.ensure()
             workspace.scope_path.write_text(
                 scope.model_dump_json(indent=2), encoding="utf-8"
             )
-            return self.load_engagement(scope.name)
+            return self.adopt_engagement(target)
         except (ValueError, OSError) as exc:
             raise InvalidScopeError(str(exc), frozenset({"name"})) from exc
 
-    def load_engagement(self, name: str) -> EngagementConfig:
-        """Switch the active engagement to `name`, hot-reloading scope + tools.
+    def _active_root(self) -> Path:
+        """The engagement root scope writes target: the open workspace, else cwd."""
+        return self.workspace.root if self.workspace is not None else Path.cwd()
+
+    def adopt_engagement(self, root: Path) -> EngagementConfig:
+        """Switch the active engagement to the one rooted at `root`, hot-reloading.
 
         Reopens the workspace and scope, reopens the ledger at the new
         engagement's path under a fresh session, and rebuilds the tool set and
@@ -612,14 +611,14 @@ class AgentCore:
         Raises ``ConfigError`` if the scope is missing or invalid.
         """
         # In-memory only, deliberately NOT persisted to config.json: an
-        # engagement is cwd-scoped (``engagements_dir`` is cwd-relative), so a
-        # machine-global pointer would be a category error. Restart recovery is
-        # cwd-local discovery in ``_resolve_engagement_name``; an explicit
-        # env/JSON ``engagement`` still overrides.
-        self.settings = self.settings.model_copy(update={"engagement": name})
+        # engagement is cwd-scoped, so a machine-global pointer would be a
+        # category error. Restart recovery is a cwd probe in
+        # ``_resolve_engagement_root``; an explicit env/JSON ``engagement_root``
+        # still overrides.
+        self.settings = self.settings.model_copy(update={"engagement_root": root})
         self.workspace = self._open_workspace()
-        if self.workspace is None:  # pragma: no cover -- name is always truthy here
-            msg = f"could not open workspace for engagement {name!r}"
+        if self.workspace is None:  # pragma: no cover -- root holds scope here
+            msg = f"could not open workspace at {str(root)!r}"
             raise ConfigError(msg)
         self.engagement = load_scope(self.workspace.scope_path)
 
@@ -631,7 +630,9 @@ class AgentCore:
             self._vault_ctx.__exit__(None, None, None)
         self._vault_ctx, self.vault = self._open_vault()
         self.session_id = str(uuid.uuid4())
-        self.ledger.start_session(self.session_id, engagement_name=name, mode=self.mode)
+        self.ledger.start_session(
+            self.session_id, engagement_name=self.engagement.name, mode=self.mode
+        )
         self._ensure_threat_model_version()
 
         self.graph = self._build()
@@ -730,10 +731,28 @@ class AgentCore:
         the graph is rebuilt because it carries the tool registry.
         """
         backup = reconcile.overwrite(self._config_dir, name)
+        self._reload_after_reconcile()
+        return backup
+
+    def reconcile_overwrite_all(self) -> tuple[tuple[str, Path | None], ...]:
+        """Overwrite every drifted config from its template, reloading once.
+
+        Returns ``(name, backup)`` for each file updated (empty when nothing had
+        drifted). The in-memory registries/graph are rebuilt a single time.
+        """
+        results = tuple(
+            (name, reconcile.overwrite(self._config_dir, name))
+            for name in reconcile.drifted(self._config_dir)
+        )
+        if results:
+            self._reload_after_reconcile()
+        return results
+
+    def _reload_after_reconcile(self) -> None:
+        """Rebuild the registry/commands/graph from disk after a template write."""
         self.registry = self._load_registry()
         self.commands = self._load_commands()
         self.graph = self._build()
-        return backup
 
     # ----- session logging, retrieval, replay & review ----------------------
 

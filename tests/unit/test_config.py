@@ -173,10 +173,13 @@ def test_storage_paths_default_under_the_homes(
     assert config_path() == tmp_path / "c" / "config.json"
 
 
-def test_engagements_dir_stays_relative_to_the_working_directory() -> None:
-    """The one deliberate exception: a workspace belongs to the client directory."""
-    assert not Settings().engagements_dir.is_absolute()
-    assert Settings().engagements_dir == Path("engagements")
+def test_engagement_root_defaults_to_the_working_directory() -> None:
+    """The one deliberate exception: an engagement belongs to the client directory.
+
+    ``engagement_root`` defaults to ``None`` -- "probe the current directory" --
+    rather than a global dotdir, so an engagement stays cwd-scoped.
+    """
+    assert Settings().engagement_root is None
 
 
 def test_the_homes_are_reread_per_instantiation(

@@ -61,10 +61,12 @@ def test_present_sessions_empty_and_rows() -> None:
         findings=0,
         current=True,
     )
-    [line] = dispatch.present_sessions([row])
-    assert line.text.startswith("abcdef12")
-    assert "2t 1c 0f" in line.text
-    assert line.text.endswith("*")
+    lines = dispatch.present_sessions([row])
+    assert any("turns" in ln.text for ln in lines)  # a legend heading precedes rows
+    row_line = lines[-1]
+    assert row_line.text.startswith("abcdef12")
+    assert "2t 1c 0f" in row_line.text
+    assert row_line.text.endswith("*")
 
 
 def test_present_threads_snippet_and_marker() -> None:
@@ -76,10 +78,11 @@ def test_present_threads_snippet_and_marker() -> None:
             last_activity="2026-10-03T10:00:00",
         )
     ]
-    [line] = dispatch.present_threads(rows, current="abc12345-xyz")
-    assert line.text.startswith("abc12345")
-    assert "…" in line.text  # snippet capped
-    assert line.text.endswith("*")  # current marker
+    lines = dispatch.present_threads(rows, current="abc12345-xyz")
+    row_line = lines[-1]
+    assert row_line.text.startswith("abc12345")
+    assert "…" in row_line.text  # snippet capped
+    assert row_line.text.endswith("*")  # current marker
     assert _texts(dispatch.present_threads([], current="x")) == ["(no threads yet)"]
 
 

@@ -221,8 +221,9 @@ Files that can be read top-to-bottom in one sitting:
   `pydantic-settings` object. No module-level singleton by design: a singleton
   would read the config home's `config.json` at import time and make `import
   skuggi.providers` a filesystem side effect. Storage paths default under the
-  two homes in [home.py](../src/skuggi/common/home.py); `engagements_dir` is the one
-  that stays relative to the working directory.
+  two homes in [home.py](../src/skuggi/common/home.py); `engagement_root` is the one
+  that stays relative to the working directory (the engagement directory itself;
+  `None` means probe the current directory).
 - [registry.py](../src/skuggi/tooling/registry.py) / [probe.py](../src/skuggi/tooling/probe.py)
   / the rendering half of [doctor.py](../src/skuggi/tooling/doctor.py) — the recognized-
   tool data model, host probing + install, and the doctor tables respectively.
@@ -302,5 +303,5 @@ a question, the client prompts the operator and sends the answer as the next
 natural-language `config` escalation ([configflow.py](../src/skuggi/frontend/configflow.py))
 work; both are front-end-agnostic (the REPL supplies its `PromptSession`, the
 attach loop supplies the socket round-trip) so one implementation serves both.
-`AgentCore.load_engagement` hot-reloads a rewritten scope into the running
+`AgentCore.adopt_engagement` hot-reloads a rewritten scope into the running
 session — new workspace, ledger, tools and graph — without a restart.

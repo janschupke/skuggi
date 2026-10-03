@@ -91,19 +91,17 @@ def build_offline_core(
 ) -> AgentCore:
     """Build an ``AgentCore`` for ``scope`` with all paid/network parts offline.
 
-    ``scope`` is written to ``<tmp>/engagements/<name>/scope.json`` before the
-    core loads it; the store gets constant embeddings and the model is scripted
-    to return ``worker``. Every state path is redirected under ``tmp``. A caller
-    that runs from another directory (the tests chdir) passes an absolute
-    ``registry_path``.
+    ``scope`` is written to ``<tmp>/engagement/scope.json`` before the core loads
+    it; the store gets constant embeddings and the model is scripted to return
+    ``worker``. Every state path is redirected under ``tmp``. A caller that runs
+    from another directory (the tests chdir) passes an absolute ``registry_path``.
     """
-    workspace = tmp / "engagements" / scope.name
+    workspace = tmp / "engagement"
     ensure_dir(workspace)
     (workspace / "scope.json").write_text(scope.model_dump_json(), encoding="utf-8")
     settings = Settings(
         provider="ollama",
-        engagements_dir=tmp / "engagements",
-        engagement=scope.name,
+        engagement_root=workspace,
         registry_path=registry_path,
         sqlite_path=tmp / "sessions.db",
         faiss_path=tmp / "faiss",

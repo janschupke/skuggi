@@ -4,7 +4,7 @@ A sub-component of :class:`~skuggi.agent.core.AgentCore` covering the operator's
 engagement record: ledger findings, the notes/loot journals, the client-facing
 Markdown/PDF report and the internal HTML dashboard. It reads the live ledger,
 workspace, engagement and registry off the core each call (the ledger is
-hot-swapped by ``load_engagement``), so nothing is cached. The notes/loot file
+hot-swapped by ``adopt_engagement``), so nothing is cached. The notes/loot file
 I/O lives in :mod:`skuggi.engagement.journal`, imported here as ``journal_io``.
 """
 

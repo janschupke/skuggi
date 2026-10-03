@@ -468,9 +468,9 @@ def visualization_written_lines(path: Path) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for ``skuggi-visualize`` -- read-only, no agent/LLM.
 
-    Resolves a *named* engagement under ``engagements_dir`` (the setting, honoured
-    via ``SKUGGI_ENGAGEMENTS_DIR``, overridable with ``--engagements-dir``), reads
-    its ledger, scope, journals and the diagnostic log, and writes the dashboard.
+    Takes the engagement *root* directory (the directory that holds its
+    ``scope.json``; defaults to the current directory), reads its ledger, scope,
+    journals and the diagnostic log, and writes the dashboard.
     """
     import argparse
 
@@ -492,11 +492,12 @@ def main(argv: list[str] | None = None) -> int:
         prog="skuggi-visualize",
         description="Build an interactive HTML dashboard for an engagement.",
     )
-    parser.add_argument("engagement", help="the engagement name under engagements/")
     parser.add_argument(
-        "--engagements-dir",
+        "root",
         type=Path,
-        help="root of the engagement workspaces (default: the SKUGGI setting)",
+        nargs="?",
+        default=Path.cwd(),
+        help="the engagement root directory (holds scope.json; default: cwd)",
     )
     parser.add_argument(
         "-o", "--out", type=Path, help="output directory (default: the reports dir)"
@@ -504,16 +505,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     settings = Settings()
-    engagements_dir = args.engagements_dir or settings.engagements_dir
     try:
         layout = load_layout(settings.layout_path)
     except ConfigError:
         layout = None
-    workspace = Workspace.for_engagement(
-        engagements_dir, args.engagement, layout=layout
-    )
+    workspace = Workspace.at(args.root, layout=layout)
     if not workspace.root.is_dir():
-        print(f"no such engagement: {workspace.root}")
+        print(f"no such engagement directory: {workspace.root}")
         return 2
 
     try:
@@ -548,7 +546,7 @@ def main(argv: list[str] | None = None) -> int:
             notes_text=read_entries(workspace.notes_file),
             loot_text=read_entries(workspace.loot_file),
             log_text=log_text,
-            engagement_name=args.engagement,
+            engagement_name=scope.name if scope is not None else workspace.root.name,
             secrets=secrets,
         )
     print(f"visualization written: {path}")

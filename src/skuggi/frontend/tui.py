@@ -159,6 +159,7 @@ class Tui:
             "grants": self._show_grants,
         }
         self._set_nouns: dict[str, Callable[[str], None]] = {
+            "engagement": self._set_engagement,
             "provider": self._set_provider,
             "model": self._set_model,
             "mode": self._set_mode,
@@ -400,22 +401,25 @@ class Tui:
         if first in wizard.WIZARD_ARGS:
             self._engagement_wizard()
             return
-        if first == "scaffold":
-            self._engagement_scaffold()
-            return
         if first == "threat-model":
             rest = arg.split(maxsplit=1)[1] if len(arg.split()) > 1 else ""
             self.console.print(dispatch.run_threat_model(self.core, rest))
             return
+        adopt = verbs.cmd("set engagement [<path>]", "repl")
         self.console.print(
             "[yellow]usage:[/yellow] "
-            f"{verbs.cmd('engagement setup | scaffold | threat-model', 'repl')} "
-            f"-- scope summary is {verbs.cmd('show engagement', 'repl')}"
+            f"{verbs.cmd('engagement setup | threat-model', 'repl')} "
+            f"-- adopt/scaffold a root with {adopt}, "
+            f"scope summary is {verbs.cmd('show engagement', 'repl')}"
         )
 
-    def _engagement_scaffold(self) -> None:
-        """Copy the packaged scope template into the cwd for the operator to edit."""
-        self._emit(dispatch.present_scaffold(dispatch.run_scaffold(Path.cwd())))
+    def _set_engagement(self, arg: str) -> None:
+        """Adopt the engagement root `arg` (cwd by default), scaffolding if absent."""
+        self._emit(
+            dispatch.present_set_engagement(
+                dispatch.run_set_engagement(self.core, arg), "repl"
+            )
+        )
 
     def _ask(self, prompt: str) -> str | None:
         """Prompt the operator for one line; None on EOF / Ctrl-C (an abort)."""

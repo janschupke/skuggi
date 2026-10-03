@@ -88,12 +88,13 @@ reason for the split — not a bespoke scheme. Plus one deliberate exception.
   ledger.db  reports/          # agent-only fallback, no engagement selected
   logs/skuggi.log              # diagnostic log (rotating); SKUGGI_LOG_LEVEL
 
-./engagements/<name>/   # RELATIVE to your working directory
+<engagement root>/     # a directory you adopt; RELATIVE to your working directory
 ```
 
-`./engagements/` is the exception, and the reason the split exists: an
-engagement's scope, ledger, recon output and reports belong to the client
-directory you ran skuggi in, not to a global dotdir. Harness config describes
+The engagement root is the exception, and the reason the split exists: an
+engagement's scope, ledger, recon output and reports belong to the directory you
+adopted (the current one, or `set engagement <path>`), not to a global dotdir.
+Harness config describes
 *you*; a workspace describes *a case*. Everything else is global so that
 `skuggi` in `~` and `skuggi` in `~/work/acme` are the same harness with the same
 memory and the same session history.
@@ -220,6 +221,8 @@ or its system Pango is missing. Reinstall with
 **The `config` verb's changes do not take effect** — `provider` and `mode` apply
 to the live session; every other key takes effect on restart.
 
-**An engagement workspace appeared somewhere unexpected** — `./engagements/` is
-relative to the working directory, so it follows your `cd`. That is deliberate;
-`skuggi-doctor` prints the resolved `engagements dir`.
+**An engagement workspace appeared somewhere unexpected** — with no
+`set engagement <path>` and no `SKUGGI_ENGAGEMENT_ROOT`, the engagement root is
+the current directory, so it follows your `cd` (and `set engagement` with no path
+scaffolds a `scope.json` there). That is deliberate; `skuggi-doctor` prints the
+resolved `engagement root` and whether a scope was found.

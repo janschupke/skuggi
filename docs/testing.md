@@ -94,7 +94,8 @@ reaching the internet, `no_subprocess` does the same for command execution, and
 `isolate_credentials` strips the provider env vars, redirects the `auth.json`
 lookup, points `SKUGGI_CONFIG_HOME`/`SKUGGI_DATA_HOME` at a temp directory so
 `Settings` cannot read the developer's real `config.json` or `env` file, and
-chdirs to a temp directory because `engagements_dir` is still cwd-relative.
+chdirs to a temp directory because the engagement root defaults to the cwd
+(probed for a `scope.json`, scaffolded there by `set engagement`).
 `test_suite_does_not_see_real_credentials` guards the fixture itself -- if
 isolation breaks, every credential assertion elsewhere becomes meaningless.
 
