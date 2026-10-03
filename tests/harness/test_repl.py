@@ -6,12 +6,14 @@ The console is injected so rendered output is assertable without a terminal.
 from __future__ import annotations
 
 import io
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from rich.console import Console
 
+from skuggi.agent.core import TurnEvent
 from skuggi.frontend import menu, verbs
 from skuggi.frontend.tui import Tui
 from tests.conftest import offline_settings, wire_offline_core
@@ -167,18 +169,64 @@ def test_help_for_a_verb_lists_its_nouns(tui: tuple[Tui, io.StringIO]) -> None:
 # --- a full turn ------------------------------------------------------------
 
 
-def test_turn_streams_the_answer_and_reports_the_other_nodes(
+def test_turn_shows_the_clean_answer_and_logs_the_scaffolding(
+    tui: tuple[Tui, io.StringIO],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, buffer = tui
+
+    with caplog.at_level(logging.DEBUG, logger="skuggi.agent.core"):
+        app.turn("what is the answer?")
+    output = _out(buffer)
+
+    assert "the answer" in output
+    # The planner/critic chatter and raw scaffolding never reach the terminal.
+    assert "(planner)" not in output
+    assert "(critic)" not in output
+    assert "You are the worker" not in output, "scaffolding must not render"
+    # It is logged instead -- the structured worker object and the critic verdict.
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "worker thread=" in logged
+    assert "critic thread=" in logged
+
+
+def test_idle_ctrl_c_hints_and_stays_in_the_repl(
     tui: tuple[Tui, io.StringIO],
 ) -> None:
     app, buffer = tui
 
-    app.turn("what is the answer?")
-    output = _out(buffer)
+    class _InterruptThenEOF:
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+            self._raised = False
 
-    assert "the answer" in output
-    assert "(planner)" in output
-    assert "(critic)" in output
-    assert "You are the worker" not in output, "scaffolding must not render"
+        def prompt(self, text: str = "") -> str:
+            self.prompts.append(text)
+            if not self._raised:  # Ctrl-C at the first idle prompt
+                self._raised = True
+                raise KeyboardInterrupt
+            raise EOFError  # then Ctrl-D leaves
+
+    app.session = _InterruptThenEOF()  # type: ignore[assignment]
+    app.run()
+    output = _out(buffer)
+    assert "type exit to leave" in output
+    # It did not leave on the Ctrl-C: a second prompt was issued before EOF.
+    assert len(app.session.prompts) == 2  # type: ignore[attr-defined]
+
+
+def test_mid_turn_ctrl_c_cancels_and_returns_to_the_prompt(
+    tui: tuple[Tui, io.StringIO],
+) -> None:
+    app, buffer = tui
+
+    def _interrupting_turn(_text: str) -> object:
+        yield TurnEvent("reset")
+        raise KeyboardInterrupt
+
+    app.core.turn = _interrupting_turn  # type: ignore[assignment,method-assign]
+    app.turn("what is the answer?")  # must not raise
+    assert "cancelled -- type exit to leave" in _out(buffer)
 
 
 def test_turn_persists_history_and_history_shows_it(

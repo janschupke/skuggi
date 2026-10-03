@@ -6,6 +6,7 @@ import builtins
 import io
 import json
 import socket
+from collections.abc import Callable
 from typing import cast
 
 import pytest
@@ -261,14 +262,62 @@ def test_attach_once_over_aborts_cleanly_when_prompt_cancelled() -> None:
     assert code == 0
 
 
-def test_stdin_prompt_returns_none_on_interrupt(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_stdin_prompt_returns_none_on_eof(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise(_prompt: str) -> str:
+        raise EOFError
+
+    monkeypatch.setattr(builtins, "input", _raise)
+    assert _stdin_prompt("provider? ") is None  # Ctrl-D leaves the session
+
+
+def test_stdin_prompt_reraises_on_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
     def _raise(_prompt: str) -> str:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(builtins, "input", _raise)
-    assert _stdin_prompt("provider? ") is None  # no traceback escapes
+    # Ctrl-C propagates so the caller can stay in the REPL instead of leaving.
+    with pytest.raises(KeyboardInterrupt):
+        _stdin_prompt("provider? ")
+
+
+def _interruptible(script: list[object]) -> Callable[[str], str | None]:
+    """A `prompt_in` that raises KeyboardInterrupt where the script says so.
+
+    Each entry is either a line to return or the ``KeyboardInterrupt`` class,
+    which the prompt raises -- letting a test drive a Ctrl-C at a chosen step.
+    """
+    items = iter(script)
+
+    def prompt_in(_p: str) -> str | None:
+        item = next(items)
+        if item is KeyboardInterrupt:
+            raise KeyboardInterrupt
+        return cast("str | None", item)
+
+    return prompt_in
+
+
+def test_attach_over_idle_ctrl_c_hints_and_stays() -> None:
+    # Ctrl-C at the prompt prints a hint and loops; it does not leave.
+    conn = _FakeConn({"one": _reply({"chunk": "r1\n"}, {"end": True, "exit": False})})
+    # interrupt, a real turn, then a blank line -> leave
+    prompt_in = _interruptible([KeyboardInterrupt, "one", ""])
+    out = io.StringIO()
+    code = attach_over(_as_socket(conn), prompt_in, out)
+    assert code == 0
+    assert "type exit to leave" in out.getvalue()
+    assert "r1" in out.getvalue()  # stayed and ran the next turn
+
+
+def test_attach_over_mid_turn_ctrl_c_returns_reconnect() -> None:
+    # A reply that asks for input; Ctrl-C during that ask cancels the turn and
+    # asks the caller to reconnect rather than leaving the session.
+    conn = _FakeConn({"go": _reply({"ask": "name? "})})
+    prompt_in = _interruptible(["go", KeyboardInterrupt])
+    out = io.StringIO()
+    result = attach_over(_as_socket(conn), prompt_in, out)
+    assert result is client._RECONNECT
+    assert "cancelled" in out.getvalue()
 
 
 def test_stream_turn_answers_choose_frames(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -15,6 +15,7 @@ front-end shows them) rather than crashing the session.
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
@@ -34,6 +35,7 @@ from skuggi.agent.graph import GraphDeps, build_graph, recursion_limit
 from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.preferencebook import PreferenceBook
+from skuggi.agent.protocol import render_answer
 from skuggi.agent.session_archive import SessionArchive
 from skuggi.agent.state import AgentState
 from skuggi.agent.tooldoctor import ToolDoctor
@@ -127,6 +129,10 @@ class AgentCore:
         # The prompt event id of the turn in flight, so commands the agent runs
         # link back to the directive that drove them. None between turns.
         self._current_turn_event_id: int | None = None
+        # The full, labeled render of the turn in flight -- recorded to the ledger
+        # (replay/review keep every field) while the terminal gets only the clean
+        # answer. Set by ``_turn_updates`` when the worker answers; "" otherwise.
+        self._last_full_response: str = ""
 
         self.layout = self._load_layout()
         self.workspace = self._open_workspace()
@@ -731,7 +737,9 @@ class AgentCore:
             kind="prompt",
             text=user_text,
         )
+        log.info("turn start thread=%s prompt=%r", self.thread_id, user_text)
         final_text = ""
+        self._last_full_response = ""
         try:
             # Build the model on first use. A missing credential raises here and
             # is caught below, surfacing as a clean, actionable error event
@@ -772,47 +780,75 @@ class AgentCore:
             # This runs OUTSIDE the try above: a storage failure here must degrade
             # to a logged warning, never raise out of `turn` and kill the
             # front-end loop with the response already delivered.
+            log.info("turn response thread=%s answer=%r", self.thread_id, final_text)
             try:
                 self.ledger.record_event(
                     session_id=self.session_id,
                     thread_id=self.thread_id,
                     kind="response",
-                    text=final_text,
+                    # Keep the full, labeled render on the timeline so replay/review
+                    # retain every field; the operator only ever saw the clean answer.
+                    text=self._last_full_response or final_text,
                 )
             except Exception:  # closing the timeline must not crash the loop
                 log.exception("failed to record turn-closing response event")
             self._current_turn_event_id = None
+            self._last_full_response = ""
 
     def _turn_updates(self, payload: dict[str, object]) -> Iterator[TurnEvent]:
+        """Turn one graph superstep into operator events, logging the rest.
+
+        Only the worker's answer reaches the terminal (as a ``final`` event); the
+        planner plan, retrieval, executor command briefs and critic verdict are
+        internal scaffolding -- they are logged to the diagnostic file (the full,
+        structured worker object included) but never shown. Errors and the memory
+        note stay operator-facing and are yielded by ``turn`` itself.
+        """
         for node, update in payload.items():
             values = update if isinstance(update, dict) else {}
             if node == "planner":
                 yield TurnEvent("reset")
-                steps = values.get("plan") or []
+                steps = list(values.get("plan") or [])
                 if steps:
-                    plan = "\n".join(
-                        f"{i}. {step}" for i, step in enumerate(steps, start=1)
+                    log.debug(
+                        "plan thread=%s steps=%s", self.thread_id, json.dumps(steps)
                     )
-                    yield TurnEvent("status", plan, node="planner")
             elif node == "retriever":
                 if values.get("context"):
-                    yield TurnEvent(
-                        "status", "inlined retrieved context", node="retriever"
-                    )
+                    log.debug("retrieved context inlined thread=%s", self.thread_id)
             elif node == "worker":
                 yield TurnEvent("reset")
-                if values.get("draft"):
-                    yield TurnEvent("final", str(values["draft"]))
+                worker = values.get("worker")
+                if worker is not None:
+                    log.debug(
+                        "worker thread=%s response=%s",
+                        self.thread_id,
+                        worker.model_dump_json(),
+                    )
+                    # The full, labeled render stays in the ledger/history/critic;
+                    # the terminal gets only the clean answer.
+                    self._last_full_response = str(values.get("draft") or "")
+                    yield TurnEvent("final", render_answer(worker))
+                elif values.get("draft"):  # defensive: draft without the object
+                    draft = str(values["draft"])
+                    self._last_full_response = draft
+                    yield TurnEvent("final", draft)
             elif node == "executor":
                 commands = values.get("commands") or []
                 if commands:
                     last = commands[-1]
-                    yield TurnEvent(
-                        "status", f"{last.status}: {last.command}", node="executor"
+                    log.debug(
+                        "command thread=%s status=%s command=%r",
+                        self.thread_id,
+                        last.status,
+                        last.command,
                     )
             elif node == "critic":
                 approved = values.get("approved")
                 reason = values.get("critique") or ""
-                verdict = "approved" if approved else "revise"
-                text = f"{verdict}: {reason}" if reason else verdict
-                yield TurnEvent("status", text, node="critic")
+                log.debug(
+                    "critic thread=%s approved=%s reason=%r",
+                    self.thread_id,
+                    approved,
+                    reason,
+                )

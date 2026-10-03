@@ -273,16 +273,33 @@ def _stream_turn(
     return False
 
 
+class _Reconnect:
+    """Sentinel: a mid-turn Ctrl-C. Reopen a fresh connection and resume.
+
+    The single attach connection carries one half-streamed reply at a time, so a
+    cancelled turn can't be dropped on it and left coherent. Instead the client
+    abandons the socket and reconnects to the warm daemon: the in-flight turn
+    unwinds server-side (``_emit`` suppresses writes to the vanished client) and
+    the session state (thread, ledger, engagement) survives because the daemon's
+    core outlives any one connection.
+    """
+
+
+_RECONNECT = _Reconnect()
+
+
 def attach_over(
     conn: socket.socket, prompt_in: Callable[[str], str | None], out: TextIO
-) -> int:
+) -> int | _Reconnect:
     """Run an interactive attach session over an open connection.
 
     Sends the ``attach`` op, then loops: read an operator line via
-    ``prompt_in(prompt)`` (a ``None`` return, EOF, ``Ctrl+C`` or a blank line
-    ends the session), send it, and stream the reply -- passing `prompt_in` on
-    so a wizard's ``ask`` frames prompt with their own text. Leaving the loop
-    always returns to the shell (``0``): fully quitting the wrapped shell is the
+    ``prompt_in(prompt)`` (a ``None`` return, EOF or a blank line ends the
+    session), send it, and stream the reply -- passing `prompt_in` on so a
+    wizard's ``ask`` frames prompt with their own text. Ctrl-C never leaves: at
+    the prompt it prints a hint and stays; during a turn it cancels and returns
+    ``_RECONNECT`` so ``attach`` reopens the connection. Otherwise leaving the
+    loop returns to the shell (``0``); fully quitting the wrapped shell is the
     one-shot ``/skuggi exit``, handled by the shell hook before it reaches here.
     Split from ``attach`` so it is testable over a plain socket pair.
     """
@@ -291,10 +308,11 @@ def attach_over(
     while True:
         try:
             line = prompt_in(_PROMPT)
-        except (EOFError, KeyboardInterrupt):
-            out.write("\n")
-            break
-        if line is None:
+        except KeyboardInterrupt:  # Ctrl-C at the prompt stays put
+            out.write("\ntype exit to leave\n")
+            out.flush()
+            continue
+        if line is None:  # EOF (Ctrl-D) leaves the session
             break
         line = line.strip()
         if not line:
@@ -305,6 +323,11 @@ def attach_over(
         try:
             if _stream_turn(frames, out, conn=conn, ask=prompt_in, spinner=spinner):
                 break
+        except KeyboardInterrupt:  # Ctrl-C mid-turn cancels and reconnects
+            spinner.stop()
+            out.write("\ncancelled\n")
+            out.flush()
+            return _RECONNECT
         finally:
             spinner.stop()  # idempotent; guarantees cleanup on abort/EOF
     return 0
@@ -313,15 +336,23 @@ def attach_over(
 def attach(  # pragma: no cover -- interactive loop over a real socket
     sock_path: str, prompt_in: Callable[[str], str | None], out: TextIO
 ) -> int:
-    """Connect to the daemon and run an interactive attach loop (see above)."""
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-            conn.connect(sock_path)
-            return attach_over(conn, prompt_in, out)
-    except OSError as e:
-        log.exception("cannot reach the harness over %s", sock_path)
-        print(f"skuggi: cannot reach the harness: {e}", file=sys.stderr)
-        return 1
+    """Connect to the daemon and run an interactive attach loop (see above).
+
+    Reopens the connection whenever ``attach_over`` returns ``_RECONNECT`` (a
+    mid-turn Ctrl-C), so a cancel resumes the chat against the same warm daemon.
+    """
+    while True:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+                conn.connect(sock_path)
+                result = attach_over(conn, prompt_in, out)
+        except OSError as e:
+            log.exception("cannot reach the harness over %s", sock_path)
+            print(f"skuggi: cannot reach the harness: {e}", file=sys.stderr)
+            return 1
+        if isinstance(result, _Reconnect):
+            continue
+        return result
 
 
 def attach_once_over(
@@ -366,15 +397,15 @@ def attach_once(  # pragma: no cover -- opens a real socket
 
 
 def _stdin_prompt(prompt: str) -> str | None:  # pragma: no cover -- real terminal
-    """Read one line from the operator, returning ``None`` on EOF or Ctrl-C.
+    """Read one line from the operator; ``None`` on EOF (Ctrl-D).
 
-    Ctrl-C must abort the current prompt (a wizard/setup question) cleanly, not
-    tear the client down with a traceback: returning ``None`` makes the flow
-    cancel and the connection close, which the daemon reads as an abort.
+    Ctrl-D ends the session, so it returns ``None``. Ctrl-C instead propagates as
+    ``KeyboardInterrupt`` -- the caller distinguishes the two: at the chat prompt
+    it cancels the current turn and stays in the REPL rather than tearing down.
     """
     try:
         return input(prompt)
-    except (EOFError, KeyboardInterrupt):
+    except EOFError:
         print()  # move off the prompt line so the next output is clean
         return None
 

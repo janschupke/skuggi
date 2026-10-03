@@ -48,7 +48,9 @@ def test_turn_yields_a_final_answer(core: AgentCore) -> None:
     finals = [e.text for e in events if e.kind == "final"]
     assert finals
     assert "the answer" in finals[-1]
-    assert any(e.kind == "status" and e.node == "planner" for e in events)
+    # Planner/critic scaffolding is logged, not streamed as operator events.
+    scaffolding = {"planner", "retriever", "executor", "critic"}
+    assert not [e for e in events if e.kind == "status" and e.node in scaffolding]
 
 
 def test_turn_errors_are_yielded_not_raised(core: AgentCore) -> None:

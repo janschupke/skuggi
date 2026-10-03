@@ -1,14 +1,17 @@
 """L3: the turn event stream (core) and the Live pane (DraftView).
 
 Structured output is not token-streamed: ``AgentCore.turn`` streams langgraph in
-``updates`` mode and maps each node's state update to a status/final event.
-``DraftView`` still renders those. Both facts were observed on the real graph;
-this pins the consequences without a provider.
+``updates`` mode and maps each node's state update to events. Only the worker's
+answer is operator-facing (a ``final`` event, bracketed by ``reset``); the
+planner/retriever/executor/critic scaffolding is logged, not shown. ``DraftView``
+renders those. Both facts were observed on the real graph; this pins the
+consequences without a provider.
 """
 
 from __future__ import annotations
 
 import io
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -18,7 +21,7 @@ from rich.console import Console
 from rich.live import Live
 
 from skuggi.agent.core import AgentCore, TurnEvent
-from skuggi.agent.protocol import CommandBrief
+from skuggi.agent.protocol import CommandBrief, WorkerResponse, render_response
 from skuggi.frontend.tui import DraftView
 from tests.conftest import offline_settings, wire_offline_core
 
@@ -39,14 +42,17 @@ def _core(tmp_path: Path) -> AgentCore:
     return core
 
 
-def test_turn_maps_node_updates_to_events(tmp_path: Path) -> None:
+def test_turn_maps_node_updates_to_events(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     core = _core(tmp_path)
+    worker = WorkerResponse(advice="the final answer")
     try:
         core.graph = _FakeGraph(  # type: ignore[assignment]
             [
                 {"planner": {"plan": ["recon", "enumerate"]}},
                 {"retriever": {"context": "ctx"}},
-                {"worker": {"draft": "the final answer"}},
+                {"worker": {"worker": worker, "draft": render_response(worker)}},
                 {
                     "executor": {
                         "commands": [
@@ -57,17 +63,21 @@ def test_turn_maps_node_updates_to_events(tmp_path: Path) -> None:
                 {"critic": {"approved": True, "critique": "ok"}},
             ]
         )
-        events = list(core.turn("q"))
+        with caplog.at_level(logging.DEBUG, logger="skuggi.agent.core"):
+            events = list(core.turn("q"))
     finally:
         core.close()
 
-    finals = [e.text for e in events if e.kind == "final"]
-    assert finals == ["the final answer"]
-    statuses = {e.node for e in events if e.kind == "status"}
-    assert {"planner", "retriever", "executor", "critic"} <= statuses
-    # The planner status renders the numbered plan.
-    planner = next(e.text for e in events if e.node == "planner")
-    assert "1. recon" in planner
+    # Only the worker's clean answer is operator-facing; a reset brackets the passes.
+    assert [e.text for e in events if e.kind == "final"] == ["the final answer"]
+    assert [e.kind for e in events][:3] == ["reset", "reset", "final"]
+    scaffolding = {"planner", "retriever", "executor", "critic"}
+    assert not [e for e in events if e.kind == "status" and e.node in scaffolding]
+    # The scaffolding is logged instead of shown.
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "recon" in logged  # plan steps
+    assert "nmap x" in logged  # executor command brief
+    assert "approved=True" in logged  # critic verdict
 
 
 def test_turn_reports_an_error_as_a_status_event(tmp_path: Path) -> None:

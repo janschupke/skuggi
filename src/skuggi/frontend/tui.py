@@ -227,8 +227,11 @@ class Tui:
             while True:
                 try:
                     line = self.session.prompt(self._prompt())
-                except (EOFError, KeyboardInterrupt):
+                except EOFError:  # Ctrl-D leaves the REPL
                     break
+                except KeyboardInterrupt:  # Ctrl-C at an idle prompt stays put
+                    self.console.print("[dim]type exit to leave[/dim]")
+                    continue
                 except OSError as e:
                     self.console.print(f"[red]input error:[/red] {e}")
                     break
@@ -848,12 +851,19 @@ class Tui:
             Spinner("dots", "thinking..."), console=self.console, refresh_per_second=20
         ) as live:
             view = DraftView(live)
-            for ev in self.core.turn(user_text):
-                if ev.kind == "reset":
-                    view.reset()
-                elif ev.kind == "status":
-                    self._status(ev.node, ev.text)
-                elif ev.kind == "token":
-                    view.push_text(ev.text)
-                elif ev.kind == "final":
-                    view.show(ev.text)
+            try:
+                for ev in self.core.turn(user_text):
+                    if ev.kind == "reset":
+                        view.reset()
+                    elif ev.kind == "status":
+                        self._status(ev.node, ev.text)
+                    elif ev.kind == "token":
+                        view.push_text(ev.text)
+                    elif ev.kind == "final":
+                        view.show(ev.text)
+            except KeyboardInterrupt:
+                # Ctrl-C cancels the in-flight turn and returns to the prompt. The
+                # interrupt already unwound ``core.turn`` (its ``finally`` closed the
+                # timeline), so there is nothing to clean up here but the pane.
+                view.reset()
+                self.console.print("[dim]cancelled -- type exit to leave[/dim]")

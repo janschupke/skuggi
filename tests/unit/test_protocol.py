@@ -32,6 +32,7 @@ from skuggi.agent.protocol import (
     WorkerResponse,
     clamp_phase,
     format_instructions,
+    render_answer,
     render_request,
     render_response,
     structured_invoke,
@@ -108,6 +109,42 @@ def test_render_response_is_deterministic_and_labelled() -> None:
 
 def test_render_response_falls_back_when_empty() -> None:
     assert render_response(WorkerResponse()) == "(no answer)"
+
+
+def test_render_answer_is_the_advice_without_labels() -> None:
+    resp = WorkerResponse(
+        summary="probe services",
+        advice="You are an assistant. What target are you authorized to assess?",
+        conclusions="no scope yet",
+    )
+    text = render_answer(resp)
+    assert text == "You are an assistant. What target are you authorized to assess?"
+    # Diagnostic fields stay out of the operator's answer.
+    assert "Summary:" not in text
+    assert "Conclusions:" not in text
+    assert "probe services" not in text
+    assert "no scope yet" not in text
+
+
+def test_render_answer_falls_back_to_conclusions_then_summary() -> None:
+    assert render_answer(WorkerResponse(conclusions="host is up")) == "host is up"
+    assert render_answer(WorkerResponse(summary="only a summary")) == "only a summary"
+
+
+def test_render_answer_includes_command_and_findings_compactly() -> None:
+    resp = WorkerResponse(
+        command="nmap -sV 10.0.0.1",
+        advice="scanning now",
+        findings=(FindingDraft(title="open telnet", description="d", severity="high"),),
+    )
+    text = render_answer(resp)
+    assert "scanning now" in text
+    assert "Proposed command:\n```\nnmap -sV 10.0.0.1\n```" in text
+    assert "- HIGH: open telnet" in text
+
+
+def test_render_answer_falls_back_when_empty() -> None:
+    assert render_answer(WorkerResponse()) == "(no answer)"
 
 
 def test_format_instructions_carry_the_schema() -> None:

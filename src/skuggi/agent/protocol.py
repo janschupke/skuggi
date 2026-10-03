@@ -390,10 +390,35 @@ def render_response(resp: WorkerResponse) -> str:
         labeled("Conclusions", resp.conclusions),
     ]
     if resp.findings:
-        recorded = "\n".join(
-            f"- {f.display_severity().upper()}: {f.title}" for f in resp.findings
-        )
-        blocks.append(labeled("Findings", recorded))
+        blocks.append(labeled("Findings", _worker_findings_block(resp)))
+    return join_blocks(*blocks) or "(no answer)"
+
+
+def _worker_findings_block(resp: WorkerResponse) -> str:
+    """The worker's recorded findings as a compact ``- SEVERITY: title`` list."""
+    return "\n".join(
+        f"- {f.display_severity().upper()}: {f.title}" for f in resp.findings
+    )
+
+
+def render_answer(resp: WorkerResponse) -> str:
+    """The clean, operator-facing answer: the worker's advice as prose.
+
+    Unlike :func:`render_response` (which lays every field out with labels for the
+    ledger, the critic's input and the conversation history), this is what the
+    terminal shows -- just the answer, plus a compact note when the worker proposes
+    a command or records findings. ``summary`` and ``conclusions`` are diagnostic
+    detail: they stay in the ledger and the log, but out of the operator's face.
+
+    The body falls back from ``advice`` to ``conclusions`` to ``summary`` so a turn
+    that puts its answer in a different field is never rendered blank.
+    """
+    body = resp.advice.strip() or resp.conclusions.strip() or resp.summary.strip()
+    blocks = [body]
+    if resp.command:
+        blocks.append(f"Proposed command:\n```\n{resp.command}\n```")
+    if resp.findings:
+        blocks.append(_worker_findings_block(resp))
     return join_blocks(*blocks) or "(no answer)"
 
 

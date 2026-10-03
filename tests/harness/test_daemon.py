@@ -55,8 +55,9 @@ def test_bare_exit_word_leaves(daemon: Daemon) -> None:
 
 def test_plain_input_reaches_the_agent(daemon: Daemon) -> None:
     out = _chunks(daemon, {"op": "input", "text": "ask what is exposed?"})
-    assert "the answer" in out
-    assert "(planner)" in out
+    assert "the answer" in out  # the clean answer reaches the operator
+    assert "(planner)" not in out  # internal chatter no longer leaks to the shell
+    assert "(critic)" not in out
 
 
 def test_slash_findings_lists_findings(daemon: Daemon) -> None:
