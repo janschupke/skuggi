@@ -177,7 +177,58 @@ def test_before_the_window_is_denied() -> None:
         now=datetime(2025, 1, 1, tzinfo=UTC),
     )
     assert not verdict.allowed
-    assert "date/time" in verdict.reason
+    assert "before the authorized start" in verdict.reason
+
+
+def test_after_the_window_is_denied() -> None:
+    verdict = check_command(
+        parse_command("nmap 10.0.0.5", REGISTRY),
+        _engagement(),
+        now=datetime(2027, 1, 1, tzinfo=UTC),
+    )
+    assert not verdict.allowed
+    assert "after the authorized end" in verdict.reason
+
+
+def test_optional_window_has_no_time_bound() -> None:
+    # Both bounds omitted: the engagement validates and the guard never rejects
+    # on time, whatever `now` is.
+    eng = _engagement(authorized_start=None, authorized_end=None)
+    assert eng.authorized_start is None
+    assert eng.authorized_end is None
+    verdict = check_command(
+        parse_command("nmap 10.0.0.5", REGISTRY),
+        eng,
+        now=datetime(1999, 1, 1, tzinfo=UTC),
+    )
+    assert verdict.allowed
+    assert "no time bound" in eng.describe()
+
+
+def test_one_sided_start_bound() -> None:
+    eng = _engagement(
+        authorized_start=datetime(2026, 1, 1, tzinfo=UTC), authorized_end=None
+    )
+    before = check_command(
+        parse_command("nmap 10.0.0.5", REGISTRY),
+        eng,
+        now=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+    after = check_command(
+        parse_command("nmap 10.0.0.5", REGISTRY),
+        eng,
+        now=datetime(2099, 1, 1, tzinfo=UTC),
+    )
+    assert not before.allowed
+    assert after.allowed
+
+
+def test_end_before_start_is_rejected() -> None:
+    with pytest.raises(ValueError, match="before authorized_start"):
+        _engagement(
+            authorized_start=datetime(2026, 12, 31, tzinfo=UTC),
+            authorized_end=datetime(2026, 1, 1, tzinfo=UTC),
+        )
 
 
 def test_outside_the_daily_window_is_denied() -> None:

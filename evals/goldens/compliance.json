@@ -120,7 +120,7 @@
       "command": "nmap -sV 192.0.2.10",
       "now": "2026-06-01T12:00:00+00:00",
       "expect_allowed": false,
-      "expect_reason_contains": "outside the authorized date/time range"
+      "expect_reason_contains": "after the authorized end time"
     },
     {
       "id": "unparseable",
@@ -232,7 +232,7 @@
       "command": "nmap -sV 192.0.2.10",
       "now": "2026-06-01T12:00:00+00:00",
       "expect_allowed": false,
-      "expect_reason_contains": "outside the authorized date/time range"
+      "expect_reason_contains": "before the authorized start time"
     },
     {
       "id": "date-range-lower-boundary",

@@ -18,20 +18,26 @@ word is the action, the rest is its input (`/skuggi ask scan the web host`); a
 bare `/skuggi` opens an interactive chat loop against the warm daemon and hands
 the shell back when you leave it. `skuggi-repl` is the pure agent chat.
 
-Four LLM providers, switchable at runtime:
+Five LLM providers, switchable at runtime:
 
-| Provider    | Auth                                                        | Structured output |
-|-------------|-------------------------------------------------------------|-------------------|
-| `openai`    | `~/.codex/auth.json` (`OPENAI_API_KEY`) or `$OPENAI_API_KEY`| native            |
-| `chatgpt`   | `~/.codex/auth.json` ChatGPT-account OAuth tokens           | JSON fallback¹    |
-| `anthropic` | `$ANTHROPIC_API_KEY`                                        | native            |
-| `ollama`    | `$OLLAMA_BASE_URL` (default `http://localhost:11434`)       | native            |
+| Provider     | Auth                                                        | Structured output |
+|--------------|-------------------------------------------------------------|-------------------|
+| `openai`     | `~/.codex/auth.json` (`OPENAI_API_KEY`) or `$OPENAI_API_KEY`| native            |
+| `chatgpt`    | `~/.codex/auth.json` ChatGPT-account OAuth tokens           | JSON fallback¹    |
+| `anthropic`  | `$ANTHROPIC_API_KEY`                                        | native            |
+| `claude-cli` | the local `claude` binary's own login (your subscription)²  | JSON fallback¹    |
+| `ollama`     | `$OLLAMA_BASE_URL` (default `http://localhost:11434`)       | native            |
 
 ¹ Every LLM reply is a strict structured response (the request/response protocol
 in [docs/architecture.md](docs/architecture.md)). Most providers get it natively
-(`with_structured_output`); the ChatGPT-account endpoint has no native structured
-output, so it uses a JSON contract with one repair retry. See
-[docs/codex-auth.md](docs/codex-auth.md).
+(`with_structured_output`); the ChatGPT-account endpoint and the `claude-cli`
+subprocess have no native structured output, so they use a JSON contract with one
+repair retry. See [docs/codex-auth.md](docs/codex-auth.md).
+
+² `claude-cli` shells out to a locally installed Claude Code CLI (`claude -p`),
+which uses your own Claude Pro/Max subscription. Anthropic prohibits and blocks
+third-party use of subscription OAuth tokens directly, so this is the supported
+way to drive a Claude subscription from skuggi; for an API key, use `anthropic`.
 
 ## Status & legal
 
@@ -161,7 +167,7 @@ implicit `ask`. The two front-ends share one registry
 | `doctor [install <tool>]` | Probe host tools; install a missing one on request |
 | `mode <pentest\|redteam\|blueteam>` | Switch the prompt set (see below) |
 | `autonomous [on\|off]` | Toggle autonomous command execution |
-| `provider <openai\|chatgpt\|anthropic\|ollama>` | Switch provider, recompile graph |
+| `provider <openai\|chatgpt\|anthropic\|claude-cli\|ollama>` | Switch provider, recompile graph |
 | `model <name>` | Switch model on the current provider |
 | `thread new\|list\|<id>` | Start / list / resume a conversation thread |
 | `history [n]` | Show the last `n` messages on the current thread |
@@ -245,11 +251,15 @@ not a target — and lives in `./data/preferences.db`, separate from the ledger.
 
 ## engagement setup: the scope wizard
 
-`engagement setup` runs a field-by-field wizard (name, timezone, authorized
-window, daily windows, target networks, allowed hosts/tools/methods,
-autonomous), validates the answers, writes `engagements/<name>/scope.json`, and
-**hot-reloads** the boundary into the running session — no restart. A blank
-answer keeps the current value when editing; `Ctrl-D` cancels.
+`engagement setup` runs a grouped, step-by-step wizard (Identity, Authorization,
+Schedule, Targets, Capabilities, Approach) with a horizontal step bar. Methods,
+methodology, taxonomies and stance are dropdowns/checklists; timezone and tools
+autocomplete (in the REPL); the authorized window is optional (a blank start/end
+means no time bound). It validates the answers, writes
+`engagements/<name>/scope.json`, and **hot-reloads** the boundary into the
+running session — no restart. A rejected answer re-asks only the field that
+failed, keeping everything else; a blank keeps the current value when editing;
+`Ctrl-C`/`Esc` cancels.
 
 ## The engagement boundary
 

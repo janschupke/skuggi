@@ -2,26 +2,68 @@
 
 The wizard knows the engagement fields and how to shape free-text answers into
 the JSON an ``EngagementConfig`` validates. It never touches a console or a
-socket: it drives everything through an ``ask(prompt) -> str | None`` callable
-(``None`` aborts) supplied by the front-end -- the REPL's ``PromptSession`` or
-the wrapped-shell attach loop's socket round-trip -- so one wizard serves both.
-Validation and persistence stay in ``AgentCore.create_engagement``; this module
-only collects answers and retries on the guard's rejection.
+socket: it drives everything through a :class:`~skuggi.frontend.prompter.Prompter`
+bundle supplied by the front-end -- the REPL's prompt_toolkit widgets or the
+wrapped-shell attach loop's socket round-trips -- so one wizard serves both.
+
+Fields are grouped into ordered *sections* so the front-end can show a step bar
+(``[2/6] Authorization``), and each field declares a *widget* (text, a menu, a
+checklist, …) so the operator gets dropdowns and multi-select instead of a blank
+line. Validation and persistence stay in ``AgentCore.create_engagement``; this
+module collects answers and, on a rejection, re-asks only the offending fields
+over the answers already given -- never restarting from the top.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
+from typing import Literal
 
-from skuggi.config.configs import ConfigError
+from skuggi.config.configs import ConfigError, InvalidScopeError
 from skuggi.engagement.engagement import EngagementConfig
+from skuggi.frontend.prompter import Prompter
 
-Ask = Callable[[str], str | None]
-Notify = Callable[[str], None]
 Apply = Callable[[dict[str, object]], EngagementConfig]
 
 # Arguments to the `engagement` verb that open the wizard rather than show scope.
 WIZARD_ARGS = frozenset({"setup", "new", "edit"})
+
+Widget = Literal["text", "autocomplete", "select", "multiselect", "confirm"]
+
+
+@dataclass(frozen=True)
+class Catalog:
+    """Runtime option sources the wizard offers (built by the front-end)."""
+
+    timezones: tuple[str, ...]
+    tools: tuple[str, ...]
+    methods: tuple[str, ...]
+    methodologies: tuple[str, ...]
+    taxonomies: tuple[str, ...]
+    stances: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Field:
+    """One engagement field and how to collect it."""
+
+    key: str
+    prompt: str
+    widget: Widget
+    transform: Callable[[str], object] | None = None
+    source: Callable[[Catalog], Sequence[str]] | None = None
+    preselect_all: bool = False
+    default: str | None = None
+
+
+@dataclass(frozen=True)
+class Section:
+    """A named group of fields (one step of the wizard)."""
+
+    title: str
+    fields: tuple[Field, ...] = dataclass_field(default_factory=tuple)
 
 
 def _csv(answer: str) -> list[str]:
@@ -35,10 +77,6 @@ def _windows(answer: str) -> list[dict[str, str]]:
         start, _, end = chunk.partition("-")
         windows.append({"start": start.strip(), "end": end.strip()})
     return windows
-
-
-def _yesno(answer: str) -> bool:
-    return answer.strip().lower() in ("y", "yes", "true", "on", "1")
 
 
 def _threat_model(answer: str) -> dict[str, str] | None:
@@ -59,6 +97,8 @@ def _threat_model(answer: str) -> dict[str, str] | None:
 
 
 def _show(value: object) -> str:
+    if value is None:
+        return ""
     if isinstance(value, list):
         parts = [
             f"{v.get('start', '')}-{v.get('end', '')}"
@@ -70,87 +110,253 @@ def _show(value: object) -> str:
     return str(value)
 
 
-# key, prompt, how to shape a non-blank answer into JSON.
-_STEPS: tuple[tuple[str, str, Callable[[str], object]], ...] = (
-    ("name", "engagement name", str),
-    ("timezone", "timezone (IANA, e.g. Europe/Helsinki)", str),
-    ("authorized_start", "authorized start (ISO 8601, tz-aware)", str),
-    ("authorized_end", "authorized end (ISO 8601, tz-aware)", str),
-    (
-        "daily_windows",
-        "daily windows HH:MM-HH:MM, comma-separated (blank = any)",
-        _windows,
+def _label(prompt: str, current: str) -> str:
+    """A text-prompt label, showing the current value when editing."""
+    return f"{prompt} [{current}]: " if current else f"{prompt}: "
+
+
+_SECTIONS: tuple[Section, ...] = (
+    Section(
+        "Identity",
+        (
+            Field("name", "engagement name", "text", transform=str),
+            Field(
+                "timezone",
+                "timezone (IANA, e.g. Europe/Helsinki)",
+                "autocomplete",
+                transform=str,
+                source=lambda c: c.timezones,
+                default="UTC",
+            ),
+        ),
     ),
-    ("target_networks", "target networks (CIDR, comma-separated)", _csv),
-    ("allowed_hosts", "allowed hosts (comma-separated)", _csv),
-    ("allowed_tools", "allowed tools (comma-separated)", _csv),
-    ("allowed_methods", "allowed methods (comma-separated)", _csv),
-    ("autonomous", "autonomous execution? (y/N)", _yesno),
-    ("methodology", "driving methodology (phases | ptes | attack)", str),
-    (
-        "taxonomies",
-        "finding taxonomies to tag with (wstg, attack; comma-separated, blank = none)",
-        _csv,
+    Section(
+        "Authorization",
+        (
+            Field(
+                "authorized_start",
+                "authorized start (ISO 8601, tz-aware; blank = no bound)",
+                "text",
+                transform=str,
+            ),
+            Field(
+                "authorized_end",
+                "authorized end (ISO 8601, tz-aware; blank = no bound)",
+                "text",
+                transform=str,
+            ),
+        ),
     ),
-    (
-        "threat_model",
-        "threat model CR,IR,AR (low/medium/high, comma-separated; blank = none)",
-        _threat_model,
+    Section(
+        "Schedule",
+        (
+            Field(
+                "daily_windows",
+                "daily windows HH:MM-HH:MM, comma-separated (blank = any)",
+                "text",
+                transform=_windows,
+            ),
+        ),
+    ),
+    Section(
+        "Targets",
+        (
+            Field(
+                "target_networks",
+                "target networks (CIDR, comma-separated; blank = any)",
+                "text",
+                transform=_csv,
+            ),
+            Field(
+                "allowed_hosts",
+                "allowed hosts (comma-separated; blank = any)",
+                "text",
+                transform=_csv,
+            ),
+        ),
+    ),
+    Section(
+        "Capabilities",
+        (
+            Field(
+                "allowed_tools",
+                "allowed tools (comma-separated; Tab to complete, blank = none)",
+                "autocomplete",
+                transform=_csv,
+                source=lambda c: c.tools,
+            ),
+            Field(
+                "allowed_methods",
+                "allowed methods",
+                "multiselect",
+                source=lambda c: c.methods,
+                preselect_all=True,
+            ),
+        ),
+    ),
+    Section(
+        "Approach",
+        (
+            Field(
+                "methodology",
+                "driving methodology",
+                "select",
+                source=lambda c: c.methodologies,
+                default="phases",
+            ),
+            Field(
+                "taxonomies",
+                "finding taxonomies to tag with",
+                "multiselect",
+                source=lambda c: c.taxonomies,
+            ),
+            Field(
+                "stance",
+                "engagement stance (how forward-leaning the agent's proposals are)",
+                "select",
+                source=lambda c: c.stances,
+                default="cautious",
+            ),
+            Field("autonomous", "autonomous execution?", "confirm"),
+            Field(
+                "threat_model",
+                "threat model CR,IR,AR (low/medium/high; blank = none)",
+                "text",
+                transform=_threat_model,
+            ),
+        ),
     ),
 )
 
+# Every engagement field the wizard owns (for the preserve-on-retry targeting and
+# a drift test against EngagementConfig).
+KNOWN_KEYS: frozenset[str] = frozenset(
+    f.key for section in _SECTIONS for f in section.fields
+)
 
-def collect_scope(
-    ask: Ask, *, existing: EngagementConfig | None = None
-) -> dict[str, object] | None:
-    """Ask each engagement field via `ask`, returning a scope dict (unvalidated).
 
-    Returns ``None`` if the operator aborts (an `ask` returns ``None``). A blank
-    answer keeps the existing value when editing, else leaves the field at its
-    schema default; ``timezone`` seeds to ``UTC`` for a fresh engagement so only
-    the name and window are strictly required.
+def _ask_field(
+    prompter: Prompter, catalog: Catalog, field: Field, current: object
+) -> tuple[bool, object] | None:
+    """Collect one field. Returns (changed, value), or ``None`` on abort.
+
+    ``changed`` is False when a blank text answer should keep the current value.
     """
-    raw: dict[str, object] = (
-        existing.model_dump(mode="json")
-        if existing is not None
-        else {"timezone": "UTC"}
-    )
-    for key, prompt, transform in _STEPS:
-        current = raw.get(key)
+    if field.widget in ("text", "autocomplete"):
         shown = _show(current)
-        label = (
-            f"{prompt} [{shown}]: "
-            if shown not in ("", "[]", "None")
-            else f"{prompt}: "
-        )
-        answer = ask(label)
+        label = _label(field.prompt, shown)
+        if field.widget == "autocomplete":
+            candidates = field.source(catalog) if field.source else ()
+            answer = prompter.ask_complete(
+                label, list(candidates), shown or field.default
+            )
+        else:
+            answer = prompter.ask(label)
         if answer is None:
             return None
         answer = answer.strip()
-        if answer:
-            raw[key] = transform(answer)
+        if not answer:
+            return (False, current)
+        transform = field.transform or str
+        return (True, transform(answer))
+
+    options = list(field.source(catalog)) if field.source else []
+    if field.widget == "select":
+        default = current if isinstance(current, str) else field.default
+        choice = prompter.choose(field.prompt, options, default)
+        return None if choice is None else (True, choice)
+    if field.widget == "multiselect":
+        if isinstance(current, list):
+            preselected: Sequence[str] = [str(v) for v in current]
+        elif field.preselect_all:
+            preselected = options
+        else:
+            preselected = ()
+        picks = prompter.multiselect(field.prompt, options, preselected)
+        return None if picks is None else (True, picks)
+    # confirm
+    answer_bool = prompter.confirm(field.prompt, bool(current))
+    return None if answer_bool is None else (True, answer_bool)
+
+
+def collect_scope(
+    prompter: Prompter,
+    catalog: Catalog,
+    *,
+    existing: EngagementConfig | None = None,
+    into: dict[str, object] | None = None,
+    only: frozenset[str] | None = None,
+) -> dict[str, object] | None:
+    """Walk the sections, collecting answers into a scope dict (unvalidated).
+
+    The accumulator (`into`, else an `existing` dump, else a fresh seed) is
+    mutated in place and returned, so a retry preserves earlier answers. `only`
+    restricts collection to those field keys (re-asking just what failed) and
+    suppresses the step bar for sections with no targeted field. Returns ``None``
+    if the operator aborts.
+    """
+    if into is not None:
+        raw = into
+    elif existing is not None:
+        raw = existing.model_dump(mode="json")
+    else:
+        raw = {"timezone": "UTC"}
+
+    total = len(_SECTIONS)
+    for index, section in enumerate(_SECTIONS, start=1):
+        fields = [f for f in section.fields if only is None or f.key in only]
+        if not fields:
+            continue
+        prompter.progress(index, total, section.title)
+        for field in fields:
+            result = _ask_field(prompter, catalog, field, raw.get(field.key))
+            if result is None:
+                return None
+            changed, value = result
+            if changed:
+                raw[field.key] = value
     return raw
 
 
 def run_wizard(
-    ask: Ask, apply: Apply, notify: Notify, *, existing: EngagementConfig | None = None
+    prompter: Prompter,
+    apply: Apply,
+    catalog: Catalog,
+    *,
+    existing: EngagementConfig | None = None,
 ) -> EngagementConfig | None:
-    """Collect scope answers, apply them, and retry on a validation rejection.
+    """Collect scope answers, apply them, and re-ask only what a rejection names.
 
-    `apply` validates and persists the scope (raising ``ConfigError`` on bad
-    input); on rejection the wizard reports it and re-asks, so a typo does not
-    lose the session. Returns the loaded config, or ``None`` if the operator
-    aborted.
+    `apply` validates and persists the scope (raising ``InvalidScopeError`` with the
+    offending field keys, or a plain ``ConfigError``). On a structured rejection
+    the wizard re-asks just those fields over the answers already given; on a
+    non-field error it re-asks everything (still preserving prior answers). The
+    answer dict lives outside the loop, so a typo never discards the session.
+    Returns the loaded config, or ``None`` if the operator aborted.
     """
+    raw = collect_scope(prompter, catalog, existing=existing)
+    if raw is None:
+        prompter.notify("engagement setup cancelled")
+        return None
     while True:
-        raw = collect_scope(ask, existing=existing)
-        if raw is None:
-            notify("engagement setup cancelled")
-            return None
         try:
             engagement = apply(raw)
-        except ConfigError as exc:
-            notify(f"scope rejected: {exc}")
+        except InvalidScopeError as exc:
+            prompter.notify(f"scope rejected: {exc.summary}")
+            keys = exc.field_keys & KNOWN_KEYS
+            retry = collect_scope(prompter, catalog, into=raw, only=keys or None)
+            if retry is None:
+                prompter.notify("engagement setup cancelled")
+                return None
+            raw = retry
             continue
-        notify(f"engagement '{engagement.name}' loaded")
+        except ConfigError as exc:
+            prompter.notify(f"scope rejected: {exc}")
+            retry = collect_scope(prompter, catalog, into=raw)
+            if retry is None:
+                prompter.notify("engagement setup cancelled")
+                return None
+            raw = retry
+            continue
+        prompter.notify(f"engagement '{engagement.name}' loaded")
         return engagement

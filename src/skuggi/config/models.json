@@ -1,0 +1,7 @@
+{
+  "openai": ["gpt-6-luna", "gpt-6", "gpt-6-mini"],
+  "chatgpt": ["gpt-6-luna", "gpt-6"],
+  "anthropic": ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5-5"],
+  "claude-cli": ["haiku", "sonnet", "opus"],
+  "ollama": ["qwen3", "llama3.1", "mistral", "gemma3"]
+}

@@ -171,7 +171,7 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
         return 1
 
 
-_PROMPT = "🐐 skuggi> "
+_PROMPT = "🐐 > "
 
 # Verbs that drive an interactive round-trip and so need an attach session rather
 # than a one-shot request: setup (prompts + menus), engagement (the wizard),
@@ -194,6 +194,17 @@ def _choose_frame(spec: object) -> str | None:  # pragma: no cover -- real termi
     raw_default = data.get("default")
     default = raw_default if isinstance(raw_default, str) else None
     return menu.select(prompt, options, default=default)
+
+
+def _multiselect_frame(spec: object) -> list[str] | None:  # pragma: no cover
+    """Render a ``{"multiselect"}`` frame as a checklist; return the picks."""
+    from skuggi.frontend import menu  # noqa: PLC0415 -- lazy; keep ptk off the hot path
+
+    data = spec if isinstance(spec, dict) else {}
+    prompt = str(data.get("prompt", "select:"))
+    options = [str(option) for option in data.get("options", [])]
+    preselected = [str(p) for p in data.get("preselected", [])]
+    return menu.multiselect(prompt, options, preselected=preselected)
 
 
 def _stream_turn(
@@ -233,6 +244,12 @@ def _stream_turn(
             if selection is None:  # operator aborted the menu
                 return True
             conn.sendall((json.dumps(build_message(selection)) + "\n").encode())
+            continue
+        if "multiselect" in resp and conn is not None:
+            picks = _multiselect_frame(resp["multiselect"])
+            if picks is None:  # operator aborted the checklist
+                return True
+            conn.sendall((json.dumps(build_message(json.dumps(picks))) + "\n").encode())
             continue
         chunk = resp.get("chunk")
         if chunk:

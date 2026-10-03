@@ -46,6 +46,7 @@ from skuggi.config.config import (
 )
 from skuggi.config.configs import (
     ConfigError,
+    InvalidScopeError,
     load_commands,
     load_layout,
     load_registry,
@@ -378,6 +379,37 @@ class AgentCore:
         self.model = None
         self._rebuild_llm()
 
+    def use_claude_cli(self) -> None:
+        """Switch to the local Claude CLI provider (uses the operator's own login).
+
+        No key is stored: the ``claude`` binary carries its own credentials. The
+        provider is persisted so the next session starts on it.
+        """
+        write_config(config_path(), {"provider": "claude-cli"})
+        self.settings = self.settings.model_copy(update={"provider": "claude-cli"})
+        self.model = None
+        self._rebuild_llm()
+
+    def default_model(self, provider: str) -> str:
+        """The persisted default model for `provider` (what setup pre-selects)."""
+        return self.settings.model_for(cast("Provider", provider))
+
+    def set_provider_model(self, provider: str, model: str) -> None:
+        """Persist the default model for `provider` and apply it to this session.
+
+        Writes the non-secret ``model_<provider>`` key to config.json (so it
+        survives a restart) and rebuilds the live model. Resetting ``self.model``
+        to ``None`` means the session now follows the persisted provider default.
+        """
+        if not model:
+            msg = "model name is required"
+            raise ValueError(msg)
+        field = f"model_{provider.replace('-', '_')}"
+        write_config(config_path(), {field: model})
+        self.settings = self.settings.model_copy(update={field: model})
+        self.model = None
+        self._rebuild_llm()
+
     def login_chatgpt(
         self, notify: Callable[[str], None] = lambda _msg: None
     ) -> str | None:
@@ -487,8 +519,14 @@ class AgentCore:
         try:
             scope = EngagementConfig.model_validate(raw)
         except ValidationError as exc:
-            msg = f"invalid scope: {exc}"
-            raise ConfigError(msg) from exc
+            keys = frozenset(
+                str(err["loc"][0]) for err in exc.errors() if err.get("loc")
+            )
+            summary = "; ".join(
+                f"{'.'.join(str(p) for p in err.get('loc', ()))}: {err['msg']}"
+                for err in exc.errors()
+            )
+            raise InvalidScopeError(summary or str(exc), keys) from exc
         workspace = Workspace.for_engagement(
             self.settings.engagements_dir, scope.name, layout=self.layout
         )

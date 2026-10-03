@@ -21,15 +21,19 @@ time.
 
 from __future__ import annotations
 
+import json
 import threading
-from collections.abc import Callable, Iterator
+import zoneinfo
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
-from skuggi.agent import prompts
+from skuggi.agent import prompts, protocol
 from skuggi.agent.core import AgentCore, parse_toggle
+from skuggi.common import palette
 from skuggi.common.logs import get_logger
 from skuggi.config.config import PROVIDERS
 from skuggi.frontend import cmdflow, configflow, dispatch, setup, verbs, wizard
+from skuggi.frontend.prompter import Prompter
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import finding_line
 from skuggi.tooling.commands import CommandAlias, render
@@ -113,6 +117,18 @@ class Daemon:
         parts = rest.split()
         return verb == "engagement" and bool(parts) and parts[0] in wizard.WIZARD_ARGS
 
+    def _engagement_catalog(self) -> wizard.Catalog:
+        """The option sources the wizard offers (zones, tools, enums)."""
+        tools = tuple(spec.binary for spec in self.core.registry.tools)
+        return wizard.Catalog(
+            timezones=tuple(sorted(zoneinfo.available_timezones())),
+            tools=tools,
+            methods=palette.methods(),
+            methodologies=protocol.METHODOLOGIES,
+            taxonomies=protocol.TAXONOMIES,
+            stances=protocol.STANCES,
+        )
+
     def _attach_wizard(
         self,
         read_line: Callable[[], str | None],
@@ -120,21 +136,82 @@ class Daemon:
     ) -> None:
         """Run the engagement wizard over the attach connection.
 
-        Each question is an ``{"ask": prompt}`` frame; the client prompts the
-        operator and sends the answer back, which arrives as the next line. The
-        turn closes with the usual non-exit ``end`` frame.
+        Menus (``{"choose"}``) and the checklist (``{"multiselect"}``) round-trip
+        to the client, which renders prompt_toolkit widgets locally; autocomplete
+        is REPL-only and degrades to a plain ``{"ask"}`` prompt here. The step bar
+        and status lines ride ``{"chunk"}``. The turn closes with a non-exit
+        ``end`` frame.
         """
 
         def ask(prompt: str) -> str | None:
             emit({"ask": prompt})
             return read_line()
 
+        def ask_complete(
+            prompt: str, _candidates: Sequence[str], _default: str | None
+        ) -> str | None:
+            emit({"ask": prompt})  # autocomplete is REPL-only; label carries [current]
+            return read_line()
+
+        def choose(prompt: str, options: list[str], default: str | None) -> str | None:
+            emit({"choose": {"prompt": prompt, "options": options, "default": default}})
+            return read_line()
+
+        def multiselect(
+            prompt: str, options: Sequence[str], preselected: Sequence[str]
+        ) -> list[str] | None:
+            emit(
+                {
+                    "multiselect": {
+                        "prompt": prompt,
+                        "options": list(options),
+                        "preselected": list(preselected),
+                    }
+                }
+            )
+            line = read_line()
+            if line is None:
+                return None
+            try:
+                picks = json.loads(line)
+            except json.JSONDecodeError:
+                return None
+            return [str(p) for p in picks] if isinstance(picks, list) else None
+
+        def confirm(prompt: str, default: bool) -> bool | None:
+            emit(
+                {
+                    "choose": {
+                        "prompt": prompt,
+                        "options": ["yes", "no"],
+                        "default": "yes" if default else "no",
+                    }
+                }
+            )
+            line = read_line()
+            return None if line is None else line == "yes"
+
+        def notify(text: str) -> None:
+            emit({"chunk": text + "\n"})
+
+        def progress(step: int, total: int, label: str) -> None:
+            emit({"chunk": f"[{step}/{total}] {label}\n"})
+
+        prompter = Prompter(
+            ask=ask,
+            ask_complete=ask_complete,
+            choose=choose,
+            multiselect=multiselect,
+            confirm=confirm,
+            notify=notify,
+            progress=progress,
+        )
         self.core.note_interaction("engagement", "setup")
         with self._lock:
             wizard.run_wizard(
-                ask,
+                prompter,
                 self.core.create_engagement,
-                lambda text: emit({"chunk": text + "\n"}),
+                self._engagement_catalog(),
                 existing=self.core.engagement,
             )
         emit({"end": True, "exit": False})

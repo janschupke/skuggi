@@ -1,13 +1,24 @@
-"""L1: the engagement Q&A wizard -- answer shaping, retry, abort."""
+"""L1: the engagement Q&A wizard -- answer shaping, step bar, preserve-on-retry."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from skuggi.config.configs import ConfigError
+from skuggi.config.configs import InvalidScopeError
 from skuggi.engagement.engagement import EngagementConfig
-from skuggi.frontend.wizard import collect_scope, run_wizard
+from skuggi.frontend.prompter import Prompter
+from skuggi.frontend.wizard import KNOWN_KEYS, Catalog, collect_scope, run_wizard
+
+_CATALOG = Catalog(
+    timezones=("UTC", "Europe/Helsinki"),
+    tools=("nmap", "curl", "nikto"),
+    methods=("recon", "scan", "enumerate", "bruteforce", "crack", "exploit"),
+    methodologies=("phases", "ptes", "attack"),
+    taxonomies=("wstg", "attack"),
+    stances=("passive", "cautious", "balanced", "aggressive"),
+)
 
 _VALID = EngagementConfig(
     name="x",
@@ -17,113 +28,185 @@ _VALID = EngagementConfig(
 )
 
 
-def _answers(*items: str | None) -> Callable[[str], str | None]:
-    it = iter(items)
-    return lambda _prompt: next(it, None)
+@dataclass
+class _Script:
+    """Scripted answers per widget kind, plus recorders for assertions."""
+
+    asks: list[str | None] = field(default_factory=list)
+    completes: list[str | None] = field(default_factory=list)
+    chooses: list[str | None] = field(default_factory=list)
+    multis: list[list[str] | None] = field(default_factory=list)
+    confirms: list[bool | None] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    steps: list[tuple[int, int, str]] = field(default_factory=list)
+    asked: list[str] = field(default_factory=list)  # every prompt label, in order
+
+    def prompter(self) -> Prompter:
+        asks = iter(self.asks)
+        completes = iter(self.completes)
+        chooses = iter(self.chooses)
+        multis = iter(self.multis)
+        confirms = iter(self.confirms)
+
+        def ask(prompt: str) -> str | None:
+            self.asked.append(prompt)
+            return next(asks)
+
+        def ask_complete(prompt: str, _c: Sequence[str], _d: str | None) -> str | None:
+            self.asked.append(prompt)
+            return next(completes)
+
+        def choose(prompt: str, _o: list[str], _d: str | None) -> str | None:
+            self.asked.append(prompt)
+            return next(chooses)
+
+        def multiselect(
+            prompt: str, _o: Sequence[str], _pre: Sequence[str]
+        ) -> list[str] | None:
+            self.asked.append(prompt)
+            return next(multis)
+
+        def confirm(prompt: str, _d: bool) -> bool | None:
+            self.asked.append(prompt)
+            return next(confirms)
+
+        return Prompter(
+            ask=ask,
+            ask_complete=ask_complete,
+            choose=choose,
+            multiselect=multiselect,
+            confirm=confirm,
+            notify=self.notes.append,
+            progress=lambda s, t, label: self.steps.append((s, t, label)),
+        )
+
+
+def _full_script(**over: object) -> _Script:
+    """A complete, valid pass. Keyword overrides replace a widget queue."""
+    base = _Script(
+        # name, start, end, daily, networks, hosts, threat_model
+        asks=[
+            "acme",
+            "2026-01-01T00:00:00+00:00",
+            "2026-12-31T23:59:59+00:00",
+            "",
+            "192.0.2.0/24",
+            "",
+            "",
+        ],
+        completes=["UTC", "nmap, curl"],  # timezone, allowed_tools
+        chooses=["ptes", "cautious"],  # methodology, stance
+        multis=[["recon", "scan"], ["wstg"]],  # allowed_methods, taxonomies
+        confirms=[True],  # autonomous
+    )
+    for key, value in over.items():
+        setattr(base, key, value)
+    return base
 
 
 def test_collect_scope_shapes_answers_into_valid_scope() -> None:
-    raw = collect_scope(
-        _answers(
-            "acme",
-            "UTC",
-            "2026-01-01T00:00:00+00:00",
-            "2026-12-31T23:59:59+00:00",
-            "09:00-17:00, 20:00-22:00",
-            "192.0.2.0/24, 198.51.100.0/24",
-            "scanme.example.com",
-            "nmap, curl",
-            "recon, scan",
-            "yes",
-            "ptes",
-            "wstg, attack",
-            "high, medium, high",
-        )
-    )
+    script = _full_script()
+    raw = collect_scope(script.prompter(), _CATALOG)
     assert raw is not None
     assert raw["name"] == "acme"
-    assert raw["daily_windows"] == [
-        {"start": "09:00", "end": "17:00"},
-        {"start": "20:00", "end": "22:00"},
-    ]
-    assert raw["target_networks"] == ["192.0.2.0/24", "198.51.100.0/24"]
+    assert raw["timezone"] == "UTC"
+    assert raw["target_networks"] == ["192.0.2.0/24"]
     assert raw["allowed_tools"] == ["nmap", "curl"]
-    assert raw["autonomous"] is True
+    assert raw["allowed_methods"] == ["recon", "scan"]
     assert raw["methodology"] == "ptes"
-    assert raw["taxonomies"] == ["wstg", "attack"]
-    assert raw["threat_model"] == {
-        "confidentiality_requirement": "high",
-        "integrity_requirement": "medium",
-        "availability_requirement": "high",
-    }
+    assert raw["taxonomies"] == ["wstg"]
+    assert raw["stance"] == "cautious"
+    assert raw["autonomous"] is True
     EngagementConfig.model_validate(raw)  # the shaped dict validates
 
 
-def test_collect_scope_blank_timezone_seeds_utc() -> None:
-    raw = collect_scope(
-        _answers(
-            "acme",
-            "",
-            "2026-01-01T00:00:00+00:00",
-            "2026-12-31T00:00:00+00:00",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-        )
+def test_blank_time_bounds_leave_no_window() -> None:
+    script = _full_script(
+        asks=["acme", "", "", "", "", "", ""]  # blank start/end + the rest
     )
+    raw = collect_scope(script.prompter(), _CATALOG)
     assert raw is not None
-    assert raw["timezone"] == "UTC"
+    assert "authorized_start" not in raw
+    assert "authorized_end" not in raw
+    config = EngagementConfig.model_validate(raw)
+    assert config.authorized_start is None
+    assert config.authorized_end is None
 
 
-def test_collect_scope_aborts_when_ask_returns_none() -> None:
-    assert collect_scope(_answers("acme", None)) is None
+def test_step_bar_ticks_once_per_section() -> None:
+    script = _full_script()
+    collect_scope(script.prompter(), _CATALOG)
+    assert script.steps == [
+        (1, 6, "Identity"),
+        (2, 6, "Authorization"),
+        (3, 6, "Schedule"),
+        (4, 6, "Targets"),
+        (5, 6, "Capabilities"),
+        (6, 6, "Approach"),
+    ]
+
+
+def test_collect_scope_aborts_when_a_widget_returns_none() -> None:
+    script = _full_script(asks=["acme", None])  # abort on authorized_start
+    assert collect_scope(script.prompter(), _CATALOG) is None
 
 
 def test_collect_scope_edit_keeps_existing_on_blank() -> None:
-    raw = collect_scope(
-        _answers("", "", "", "", "", "", "", "", "", "", "", "", ""), existing=_VALID
+    script = _Script(
+        asks=["", "", "", "", "", "", ""],
+        completes=["", ""],
+        chooses=["phases", "cautious"],
+        multis=[[], []],
+        confirms=[False],
     )
+    raw = collect_scope(script.prompter(), _CATALOG, existing=_VALID)
     assert raw is not None
     assert raw["name"] == "x"  # blank kept the existing value
 
 
 def test_run_wizard_applies_and_reports_loaded() -> None:
-    notes: list[str] = []
-    eng = run_wizard(
-        _answers("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "phases", "", ""),
-        lambda _raw: _VALID,
-        notes.append,
-    )
+    script = _full_script()
+    eng = run_wizard(script.prompter(), lambda _raw: _VALID, _CATALOG)
     assert eng is _VALID
-    assert any("loaded" in n for n in notes)
+    assert any("loaded" in n for n in script.notes)
 
 
-def test_run_wizard_retries_on_rejection() -> None:
-    calls = {"n": 0}
+def test_run_wizard_preserves_answers_and_reasks_only_failed_field() -> None:
+    calls: list[dict[str, object]] = []
 
-    def apply(_raw: dict[str, object]) -> EngagementConfig:
-        calls["n"] += 1
-        if calls["n"] == 1:
-            msg = "bad scope"
-            raise ConfigError(msg)
+    def apply(raw: dict[str, object]) -> EngagementConfig:
+        calls.append(dict(raw))
+        if len(calls) == 1:
+            detail = "authorized_end: bad"
+            raise InvalidScopeError(detail, frozenset({"authorized_end"}))
         return _VALID
 
-    notes: list[str] = []
-    ask = _answers(*(["x"] * 26))  # two full passes (13 steps each)
-    eng = run_wizard(ask, apply, notes.append)
+    # First pass is complete; the retry supplies ONLY a new authorized_end.
+    script = _full_script()
+    script.asks.append("2027-01-01T00:00:00+00:00")  # the re-asked field
+    eng = run_wizard(script.prompter(), apply, _CATALOG)
+
     assert eng is _VALID
-    assert calls["n"] == 2
-    assert any("rejected" in n for n in notes)
+    assert len(calls) == 2  # applied twice: reject, then accept
+    # The name from the first pass survived into the retry's payload...
+    assert calls[1]["name"] == "acme"
+    # ...and only authorized_end was re-asked on the second pass.
+    reask_labels = [p for p in script.asked if p.startswith("authorized end")]
+    assert len(reask_labels) == 2  # once per pass; the retry asked just this one
+    assert calls[1]["authorized_end"] == "2027-01-01T00:00:00+00:00"
+    # The retry's step bar showed only the Authorization section.
+    assert script.steps[-1] == (2, 6, "Authorization")
 
 
 def test_run_wizard_cancelled_on_abort() -> None:
-    notes: list[str] = []
-    eng = run_wizard(_answers("a", None), lambda _raw: _VALID, notes.append)
+    script = _full_script(asks=["acme", None])
+    eng = run_wizard(script.prompter(), lambda _raw: _VALID, _CATALOG)
     assert eng is None
-    assert any("cancelled" in n for n in notes)
+    assert any("cancelled" in n for n in script.notes)
+
+
+def test_known_keys_cover_every_managed_engagement_field() -> None:
+    # Every EngagementConfig field the operator should set is in exactly one
+    # wizard field -- a field dropping out of the wizard fails here.
+    managed = set(EngagementConfig.model_fields) - {"primary_target"}
+    assert managed == set(KNOWN_KEYS)

@@ -11,18 +11,21 @@ gate; the autouse ``isolate_credentials`` points both homes + cwd at tmp, so the
 
 from __future__ import annotations
 
+import zoneinfo
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from skuggi.agent import protocol
 from skuggi.agent.core import AgentCore
-from skuggi.common import home
+from skuggi.common import home, palette
 from skuggi.config.config import Settings
 from skuggi.config.configs import load_scope
 from skuggi.engagement.engagement import check_command, parse_command
 from skuggi.engagement.workspace import Workspace
 from skuggi.frontend import setup, wizard
 from skuggi.frontend.daemon import Daemon
+from skuggi.frontend.prompter import Prompter
 from skuggi.install.boot import guard_boot
 from skuggi.install.init import initialise
 from tests.conftest import offline_settings, wire_offline_core
@@ -34,23 +37,63 @@ def _answers(*items: str | None) -> Callable[[str], str | None]:
     return lambda _prompt: next(it, None)
 
 
-# A full, valid set of wizard answers (13 steps) producing engagement ``name``.
-def _wizard_answers(name: str) -> Callable[[str], str | None]:
-    return _answers(
-        name,
-        "UTC",
-        "2000-01-01T00:00:00+00:00",
-        "2999-12-31T23:59:59+00:00",
-        "",  # daily windows (blank -> none)
-        "10.0.0.0/8",  # target networks
-        "",  # allowed hosts
-        "nmap, curl",  # allowed tools
-        "recon, scan",  # allowed methods
-        "no",  # autonomous
-        "",  # methodology
-        "",  # taxonomies
-        "",  # threat model
+def _catalog(core: AgentCore) -> wizard.Catalog:
+    return wizard.Catalog(
+        timezones=tuple(sorted(zoneinfo.available_timezones())),
+        tools=tuple(spec.binary for spec in core.registry.tools),
+        methods=palette.methods(),
+        methodologies=protocol.METHODOLOGIES,
+        taxonomies=protocol.TAXONOMIES,
+        stances=protocol.STANCES,
     )
+
+
+# A full, valid set of wizard answers producing engagement ``name`` -- one scripted
+# queue per widget kind, matching the field order in wizard._SECTIONS.
+def _wizard_prompter(name: str, notes: list[str] | None = None) -> Prompter:
+    sink = notes if notes is not None else []
+    # ask: name, start, end, daily, networks, hosts, threat_model
+    asks = iter(
+        [
+            name,
+            "2000-01-01T00:00:00+00:00",
+            "2999-12-31T23:59:59+00:00",
+            "",
+            "10.0.0.0/8",
+            "",
+            "",
+        ]
+    )
+    completes = iter(["UTC", "nmap, curl"])  # timezone, allowed_tools
+    chooses = iter(["phases", "cautious"])  # methodology, stance
+    multis: list[list[str]] = [["recon", "scan"], []]  # methods, taxonomies
+    multi_it = iter(multis)
+    confirms = iter([False])  # autonomous
+    return Prompter(
+        ask=lambda _p: next(asks),
+        ask_complete=lambda _p, _c, _d: next(completes),
+        choose=lambda _p, _o, _d: next(chooses),
+        multiselect=lambda _p, _o, _pre: next(multi_it),
+        confirm=lambda _p, _d: next(confirms),
+        notify=sink.append,
+        progress=lambda *_a: None,
+    )
+
+
+def _run_wizard(core: AgentCore, name: str, notes: list[str] | None = None) -> object:
+    return wizard.run_wizard(
+        _wizard_prompter(name, notes), core.create_engagement, _catalog(core)
+    )
+
+
+def _provider_then_keep_model(provider: str) -> setup.Choose:
+    """A menu stub: the provider label for the provider menu, default for model."""
+    label = setup._PROVIDER_LABELS[provider]
+
+    def choose(prompt: str, _options: list[str], default: str | None) -> str | None:
+        return default if prompt.startswith("model") else label
+
+    return choose
 
 
 def _core(tmp_path: Path, *, engagement: str | None = None) -> AgentCore:
@@ -75,12 +118,9 @@ def test_wizard_creates_workspace_tree_and_scope_roundtrips(tmp_path: Path) -> N
     core = _core(tmp_path)
     notes: list[str] = []
 
-    result = wizard.run_wizard(
-        _wizard_answers("wiz-eng"), core.create_engagement, notes.append
-    )
+    result = _run_wizard(core, "wiz-eng", notes)
 
     assert result is not None
-    assert result.name == "wiz-eng"
     assert core.engagement is not None
     assert core.engagement.name == "wiz-eng"
     assert core.workspace is not None
@@ -89,6 +129,7 @@ def test_wizard_creates_workspace_tree_and_scope_roundtrips(tmp_path: Path) -> N
     loaded = load_scope(core.workspace.scope_path)
     assert loaded == core.engagement
     assert "10.0.0.0/8" in str(loaded.target_networks)
+    assert loaded.allowed_methods == frozenset({"recon", "scan"})
 
 
 # --- in-process: provider / credential setup -------------------------------
@@ -99,7 +140,7 @@ def test_run_setup_ollama_persists_and_reresolves(tmp_path: Path) -> None:
     ok = setup.run_setup(
         core,
         _answers(""),  # ollama url: blank -> default
-        lambda _p, _o, _d: "ollama",
+        _provider_then_keep_model("ollama"),
         lambda _t: None,
     )
     assert ok
@@ -112,7 +153,7 @@ def test_run_setup_api_key_writes_env_and_reresolves(tmp_path: Path) -> None:
     ok = setup.run_setup(
         core,
         _answers("sk-ant-test-abc123"),
-        lambda _p, _o, _d: "anthropic",
+        _provider_then_keep_model("anthropic"),
         lambda _t: None,
     )
     assert ok
@@ -129,14 +170,14 @@ def test_run_setup_api_key_writes_env_and_reresolves(tmp_path: Path) -> None:
 
 def test_load_engagement_hot_reload_swaps_ledger_and_session(tmp_path: Path) -> None:
     core = _core(tmp_path)
-    wizard.run_wizard(_wizard_answers("eng-a"), core.create_engagement, lambda _t: None)
+    _run_wizard(core, "eng-a")
     core.journal.record_finding(severity="high", title="finding only in A")
     ws_a = core.workspace
     assert ws_a is not None
     a_ledger = ws_a.ledger_path
     a_session = core.session_id
 
-    wizard.run_wizard(_wizard_answers("eng-b"), core.create_engagement, lambda _t: None)
+    _run_wizard(core, "eng-b")
     ws_b = core.workspace
     assert ws_b is not None
     assert core.session_id != a_session
@@ -157,9 +198,7 @@ def test_load_engagement_hot_reload_swaps_ledger_and_session(tmp_path: Path) -> 
 def test_scope_guard_is_live_through_the_loaded_core(tmp_path: Path) -> None:
     """A proposed out-of-scope command is blocked by the guard the wizard loaded."""
     core = _core(tmp_path)
-    wizard.run_wizard(
-        _wizard_answers("guard-eng"), core.create_engagement, lambda _t: None
-    )
+    _run_wizard(core, "guard-eng")
     engagement = core.engagement
     assert engagement is not None
     now = datetime.now(engagement.tzinfo())
@@ -205,27 +244,34 @@ def test_attach_wizard_creates_engagement_over_socket(tmp_path: Path) -> None:
     core = _core(tmp_path)
     daemon = Daemon(core)
     try:
+        # One answer per read, in field order: menus/checklists arrive as the
+        # chosen string / a JSON list / yes-no, exactly as the client sends them.
         answers = [
-            "sock-eng",
-            "UTC",
-            "2000-01-01T00:00:00+00:00",
-            "2999-12-31T23:59:59+00:00",
-            "",
-            "10.0.0.0/8",
-            "",
-            "nmap, curl",
-            "recon, scan",
-            "no",
-            "",
-            "",
-            "",
+            "sock-eng",  # name (ask)
+            "UTC",  # timezone (ask -- autocomplete degrades over the socket)
+            "2000-01-01T00:00:00+00:00",  # authorized_start
+            "2999-12-31T23:59:59+00:00",  # authorized_end
+            "",  # daily windows
+            "10.0.0.0/8",  # target networks
+            "",  # allowed hosts
+            "nmap, curl",  # allowed tools
+            '["recon", "scan"]',  # allowed methods (multiselect -> JSON list)
+            "phases",  # methodology (choose)
+            "[]",  # taxonomies (multiselect)
+            "cautious",  # stance (choose)
+            "no",  # autonomous (confirm -> yes/no choose)
+            "",  # threat model
         ]
         frames = _drive_attached(daemon, ["engagement setup", *answers])
-        # The wizard asked questions as {"ask": ...} frames...
+        # The wizard asked questions as frames of each kind...
         assert any("ask" in f for f in frames)
+        assert any("multiselect" in f for f in frames)
+        assert any("choose" in f for f in frames)  # methodology/stance/confirm
+        assert any("chunk" in f for f in frames)  # the step bar + "loaded" line
         # ...and really created and hot-loaded the engagement through the core.
         assert core.engagement is not None
         assert core.engagement.name == "sock-eng"
+        assert core.engagement.allowed_methods == frozenset({"recon", "scan"})
         ws = core.workspace
         assert ws is not None
         _assert_workspace_tree(ws)
@@ -237,8 +283,10 @@ def test_attach_setup_configures_provider_over_socket(tmp_path: Path) -> None:
     core = _core(tmp_path)
     daemon = Daemon(core)
     try:
-        # "setup" -> a {"choose": ...} provider menu, then the ollama url (blank).
-        frames = _drive_attached(daemon, ["setup", "ollama", ""])
+        # "setup" -> a {"choose"} provider menu (its label), the ollama url
+        # (blank), then a {"choose"} model menu (keep the default).
+        label = setup._PROVIDER_LABELS["ollama"]
+        frames = _drive_attached(daemon, ["setup", label, "", "qwen3"])
         assert any("choose" in f for f in frames)
         assert Settings().provider == "ollama"
     finally:

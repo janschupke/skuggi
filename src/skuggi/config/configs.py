@@ -24,6 +24,20 @@ class ConfigError(RuntimeError):
     """A config file is missing or does not validate."""
 
 
+class InvalidScopeError(ConfigError):
+    """An engagement scope failed validation, with the offending field keys.
+
+    Subclasses ``ConfigError`` so existing ``except ConfigError`` callers keep
+    working; the engagement wizard catches the richer type to re-ask only the
+    fields that failed instead of restarting the whole questionnaire.
+    """
+
+    def __init__(self, summary: str, field_keys: frozenset[str]) -> None:
+        super().__init__(summary)
+        self.summary = summary
+        self.field_keys = field_keys
+
+
 def _read(path: Path, *, what: str) -> str:
     resolved = path.expanduser()
     try:

@@ -8,7 +8,8 @@ only renders. The wrapped-shell daemon is the other front-end over the same core
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import zoneinfo
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from langgraph.graph.state import CompiledStateGraph
@@ -20,7 +21,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi.agent import prompts
+from skuggi.agent import prompts, protocol
 from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.agent.state import AgentState
 from skuggi.common import palette
@@ -28,6 +29,7 @@ from skuggi.common.paths import ensure_parent
 from skuggi.config.config import PROVIDERS, Settings
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.frontend import cmdflow, configflow, dispatch, menu, setup, verbs, wizard
+from skuggi.frontend.prompter import Prompter
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import Ledger, finding_line
 from skuggi.tooling.commands import CommandAlias, render
@@ -199,14 +201,14 @@ class Tui:
     # ----- UI helpers --------------------------------------------------------
 
     def _prompt(self) -> str:
-        model = self.core.model or "(default)"
-        auto = "!" if self.core.autonomous else ""
         # The shield marks that skuggi is active; the `!` warns autonomous
-        # execution is armed.
-        return (
-            f"{palette.SHIELD} [skuggi:{self.mode}/{self.provider}/{model}"
-            f"{auto} thread={self.thread_id[:8]}] > "
-        )
+        # execution is armed. The engagement name is the only context worth the
+        # space -- mode/provider/model live in the banner and `/status`.
+        auto = "!" if self.core.autonomous else ""
+        engagement = self.core.engagement
+        if engagement is not None:
+            return f"{palette.SHIELD} [{engagement.name}]{auto} > "
+        return f"{palette.SHIELD}{auto} > "
 
     def _banner(self) -> None:
         self.console.rule("[bold]skuggi[/bold]")
@@ -344,12 +346,55 @@ class Tui:
         """Pick one option via an arrow-key menu; None on abort."""
         return menu.select(prompt, options, default=default)
 
+    def _ask_complete(
+        self, prompt: str, candidates: Sequence[str], default: str | None
+    ) -> str | None:
+        """Prompt for one line with Tab completion; None on abort."""
+        return menu.ask_complete(prompt, candidates, default=default, multi=True)
+
+    def _multiselect(
+        self, prompt: str, options: Sequence[str], preselected: Sequence[str]
+    ) -> list[str] | None:
+        """Pick several options via a checklist; None on abort."""
+        return menu.multiselect(prompt, options, preselected=preselected)
+
+    def _confirm(self, prompt: str, default: bool) -> bool | None:
+        """Yes/no via an arrow menu; None on abort."""
+        return menu.confirm(prompt, default=default)
+
+    def _progress(self, step: int, total: int, label: str) -> None:
+        """Render a horizontal step bar above the next question."""
+        done = "▸" * step
+        todo = "▹" * (total - step)
+        self.console.print(f"[dim]\\[{step}/{total}] {label}[/dim] {done}{todo}")
+
+    def _engagement_catalog(self) -> wizard.Catalog:
+        """The option sources the engagement wizard offers (zones, tools, enums)."""
+        tools = tuple(spec.binary for spec in self.core.registry.tools)
+        return wizard.Catalog(
+            timezones=tuple(sorted(zoneinfo.available_timezones())),
+            tools=tools,
+            methods=palette.methods(),
+            methodologies=protocol.METHODOLOGIES,
+            taxonomies=protocol.TAXONOMIES,
+            stances=protocol.STANCES,
+        )
+
     def _engagement_wizard(self) -> None:
-        """Collect a scope field-by-field via the prompt session and load it."""
+        """Collect a scope field-by-field via rich widgets and load it."""
+        prompter = Prompter(
+            ask=self._ask,
+            ask_complete=self._ask_complete,
+            choose=self._choose,
+            multiselect=self._multiselect,
+            confirm=self._confirm,
+            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
+            progress=self._progress,
+        )
         wizard.run_wizard(
-            self._ask,
+            prompter,
             self.core.create_engagement,
-            lambda text: self.console.print(f"[dim]{text}[/dim]"),
+            self._engagement_catalog(),
             existing=self.core.engagement,
         )
 

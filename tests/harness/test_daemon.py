@@ -380,27 +380,31 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
     answers = iter(
         [
             "engagement setup",
-            "acme",
-            "UTC",
-            "2026-01-01T00:00:00+00:00",
-            "2026-12-31T23:59:59+00:00",
+            "acme",  # name (ask)
+            "UTC",  # timezone (ask -- autocomplete degrades over the socket)
+            "2026-01-01T00:00:00+00:00",  # authorized_start
+            "2026-12-31T23:59:59+00:00",  # authorized_end
             "",  # daily windows -> any
-            "10.0.0.0/24",
+            "10.0.0.0/24",  # target networks
             "",  # hosts
-            "nmap",
-            "scan",
-            "no",
-            "ptes",  # methodology
-            "wstg",  # taxonomies
+            "nmap",  # allowed tools
+            '["scan"]',  # allowed methods (multiselect -> JSON list)
+            "ptes",  # methodology (choose)
+            '["wstg"]',  # taxonomies (multiselect)
+            "cautious",  # stance (choose)
+            "no",  # autonomous (confirm -> yes/no choose)
             "",  # threat model -> none
         ]
     )
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
     asks = [f["ask"] for f in emitted if "ask" in f]
-    assert len(asks) == 13  # one prompt per field, round-tripped over the socket
+    assert len(asks) == 9  # the text + (degraded) autocomplete fields
+    assert any("multiselect" in f for f in emitted)  # the checklists
+    assert any("choose" in f for f in emitted)  # methodology/stance/confirm
     assert daemon.core.engagement is not None
     assert daemon.core.engagement.name == "acme"  # hot-loaded into the warm core
+    assert daemon.core.engagement.allowed_methods == frozenset({"scan"})
     assert "loaded" in "".join(str(f.get("chunk", "")) for f in emitted)
 
 

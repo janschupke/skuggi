@@ -1,10 +1,11 @@
 """LLM and embeddings factory.
 
 Provider routing:
-    openai    -> init_chat_model("openai")      (api.openai.com)
-    chatgpt   -> skuggi.codex_chat.CodexChatModel (ChatGPT-account OAuth)
-    anthropic -> init_chat_model("anthropic")
-    ollama    -> init_chat_model("ollama")
+    openai     -> init_chat_model("openai")      (api.openai.com)
+    chatgpt    -> skuggi.codex_chat.CodexChatModel (ChatGPT-account OAuth)
+    anthropic  -> init_chat_model("anthropic")   (Anthropic API key)
+    claude-cli -> skuggi.claude_cli_chat.ClaudeCliChatModel (local `claude` binary)
+    ollama     -> init_chat_model("ollama")
 
 OpenAI key resolution order:
     1. top-level "OPENAI_API_KEY" in the codex auth.json
@@ -97,6 +98,15 @@ def get_chat_model(settings: Settings, *, model: str | None = None) -> BaseChatM
             responses_base=settings.codex_responses_base,
             refresh_url=settings.codex_refresh_url,
         )
+
+    if provider == "claude-cli":
+        # Shells out to the operator's local `claude` binary (their own Claude
+        # subscription); lazy import keeps subprocess wiring off the hot path.
+        from skuggi.providers.claude_cli_chat import (  # noqa: PLC0415
+            build_claude_cli_chat_model,
+        )
+
+        return build_claude_cli_chat_model(name)
 
     kwargs: dict[str, Any] = {}
     if provider == "openai":

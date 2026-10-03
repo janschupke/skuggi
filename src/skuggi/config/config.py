@@ -46,9 +46,15 @@ from skuggi.common import home, logs
 from skuggi.common.modes import Mode
 from skuggi.common.paths import ensure_parent
 
-Provider = Literal["openai", "chatgpt", "anthropic", "ollama"]
+Provider = Literal["openai", "chatgpt", "anthropic", "claude-cli", "ollama"]
 # The provider names as a tuple, for validation and usage listings.
-PROVIDERS: tuple[Provider, ...] = ("openai", "chatgpt", "anthropic", "ollama")
+PROVIDERS: tuple[Provider, ...] = (
+    "openai",
+    "chatgpt",
+    "anthropic",
+    "claude-cli",
+    "ollama",
+)
 ToolSource = Literal["host", "managed", "combine"]
 
 # The ChatGPT-account (codex) endpoints. Verified live: the responses route is
@@ -180,6 +186,9 @@ class Settings(BaseSettings):
     model_openai: str = "gpt-6-luna"
     model_chatgpt: str = "gpt-6-luna"
     model_anthropic: str = "claude-haiku-4-5"
+    # The claude-cli provider shells out to the local `claude` binary, which
+    # takes an alias (sonnet/opus/haiku) or a full model id via `--model`.
+    model_claude_cli: str = "haiku"
     # Ollama serves whatever you have pulled, so this one is a suggestion:
     # `ollama pull qwen3` first, or point it at a model you already have.
     model_ollama: str = "qwen3"
@@ -323,6 +332,7 @@ class Settings(BaseSettings):
             "openai": self.model_openai,
             "chatgpt": self.model_chatgpt,
             "anthropic": self.model_anthropic,
+            "claude-cli": self.model_claude_cli,
             "ollama": self.model_ollama,
         }
         return names[provider]
@@ -334,8 +344,8 @@ class Settings(BaseSettings):
     def supports_structured_output(self) -> bool:
         """Whether the provider supports native ``with_structured_output``.
 
-        The tool-less chatgpt endpoint cannot; ``protocol.structured_invoke``
-        falls back to a JSON contract there. Every other provider gets the
-        native, schema-enforced path.
+        The tool-less chatgpt endpoint and the claude-cli subprocess cannot;
+        ``protocol.structured_invoke`` falls back to a JSON contract there. Every
+        other provider gets the native, schema-enforced path.
         """
-        return self.provider != "chatgpt"
+        return self.provider not in ("chatgpt", "claude-cli")

@@ -56,11 +56,34 @@ Notify = Callable[[str], None]
 Opener = Callable[[str], object]
 Poster = Callable[..., httpx.Response]
 
-_SUCCESS_HTML = (
-    b"<!doctype html><title>skuggi</title>"
-    b"<body style='font:16px system-ui;padding:3rem'>"
-    b"<h2>Signed in to skuggi.</h2><p>You can close this tab and return to the "
-    b"terminal.</p></body>"
+
+def _page(goat: str, heading: str, body: str) -> bytes:
+    """A self-contained dark, centered callback page branded with the goat."""
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'><title>skuggi</title>"
+        "<style>"
+        "html,body{height:100%;margin:0}"
+        "body{background:#000;color:#e5e5e5;display:flex;align-items:center;"
+        "justify-content:center;text-align:center;"
+        "font:16px/1.5 system-ui,-apple-system,sans-serif}"
+        ".goat{font-size:72px;line-height:1}"
+        "h1{font-size:20px;font-weight:600;margin:1.25rem 0 .25rem}"
+        "p{color:#8a8a8a;margin:0}"
+        "</style></head><body><div>"
+        f"<div class='goat'>{goat}</div><h1>{heading}</h1><p>{body}</p>"
+        "</div></body></html>"
+    ).encode()
+
+
+_SUCCESS_HTML = _page(
+    "🐐",
+    "Signed in to skuggi",
+    "You can close this tab and return to the terminal.",
+)
+_ERROR_HTML = _page(
+    "🐐",
+    "Login failed",
+    "Something went wrong. Return to the terminal and try again.",
 )
 
 
@@ -174,10 +197,11 @@ class _CallbackServer:
                     self.send_error(404)
                     return
                 query = parse_qs(parsed.query)
+                failed = "error" in query or "code" not in query
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(_SUCCESS_HTML)
+                self.wfile.write(_ERROR_HTML if failed else _SUCCESS_HTML)
                 server.capture(query)
 
         return Handler

@@ -28,7 +28,13 @@ from typing import Literal, NamedTuple
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, IPvAnyNetwork, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    IPvAnyNetwork,
+    field_validator,
+    model_validator,
+)
 
 from skuggi.agent.protocol import Methodology, Stance, Taxonomy
 from skuggi.common.logs import get_logger
@@ -98,8 +104,11 @@ class EngagementConfig(BaseModel):
 
     name: str
     timezone: str
-    authorized_start: datetime
-    authorized_end: datetime
+    # Optional time bounds. ``None`` leaves that edge unbounded: both ``None``
+    # means the engagement has no authorized-time window at all (the guard skips
+    # the date/time check). A set bound must be timezone-aware (see ``_aware``).
+    authorized_start: datetime | None = None
+    authorized_end: datetime | None = None
     daily_windows: tuple[TimeWindow, ...] = ()
     target_networks: tuple[IPvAnyNetwork, ...] = ()
     allowed_hosts: frozenset[str] = frozenset()
@@ -133,11 +142,20 @@ class EngagementConfig(BaseModel):
 
     @field_validator("authorized_start", "authorized_end")
     @classmethod
-    def _aware(cls, value: datetime) -> datetime:
-        if value.tzinfo is None:
+    def _aware(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
             msg = "authorized_start/authorized_end must be timezone-aware"
             raise ValueError(msg)
         return value
+
+    @model_validator(mode="after")
+    def _window_ordered(self) -> EngagementConfig:
+        """Reject an end before the start when both bounds are set."""
+        start, end = self.authorized_start, self.authorized_end
+        if start is not None and end is not None and end < start:
+            msg = "authorized_end is before authorized_start"
+            raise ValueError(msg)
+        return self
 
     def tzinfo(self) -> ZoneInfo:
         """The engagement's timezone as a ``ZoneInfo``."""
@@ -171,10 +189,16 @@ class EngagementConfig(BaseModel):
         daily = ", ".join(f"{w.start}-{w.end}" for w in self.daily_windows) or "any"
         hosts = ", ".join(sorted(self.allowed_hosts)) or "(none)"
         methods = ", ".join(paint(m) for m in sorted(self.allowed_methods))
+        start = self.authorized_start.isoformat() if self.authorized_start else "open"
+        end = self.authorized_end.isoformat() if self.authorized_end else "open"
+        window = (
+            "no time bound"
+            if self.authorized_start is None and self.authorized_end is None
+            else f"{start} -> {end}"
+        )
         return (
             f"engagement: {self.name}\n"
-            f"  window: {self.authorized_start.isoformat()} "
-            f"-> {self.authorized_end.isoformat()} ({self.timezone})\n"
+            f"  window: {window} ({self.timezone})\n"
             f"  daily:  {daily}\n"
             f"  networks: {nets}\n"
             f"  hosts:  {hosts}\n"
@@ -454,8 +478,11 @@ def check_command(  # noqa: PLR0911, PLR0912, PLR0913 -- a guard is a linear seq
         return GuardVerdict(
             False, f"method {cmd.method!r} is not authorized for this engagement"
         )
-    if not (engagement.authorized_start <= now <= engagement.authorized_end):
-        return GuardVerdict(False, "outside the authorized date/time range")
+    start, end = engagement.authorized_start, engagement.authorized_end
+    if start is not None and now < start:
+        return GuardVerdict(False, "before the authorized start time")
+    if end is not None and now > end:
+        return GuardVerdict(False, "after the authorized end time")
     if engagement.daily_windows:
         local = now.astimezone(engagement.tzinfo()).timetz().replace(tzinfo=None)
         if not any(window.contains(local) for window in engagement.daily_windows):

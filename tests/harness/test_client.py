@@ -298,3 +298,36 @@ def test_stream_turn_aborts_when_choose_cancelled(
     out = io.StringIO()
     assert _stream_turn(frames, out, conn=cast(socket.socket, conn), ask=None)  # abort
     assert conn.sent == []
+
+
+def test_stream_turn_answers_multiselect_frames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `multiselect` frame renders a checklist and sends the picks back as JSON."""
+    conn = _RecordingConn()
+    frames = iter(
+        [
+            json.dumps(
+                {"multiselect": {"prompt": "p", "options": ["a", "b"]}}
+            ).encode(),
+            json.dumps({"end": True, "exit": False}).encode(),
+        ]
+    )
+    monkeypatch.setattr(client, "_multiselect_frame", lambda _spec: ["a", "b"])
+    out = io.StringIO()
+    exit_flag = _stream_turn(frames, out, conn=cast(socket.socket, conn), ask=None)
+    assert exit_flag is False
+    assert conn.sent == [{"op": "input", "text": json.dumps(["a", "b"])}]
+
+
+def test_stream_turn_aborts_when_multiselect_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = _RecordingConn()
+    frames = iter(
+        [json.dumps({"multiselect": {"prompt": "p", "options": ["a"]}}).encode()]
+    )
+    monkeypatch.setattr(client, "_multiselect_frame", lambda _spec: None)
+    out = io.StringIO()
+    assert _stream_turn(frames, out, conn=cast(socket.socket, conn), ask=None)  # abort
+    assert conn.sent == []
