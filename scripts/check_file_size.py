@@ -7,20 +7,20 @@ module has a ceiling, past which it should be split along a real seam -- never a
 arbitrary part-1/part-2 cut. It runs inside ``make check`` and CI alongside
 ruff/mypy, and as a pre-commit hook.
 
-The cap catches bloat; it does not force cosmetic splits. One module sits just
-under it on purpose: ``agent/core.py`` (``AgentCore``, the one session hub). Its
-bulk is state-mutating methods of a single object, so the only way to move them out
-is a mixin -- a class split across files, with a Protocol/base to satisfy mypy
-strict -- which buys a line count at the cost of indirection and re-introduces the
-cross-module private access the public-seam refactor removed. It stays whole.
+The cap catches bloat; it does not force cosmetic splits. Nothing sits near it: the
+former hub ``agent/core.py`` was decomposed into a facade over collaborators
+(``provider_kernel``, ``engagement_manager``, ``turn_runner``,
+``reconcile_controller``), and the two largest files (``frontend/tui.py``,
+``persistence/ledger.py``) are each a cohesive single class comfortably under it.
 
-If a file needs to grow past the cap, that is the signal to find a genuine seam
-(as ``dispatch.py`` -> ``outcomes``/``presenters`` and ``daemon.py`` ->
-``daemon_server``/``attach`` did), not to raise the cap.
+If a file needs to grow past the cap, that is the signal to find a genuine seam --
+the way ``dispatch.py`` became ``outcomes``/``presenters``, ``daemon.py`` shed
+``daemon_server``/``attach``, and ``core.py`` became a facade over four
+collaborators -- not to raise the cap.
 
 Usage:
     python scripts/check_file_size.py            # gate the tree
-    python scripts/check_file_size.py --max 900  # try a tighter cap
+    python scripts/check_file_size.py --max 800  # try a tighter cap
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from pathlib import Path
 # The numbered practice labs hold deliberately-messy vulnerable app code and are
 # excluded from every gate, this one included.
 ROOTS = ("src/skuggi", "tests", "labs/_lib", "scripts")
-MAX_LINES = 1000
+MAX_LINES = 900
 
 
 def _line_count(path: Path) -> int:
