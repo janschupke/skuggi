@@ -542,7 +542,11 @@ class Tui:
             return
         self.console.print(Markdown(text))
 
-    def _cmd_findings(self, _arg: str) -> None:
+    def _cmd_findings(self, arg: str) -> None:
+        message = dispatch.run_findings(self.core, arg)
+        if message is not None:
+            self.console.print(message)
+            return
         rows = self.core.journal.findings()
         if not rows:
             self.console.print("[dim](no findings yet)[/dim]")

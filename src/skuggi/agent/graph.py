@@ -227,7 +227,13 @@ def _finding_briefs(deps: GraphDeps) -> tuple[FindingBrief, ...]:
     rows = deps.ledger.findings_for(deps.session_id)[-deps.findings_limit :]
     return tuple(
         FindingBrief(
-            id=r.id, severity=r.severity, title=clean(r.title), command_id=r.command_id
+            id=r.id,
+            severity=r.severity,
+            title=clean(r.title),
+            command_id=r.command_id,
+            status=r.status,
+            # The rejection reason is model-facing, so redact it like the title.
+            reason=clean(r.review_reason),
         )
         for r in rows
     )
@@ -571,6 +577,7 @@ def _record_findings(
                 command_id=link,
                 cvss_vector=vector,
                 refs=refs,
+                author="agent",
             )
         except Exception:
             # Evidence loss: a finding the agent produced did not persist. This is

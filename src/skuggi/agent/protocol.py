@@ -131,7 +131,13 @@ class EngagementBrief(BaseModel):
 
 
 class FindingBrief(BaseModel):
-    """A prior finding, condensed for a request. Full text lives in the ledger."""
+    """A prior finding, condensed for a request. Full text lives in the ledger.
+
+    ``status`` lets the worker see which findings were approved vs rejected; a
+    rejected finding carries its ``reason`` so the worker learns why and does not
+    re-assert it. ``title`` and ``reason`` are redacted before this is built (both
+    reach the model); ``evidence`` is never projected here.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -139,6 +145,8 @@ class FindingBrief(BaseModel):
     severity: str
     title: str
     command_id: int | None = None
+    status: str = "draft"
+    reason: str = ""
 
 
 class CommandBrief(BaseModel):
@@ -302,11 +310,16 @@ class MemoryExtraction(BaseModel):
 
 
 def _findings_block(findings: Sequence[FindingBrief]) -> str:
-    return "\n".join(
-        f"[{f.id}] {f.severity.upper()}: {f.title}"
-        + (f" (cmd:{f.command_id})" if f.command_id is not None else "")
-        for f in findings
-    )
+    lines = []
+    for f in findings:
+        cmd = f" (cmd:{f.command_id})" if f.command_id is not None else ""
+        if f.status == "rejected":
+            why = f" — {f.reason}" if f.reason else ""
+            lines.append(f"[{f.id}] REJECTED {f.title}{why}{cmd} (do not re-assert)")
+        else:
+            tag = "" if f.status == "approved" else f" ({f.status})"
+            lines.append(f"[{f.id}] {f.severity.upper()}{tag}: {f.title}{cmd}")
+    return "\n".join(lines)
 
 
 def _commands_block(commands: Sequence[CommandBrief]) -> str:

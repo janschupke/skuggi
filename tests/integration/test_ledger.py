@@ -270,3 +270,36 @@ def test_migrates_a_pre_cvss_ledger(tmp_path: Path) -> None:
             cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
         )
         assert led.finding(new).cvss_score == 9.8  # type: ignore[union-attr]
+
+
+def test_findings_are_born_draft_with_author_and_review_transitions(
+    tmp_path: Path,
+) -> None:
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        agent_fid = led.record_finding(
+            session_id="s1", title="agent one", severity="high", description="d"
+        )
+        op_fid = led.record_finding(
+            session_id="s1",
+            title="operator one",
+            severity="low",
+            description="d",
+            author="operator",
+        )
+        a, o = led.finding(agent_fid), led.finding(op_fid)
+        assert (a.author, a.status) == ("agent", "draft")  # type: ignore[union-attr]
+        assert (o.author, o.status) == ("operator", "draft")  # type: ignore[union-attr]
+
+        # Nothing approved yet -> reports would be empty.
+        assert led.approved_findings_for("s1") == []
+
+        led.set_finding_status(agent_fid, "approved")
+        led.set_finding_status(op_fid, "rejected", reason="duplicate of F-1")
+        approved = led.approved_findings_for("s1")
+        assert [f.id for f in approved] == [agent_fid]
+        rejected = led.finding(op_fid)
+        assert rejected is not None
+        assert rejected.status == "rejected"
+        assert rejected.review_reason == "duplicate of F-1"
+        assert rejected.reviewed_at is not None

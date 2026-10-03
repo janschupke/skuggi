@@ -217,3 +217,23 @@ def test_finding_ref_draft_validates_against_the_taxonomy() -> None:
     assert FindingRefDraft(framework="wstg", ref_id="WSTG-ATHN-01").ref_id
     with pytest.raises(ValidationError):
         FindingRefDraft(framework="wstg", ref_id="WSTG-NOPE-99")
+
+
+def test_findings_block_feeds_rejection_reason_back() -> None:
+    ctx = RequestContext(
+        request="next",
+        findings=(
+            FindingBrief(id=1, severity="high", title="real SQLi", status="approved"),
+            FindingBrief(
+                id=2,
+                severity="low",
+                title="not exploitable",
+                status="rejected",
+                reason="false positive, WAF blocks it",
+            ),
+        ),
+    )
+    block = render_request(ctx)
+    assert "[1] HIGH: real SQLi" in block
+    assert "[2] REJECTED not exploitable — false positive, WAF blocks it" in block
+    assert "do not re-assert" in block

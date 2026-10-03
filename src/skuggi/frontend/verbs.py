@@ -68,7 +68,11 @@ VERBS: tuple[Verb, ...] = (
     ),
     Verb("notes", "list engagement notes"),
     Verb("loot", "list captured loot"),
-    Verb("findings", "list findings recorded this session"),
+    Verb(
+        "findings",
+        "list findings, or review one",
+        "[approve <id> | reject <id> <reason>]",
+    ),
     Verb(
         "report", "write an engagement report (add 'pdf' for a styled PDF too)", "[pdf]"
     ),

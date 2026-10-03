@@ -622,7 +622,11 @@ class Daemon:
             return
         yield text if text.endswith("\n") else text + "\n"
 
-    def _findings(self, _arg: str) -> Iterator[str]:
+    def _findings(self, arg: str) -> Iterator[str]:
+        message = dispatch.run_findings(self.core, arg)
+        if message is not None:
+            yield message + "\n"
+            return
         rows = self.core.journal.findings()
         if not rows:
             yield "(no findings yet)\n"

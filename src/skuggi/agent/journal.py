@@ -61,6 +61,7 @@ class Journal:
                 title=clean_title,
                 description=clean_title,
                 cvss_vector=cvss_vector,
+                author="operator",
             )
             return core.ledger.finding(fid)
         sev = (severity or "").strip().lower()
@@ -71,8 +72,24 @@ class Journal:
             title=clean_title,
             severity=sev,
             description=clean_title,
+            author="operator",
         )
         return core.ledger.finding(fid)
+
+    def set_status(
+        self, finding_id: int, status: str, *, reason: str = ""
+    ) -> FindingRow | None:
+        """Approve/reject/reset a finding by id, returning the updated row or None.
+
+        Returns ``None`` when the id is not a finding in this session, so a front
+        end can report a bad id rather than silently succeeding.
+        """
+        core = self._core
+        row = core.ledger.finding(finding_id)
+        if row is None or row.session_id != core.session_id:
+            return None
+        core.ledger.set_finding_status(finding_id, status, reason=reason)
+        return core.ledger.finding(finding_id)
 
     def add_note(self, text: str) -> Path | None:
         """Append a timestamped note to the journal (``None`` with no engagement)."""

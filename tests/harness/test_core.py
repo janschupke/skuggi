@@ -20,6 +20,7 @@ from skuggi.agent.protocol import ConfigEdit, ConfigProposal
 from skuggi.common.execution import CommandResult
 from skuggi.config.config import config_path
 from skuggi.config.configs import ConfigError, load_commands
+from skuggi.frontend import dispatch
 from skuggi.install import update as update_mod
 from skuggi.tooling import probe as probe_mod
 from skuggi.tooling.commands import CommandAlias, CommandRegistry
@@ -529,3 +530,36 @@ def test_self_update_refuses_when_there_is_no_checkout(
     assert calls == []
     assert any("not running from a git checkout" in line for line in lines)
     assert any("uv tool install --editable" in line for line in lines)
+
+
+def test_findings_review_approve_and_reject(core: AgentCore) -> None:
+    keep = core.journal.record_finding("high", "SQLi in /login")
+    drop = core.journal.record_finding("low", "banner leak")
+    assert keep is not None
+    assert drop is not None
+    # Both operator-added, both born draft.
+    assert all(
+        f.status == "draft" and f.author == "operator" for f in core.journal.findings()
+    )
+
+    assert (
+        dispatch.run_findings(core, f"approve {keep.id}")
+        == f"approved finding [{keep.id}]"
+    )
+    msg = dispatch.run_findings(core, f"reject {drop.id} false positive")
+    assert msg == f"rejected finding [{drop.id}]: false positive"
+    bad = dispatch.run_findings(core, "approve 999")
+    assert bad is not None
+    assert bad.startswith("no such finding")
+    assert dispatch.run_findings(core, "approve") == (
+        "usage: findings [approve <id> | reject <id> <reason>]"
+    )
+    # A bare `findings` (no action) defers to the caller's listing.
+    assert dispatch.run_findings(core, "") is None
+
+    # Only the approved one is report-eligible; the rejection reason is stored.
+    approved = core.ledger.approved_findings_for(core.session_id)
+    assert [f.id for f in approved] == [keep.id]
+    rejected = core.ledger.finding(drop.id)
+    assert rejected is not None
+    assert rejected.review_reason == "false positive"

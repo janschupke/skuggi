@@ -81,6 +81,14 @@ CREATE TABLE IF NOT EXISTS findings (
     cvss_environmental REAL,
     cvss_score         REAL,
     cvss_severity      TEXT,
+    -- Review lifecycle. Every finding is born 'draft'; only 'approved' reaches a
+    -- report. ``author`` is who recorded it ('agent' | 'operator'); a rejection
+    -- carries its ``review_reason`` (also fed back to the agent so it stops
+    -- re-asserting it), and ``reviewed_at`` stamps the last status change.
+    author       TEXT NOT NULL DEFAULT 'agent',
+    status       TEXT NOT NULL DEFAULT 'draft',
+    review_reason TEXT NOT NULL DEFAULT '',
+    reviewed_at  TEXT,
     created_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS finding_refs (
@@ -128,6 +136,10 @@ _FINDING_MIGRATIONS = (
     ("cvss_environmental", "REAL"),
     ("cvss_score", "REAL"),
     ("cvss_severity", "TEXT"),
+    ("author", "TEXT NOT NULL DEFAULT 'agent'"),
+    ("status", "TEXT NOT NULL DEFAULT 'draft'"),
+    ("review_reason", "TEXT NOT NULL DEFAULT ''"),
+    ("reviewed_at", "TEXT"),
 )
 
 
@@ -193,6 +205,10 @@ class FindingRow:
     cvss_environmental: float | None
     cvss_score: float | None
     cvss_severity: str | None
+    author: str
+    status: str
+    review_reason: str
+    reviewed_at: str | None
     created_at: str
 
 
@@ -249,19 +265,25 @@ class AuditRow:
 
 
 def finding_line(
-    row: FindingRow, paint: Callable[[str, str], str] | None = None
+    row: FindingRow,
+    paint: Callable[[str, str], str] | None = None,
+    *,
+    outdated: bool = False,
 ) -> str:
-    """One-line summary of a finding: ``SEV [id] title (cmd:N)``.
+    """One-line summary of a finding: ``SEV [id] title — author/status (cmd:N)``.
 
     Shared by the REPL and the shell daemon so the row shape and the command
     link never drift. ``paint`` styles the severity token (the REPL passes the
-    palette; the plaintext daemon passes nothing).
+    palette; the plaintext daemon passes nothing). ``outdated`` flags a finding
+    whose CVSS score predates a threat-model change (see ``Ledger.rescore``).
     """
     severity = row.severity.upper()
     if paint is not None:
         severity = paint(severity, row.severity)
     link = f" (cmd:{row.command_id})" if row.command_id is not None else ""
-    return f"{severity} [{row.id}] {row.title}{link}"
+    stale = " ⚠ outdated" if outdated else ""
+    meta = f" — {row.author}/{row.status}{stale}"
+    return f"{severity} [{row.id}] {row.title}{meta}{link}"
 
 
 # Column lists derived from the row dataclasses, so SELECT order (and the
@@ -403,6 +425,7 @@ class Ledger:
         command_id: int | None = None,
         cvss_vector: str | None = None,
         refs: Sequence[FindingRefInput] = (),
+        author: str = "agent",
     ) -> int:
         """Insert a finding (plus its timeline event and any refs); return its id.
 
@@ -410,7 +433,9 @@ class Ledger:
         full CVSS breakdown is stored, so the numbers reconstruct from the row
         alone. ``severity`` may be omitted when a vector is present (it then takes
         the CVSS band); otherwise it is required. Each ``refs`` entry is resolved
-        against the vendored taxonomies to capture its title + link.
+        against the vendored taxonomies to capture its title + link. Every finding
+        is born ``status='draft'``; ``author`` is 'agent' or 'operator'. Only an
+        approved finding reaches a report (see ``set_finding_status``).
         """
         scored = cvss.score(cvss_vector) if cvss_vector else None
         if severity is None:
@@ -436,6 +461,10 @@ class Ledger:
                     scored.environmental if scored else None,
                     scored.overall if scored else None,
                     scored.severity if scored else None,
+                    author,
+                    "draft",
+                    "",
+                    None,
                     created_at,
                 ),
             )
@@ -599,16 +628,40 @@ class Ledger:
             ).fetchall()
         return [CommandRow(*row) for row in rows]
 
-    def findings_for(self, session_id: str) -> list[FindingRow]:
-        """Every finding in the session, oldest first."""
+    def findings_for(
+        self, session_id: str, *, status: str | None = None
+    ) -> list[FindingRow]:
+        """Every finding in the session, oldest first; optionally one status only."""
+        clause = "WHERE session_id = ? ORDER BY id"
+        params: tuple[object, ...] = (session_id,)
+        if status is not None:
+            clause = "WHERE session_id = ? AND status = ? ORDER BY id"
+            params = (session_id, status)
         with self._lock:
             rows = self._conn.execute(
-                _select_sql(
-                    "findings", _FINDING_COLS, "WHERE session_id = ? ORDER BY id"
-                ),
-                (session_id,),
+                _select_sql("findings", _FINDING_COLS, clause), params
             ).fetchall()
         return [FindingRow(*row) for row in rows]
+
+    def approved_findings_for(self, session_id: str) -> list[FindingRow]:
+        """Only the approved findings -- what a report is allowed to contain."""
+        return self.findings_for(session_id, status="approved")
+
+    def set_finding_status(
+        self, finding_id: int, status: str, *, reason: str = ""
+    ) -> None:
+        """Move a finding to ``status`` ('approved'|'rejected'|'draft'), stamping it.
+
+        A rejection carries its ``reason`` (shown to the operator and fed back to
+        the agent); approving clears any prior reason.
+        """
+        with self._lock:
+            self._conn.execute(
+                "UPDATE findings SET status = ?, review_reason = ?, reviewed_at = ?"
+                " WHERE id = ?",
+                (status, reason, now_iso(), finding_id),
+            )
+            self._conn.commit()
 
     def finding_refs_for(self, finding_id: int) -> list[FindingRefRow]:
         """The framework citations attached to a finding (primary first)."""

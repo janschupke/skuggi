@@ -293,6 +293,42 @@ def run_add(core: AgentCore, arg: str) -> AddOutcome:
     return AddUsage("note <text> | loot <text> | finding <severity> <title>")
 
 
+# ----- findings review (approve / reject) -----------------------------------
+_FINDINGS_USAGE = "findings [approve <id> | reject <id> <reason>]"
+
+
+def _review_finding(core: AgentCore, id_str: str, status: str, reason: str) -> str:
+    try:
+        fid = int(id_str.lstrip("#").strip())
+    except ValueError:
+        return f"not a finding id: {id_str!r}"
+    row = core.journal.set_status(fid, status, reason=reason)
+    if row is None:
+        return f"no such finding in this session: {id_str}"
+    extra = f": {reason}" if reason else ""
+    return f"{status} finding [{fid}]{extra}"
+
+
+def run_findings(core: AgentCore, arg: str) -> str | None:
+    """Handle a `findings` review sub-command. ``None`` means "list them instead".
+
+    Shared by both front-ends so the approve/reject grammar and messages never
+    drift; each front-end still owns how it *renders the listing*.
+    """
+    tokens = arg.split()
+    if not tokens:
+        return None
+    action = tokens[0].lower()
+    if action == "approve" and len(tokens) >= 2:  # noqa: PLR2004 -- action + id
+        return _review_finding(core, tokens[1], "approved", "")
+    if action == "reject" and len(tokens) >= 2:  # noqa: PLR2004 -- action + id
+        reason = arg.split(maxsplit=2)[2] if len(tokens) >= 3 else ""  # noqa: PLR2004
+        return _review_finding(core, tokens[1], "rejected", reason)
+    if action in {"approve", "reject"}:
+        return f"usage: {_FINDINGS_USAGE}"
+    return None
+
+
 # ----- doctor install -------------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class InstallUnknown:
