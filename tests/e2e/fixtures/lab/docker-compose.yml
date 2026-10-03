@@ -12,7 +12,7 @@ networks:
     ipam:
       config:
         - subnet: ${LAB_SUBNET:-192.0.2.0/24}
-          gateway: 192.0.2.1
+          gateway: ${LAB_GATEWAY:-192.0.2.1}
 
 volumes:
   dbdata:
@@ -33,7 +33,7 @@ services:
       DB_NAME: blog
     networks:
       lab-net:
-        ipv4_address: 192.0.2.10
+        ipv4_address: ${LAB_HOST_IP:-192.0.2.10}
     ports:
       # Convenience access from the host, loopback-only. On Linux you can also
       # reach 192.0.2.10 directly; on macOS use the WireGuard overlay.

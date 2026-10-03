@@ -29,6 +29,7 @@ import pytest
 
 from skuggi.agent.core import AgentCore
 from skuggi.agent.protocol import CriticResponse, FindingDraft, WorkerResponse
+from skuggi.common import home
 from skuggi.persistence.ledger import CommandRow
 from tests.fakes import RoleScriptedChatModel
 from tests.support import REPO_ROOT, engaged_core, wire_offline_llm
@@ -36,7 +37,64 @@ from tests.support import REPO_ROOT, engaged_core, wire_offline_llm
 LAB_DIR = REPO_ROOT / "tests" / "e2e" / "fixtures" / "lab"
 LAB_COMPOSE = LAB_DIR / "docker-compose.yml"
 LAB_IP = "192.0.2.10"
+# Non-overlapping candidate networks, tried in order at bring-up so the e2e
+# fixture coexists with whatever else holds a subnet (e.g. the user-facing
+# practice range in labs/, which defaults to the same TEST-NET-1 block). All are
+# IANA documentation ranges (RFC 5737), safe to use and never routable publicly.
+_SUBNET_CANDIDATES: tuple[tuple[str, str, str], ...] = (
+    ("192.0.2.0/24", "192.0.2.1", "192.0.2.10"),
+    ("198.51.100.0/24", "198.51.100.1", "198.51.100.10"),
+    ("203.0.113.0/24", "203.0.113.1", "203.0.113.10"),
+)
 _DEFAULT_HTTP_PORT = 8080
+
+# The operator's real homes, captured at import -- before any per-test
+# redirection -- so the leak guard (test_isolation.py) can assert the live layer
+# never writes them. Honors whatever SKUGGI_*/XDG_* the operator actually has.
+REAL_CONFIG_HOME = home.config_home()
+REAL_DATA_HOME = home.data_home()
+
+# Vendor credential vars stripped per e2e test (mirrors tests/conftest._VENDOR_ENV).
+_VENDOR_ENV = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_BASE_URL")
+
+
+@pytest.fixture(autouse=True)
+def isolate_e2e_homes(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Redirect the config/data homes under ``tmp_path`` for every e2e test.
+
+    The live layer is exempt from the root ``isolate_credentials`` fixture
+    (``tests/conftest.py``), because e2e needs the network and subprocess blocks
+    lifted to reach the lab and run real tools. That exemption also drops the
+    home redirection -- but the setup/config/init/log paths write through
+    ``skuggi.common.home`` (config home, data home, the ``env`` secrets file,
+    ``auth.json``, the diagnostic log), resolved at call time from the
+    environment, *not* from the ``Settings`` paths ``engaged_core`` pins. Without
+    this, an e2e test that seeds a config, writes a credential or logs a
+    diagnostic would land in the operator's real ``~/.config/skuggi`` /
+    ``~/.local/share/skuggi``.
+
+    So close exactly those env-resolved leaks (homes, auth, cwd) while leaving
+    ``httpx``/``subprocess`` real -- the lab needs them -- and preserving the
+    ``SKUGGI_E2E_*`` harness controls (e.g. ``SKUGGI_E2E_COMPOSE_UP``). Runs for
+    e2e-marked tests only; it is a no-op elsewhere.
+    """
+    if request.node.get_closest_marker("e2e") is None:
+        return
+    for name in _VENDOR_ENV:
+        monkeypatch.delenv(name, raising=False)
+    for name in list(os.environ):
+        if name.startswith("SKUGGI_") and not name.startswith("SKUGGI_E2E_"):
+            monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(home.CONFIG_HOME_ENV, str(tmp_path / "config-home"))
+    monkeypatch.setenv(home.DATA_HOME_ENV, str(tmp_path / "data-home"))
+    monkeypatch.setenv("SKUGGI_CODEX_AUTH_PATH", str(tmp_path / "no-such-auth.json"))
+    workdir = tmp_path / "cwd"
+    workdir.mkdir(exist_ok=True)
+    monkeypatch.chdir(workdir)
 
 
 @dataclass(frozen=True)
@@ -45,16 +103,20 @@ class Lab:
 
     host: str
     port: int
+    net_ip: str = LAB_IP
 
     @property
     def base_url(self) -> str:
         return f"http://{self.host}:{self.port}"
 
 
-def _compose(*args: str) -> subprocess.CompletedProcess[str]:
+def _compose(
+    *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     argv = ["docker", "compose", "-f", str(LAB_COMPOSE), *args]
+    merged = {**os.environ, **env} if env else None
     return subprocess.run(  # noqa: S603 -- docker is on PATH, shell=False
-        argv, capture_output=True, text=True, check=False
+        argv, capture_output=True, text=True, check=False, env=merged
     )
 
 
@@ -90,8 +152,12 @@ def _healthy(base_url: str, *, attempts: int = 10, delay: float = 1.0) -> bool:
     return False
 
 
-def ip_routable(ip: str = LAB_IP, port: int = 80) -> bool:
+_NET_IP = LAB_IP  # the in-network IP actually in use (updated by a remap)
+
+
+def ip_routable(ip: str | None = None, port: int = 80) -> bool:
     """Whether the in-network lab IP is directly reachable (Linux / macOS+WG)."""
+    ip = ip or _NET_IP
     try:
         with socket.create_connection((ip, port), timeout=1.0):
             return True
@@ -99,21 +165,42 @@ def ip_routable(ip: str = LAB_IP, port: int = 80) -> bool:
         return False
 
 
+def _bring_up() -> tuple[str, dict[str, str]]:
+    """Start the lab on the first collision-free candidate subnet.
+
+    Returns the in-network host IP and the env the stack was started with (so
+    teardown targets the same stack). Skips the layer with a clear reason if no
+    candidate is free or the stack is otherwise unhealthy. Never touches any
+    other compose project -- only this fixture's own ``skuggi-lab``.
+    """
+    last = ""
+    for subnet, gateway, host_ip in _SUBNET_CANDIDATES:
+        env = {"LAB_SUBNET": subnet, "LAB_GATEWAY": gateway, "LAB_HOST_IP": host_ip}
+        up = _compose("up", "-d", "--wait", env=env)
+        if up.returncode == 0:
+            return host_ip, env
+        last = up.stderr.strip()
+        _compose("down", "-v", env=env)  # clear a partial start before retrying
+        if "overlap" not in last.lower() and "pool" not in last.lower():
+            pytest.skip(f"lab did not come up: {last[:200]}")
+    pytest.skip(f"no free lab subnet among candidates: {last[:160]}")
+
+
 @pytest.fixture(scope="session")
 def lab() -> Iterator[Lab]:
     """The running lab, or a clean skip of the whole layer when it is down."""
+    global _NET_IP
     bring_up = os.environ.get("SKUGGI_E2E_COMPOSE_UP") == "1"
+    env: dict[str, str] | None = None
     if bring_up:
         if not shutil.which("docker"):
             pytest.skip("SKUGGI_E2E_COMPOSE_UP set but docker is not installed")
-        up = _compose("up", "-d", "--wait")
-        if up.returncode != 0:
-            pytest.skip(f"lab did not come up: {up.stderr.strip()[:200]}")
+        _NET_IP, env = _bring_up()
     port = _discover_http_port()
-    target = Lab(host="127.0.0.1", port=port)
+    target = Lab(host="127.0.0.1", port=port, net_ip=_NET_IP)
     if not _healthy(target.base_url):
         if bring_up:
-            _compose("down", "-v")
+            _compose("down", "-v", env=env)
         pytest.skip(
             f"skuggi lab is not reachable at {target.base_url} -- bring it up: "
             "`docker compose -f tests/e2e/fixtures/lab/docker-compose.yml up -d --wait`"
@@ -122,7 +209,7 @@ def lab() -> Iterator[Lab]:
         yield target
     finally:
         if bring_up:
-            _compose("down", "-v")
+            _compose("down", "-v", env=env)
 
 
 def _e2e_scope(name: str) -> dict[str, object]:
