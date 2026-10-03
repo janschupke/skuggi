@@ -25,7 +25,7 @@ from rich.spinner import Spinner
 from rich.table import Table
 
 from skuggi.agent import protocol, readiness
-from skuggi.agent.core import AgentCore, parse_toggle
+from skuggi.agent.core import AgentCore
 from skuggi.agent.state import AgentState
 from skuggi.common import palette, text
 from skuggi.config.config import Settings
@@ -34,6 +34,7 @@ from skuggi.frontend import (
     cmdflow,
     completion,
     configflow,
+    control,
     dispatch,
     installflow,
     menu,
@@ -151,42 +152,32 @@ class Tui:
         # Noun routers for the grouping verbs; each is drift-checked against
         # `verbs.noun_names(<verb>)` so a new noun cannot be half-wired.
         self._show_nouns: dict[str, Callable[[str], None]] = {
+            **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
             "config": self._show_config,
-            "provider": self._show_provider,
-            "model": self._show_model,
             "engagement": self._show_engagement,
             "db": self._show_db,
-            "sessions": self._show_sessions,
             "tools": self._show_tools,
-            "memory": self._show_memory,
             "notes": self._show_notes,
             "loot": self._show_loot,
             "findings": self._show_findings,
             "history": self._show_history,
             "trace": self._show_trace,
-            "threads": self._show_threads,
-            "status": self._show_status,
-            "grants": self._show_grants,
         }
         self._set_nouns: dict[str, Callable[[str], None]] = {
-            "engagement": self._set_engagement,
+            **{n: self._styled(a) for n, a in control.SET_ACTIONS.items()},
             "provider": self._set_provider,
             "model": self._set_model,
-            "mode": self._set_mode,
-            "autonomous": self._set_autonomous,
             "config": self._set_config,
             "scope": self._set_scope,
-            "thread": self._set_thread,
         }
         self._add_nouns: dict[str, Callable[[str], None]] = {
             "note": lambda rest: self._add_record("note", rest),
             "loot": lambda rest: self._add_record("loot", rest),
             "finding": lambda rest: self._add_record("finding", rest),
-            "memory": self._add_memory,
+            "memory": self._styled(control.add_memory),
         }
         self._remove_nouns: dict[str, Callable[[str], None]] = {
-            "memory": self._remove_memory,
-            "grants": self._remove_grants,
+            n: self._styled(a) for n, a in control.REMOVE_ACTIONS.items()
         }
 
     # ----- delegated read state ----------------------------------------------
@@ -291,6 +282,14 @@ class Tui:
         for line in lines:
             self.console.print(render.to_markup(line))
 
+    def _styled(self, action: control.Action) -> Callable[[str], None]:
+        """Adapt a shared control action to this surface's console emit."""
+
+        def handler(rest: str) -> None:
+            self._emit(action(self.core, rest, "repl"))
+
+        return handler
+
     def _status(self, node: str, text: str) -> None:
         if not text:
             return
@@ -382,9 +381,7 @@ class Tui:
         if not arg:
             self._run_setup()
             return
-        self._emit(
-            dispatch.present_provider(dispatch.run_provider(self.core, arg), "repl")
-        )
+        self._emit(control.set_provider_named(self.core, arg, "repl"))
 
     def _set_model(self, arg: str) -> None:
         """Switch model; with no name, pick one from the provider's curated list."""
@@ -397,15 +394,7 @@ class Tui:
                 lambda text: self.console.print(f"[dim]{text}[/dim]"),
             )
             return
-        self._emit(dispatch.present_model(dispatch.run_model(self.core, arg), "repl"))
-
-    def _set_mode(self, arg: str) -> None:
-        try:
-            self.core.set_mode(arg)
-        except ValueError as e:
-            self._emit(dispatch.present_error(str(e)))
-            return
-        self._emit(dispatch.present_mode(self.mode))
+        self._emit(control.set_model_named(self.core, arg, "repl"))
 
     def _cmd_engagement(self, arg: str) -> None:
         first = arg.split(maxsplit=1)[0] if arg.split() else ""
@@ -422,14 +411,6 @@ class Tui:
             f"{verbs.cmd('engagement setup | threat-model', 'repl')} "
             f"-- adopt/scaffold a root with {adopt}, "
             f"scope summary is {verbs.cmd('show engagement', 'repl')}"
-        )
-
-    def _set_engagement(self, arg: str) -> None:
-        """Adopt the engagement root `arg` (cwd by default), scaffolding if absent."""
-        self._emit(
-            dispatch.present_set_engagement(
-                dispatch.run_set_engagement(self.core, arg), "repl"
-            )
         )
 
     def _ask(self, prompt: str) -> str | None:
@@ -524,21 +505,6 @@ class Tui:
             apply=self.core.scope.apply,
             grants=self.core.grants,
         )
-
-    def _set_autonomous(self, arg: str) -> None:
-        try:
-            state = self.core.set_autonomous(parse_toggle(arg))
-        except ValueError as e:
-            self._emit(dispatch.present_error(str(e)))
-            return
-        self._emit(dispatch.present_autonomous(state))
-
-    def _set_thread(self, arg: str) -> None:
-        if arg in ("new", ""):
-            self._emit(dispatch.present_thread("new", self.core.new_thread()))
-        else:
-            self.core.set_thread(arg)
-            self._emit(dispatch.present_thread("switch", arg))
 
     def _run_setup(self) -> None:
         """Guided provider + credential setup (the app owns the credentials)."""
@@ -646,7 +612,7 @@ class Tui:
                 self.console.print(f"    {desc}")
 
     def _resolve_cmd(self, name: str) -> None:
-        self._emit(dispatch.present_cmd_plan(self.core.cmds.plan(name), "repl"))
+        self._emit(control.resolve_cmd(self.core, name, "repl"))
 
     def _cmd_suggest(self, request: str) -> None:
         if not request.strip():
@@ -708,45 +674,10 @@ class Tui:
             )
         )
 
-    def _add_memory(self, rest: str) -> None:
-        """Remember an operator preference (``add memory <entry>``)."""
-        if not rest:
-            self._emit(dispatch.usage("add memory <entry>", "repl"))
-            return
-        self._emit(
-            dispatch.present_memory(dispatch.run_memory(self.core, f"add {rest}"))
-        )
-
-    # ----- remove <noun> -----------------------------------------------------
-
-    def _remove_memory(self, rest: str) -> None:
-        """Forget one preference (``remove memory <id>``) or every one (``all``)."""
-        if rest == "all":
-            self._emit(dispatch.present_memory(dispatch.run_memory(self.core, "clear")))
-            return
-        if not rest.isdigit():
-            self._emit(dispatch.usage("remove memory <id> | all", "repl"))
-            return
-        self._emit(
-            dispatch.present_memory(dispatch.run_memory(self.core, f"forget {rest}"))
-        )
-
-    def _remove_grants(self, _rest: str) -> None:
-        """Revoke every active session approval grant."""
-        self._emit(dispatch.present_grants_revoked(self.core.grants.revoke_all()))
-
     # ----- show <noun> -------------------------------------------------------
 
     def _show_config(self, _rest: str) -> None:
         self.console.print(self.core.config.summary())
-
-    def _show_provider(self, _rest: str) -> None:
-        self._emit(
-            dispatch.present_show_provider(readiness.from_core(self.core), "repl")
-        )
-
-    def _show_model(self, _rest: str) -> None:
-        self._emit(dispatch.present_show_model(readiness.from_core(self.core)))
 
     def _show_engagement(self, _rest: str) -> None:
         eng = self.engagement
@@ -765,15 +696,6 @@ class Tui:
     def _show_db(self, _rest: str) -> None:
         self.console.print(dispatch.run_db_stats(self.core))
 
-    def _show_grants(self, _rest: str) -> None:
-        self._emit(dispatch.present_grants(self.core.grants.active()))
-
-    def _show_status(self, _rest: str) -> None:
-        self._emit(dispatch.present_status(dispatch.run_status(self.core), "repl"))
-
-    def _show_sessions(self, _rest: str) -> None:
-        self._emit(dispatch.present_sessions(dispatch.run_sessions(self.core)))
-
     def _show_tools(self, rest: str) -> None:
         which = rest.strip().lower() or "all"
         if which not in _TOOL_FILTERS:
@@ -791,9 +713,6 @@ class Tui:
             self.console.print(f"[dim](no {which} tools)[/dim]")
             return
         self.console.print(doctor_table(filtered))
-
-    def _show_memory(self, _rest: str) -> None:
-        self._emit(dispatch.present_memory(dispatch.run_memory(self.core, "")))
 
     def _show_notes(self, _rest: str) -> None:
         text = self.core.journal.notes()
@@ -848,13 +767,6 @@ class Tui:
                     f"[green]  {cmd.summary.splitlines()[0][:200]}[/green]"
                 )
 
-    def _show_threads(self, _rest: str) -> None:
-        self._emit(
-            dispatch.present_threads(
-                self.core.ledger.thread_summaries(), self.thread_id
-            )
-        )
-
     def _cmd_findings(self, arg: str) -> None:
         """Review a finding (approve/reject/rescore); listing is `show findings`."""
         message = dispatch.run_findings(self.core, arg)
@@ -907,9 +819,7 @@ class Tui:
             self.console.print(line.rstrip())
 
     def _cmd_reconcile(self, arg: str) -> None:
-        self._emit(
-            dispatch.present_reconcile(dispatch.run_reconcile(self.core, arg), "repl")
-        )
+        self._emit(control.reconcile(self.core, arg, "repl"))
 
     def _cmd_clear(self, _arg: str) -> None:
         self.console.clear()

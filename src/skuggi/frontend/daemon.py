@@ -28,14 +28,15 @@ from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import cast
 
-from skuggi.agent import protocol, readiness
-from skuggi.agent.core import AgentCore, parse_toggle
+from skuggi.agent import protocol
+from skuggi.agent.core import AgentCore
 from skuggi.common import palette
 from skuggi.common.logs import get_logger
 from skuggi.frontend import (
     cmdflow,
     completion,
     configflow,
+    control,
     dispatch,
     installflow,
     render,
@@ -644,27 +645,29 @@ class Daemon:
             return
         yield from handler(rest.strip())
 
+    def _styled(self, action: control.Action) -> Callable[[str], Iterator[str]]:
+        """Adapt a shared control action to this surface's streaming emit."""
+
+        def handler(rest: str) -> Iterator[str]:
+            yield from self._emit(action(self.core, rest, self._surface()))
+
+        return handler
+
     def _show(self, arg: str) -> Iterator[str]:
         yield from self._route_noun(
             "show",
             arg,
             {
+                **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
                 "config": self._show_config,
-                "provider": self._show_provider,
-                "model": self._show_model,
                 "engagement": self._show_engagement,
                 "db": self._show_db,
-                "sessions": self._show_sessions,
                 "tools": self._show_tools,
-                "memory": self._show_memory,
                 "notes": self._notes,
                 "loot": self._loot,
                 "findings": self._show_findings,
                 "history": self._history,
                 "trace": self._trace,
-                "threads": self._show_threads,
-                "status": self._show_status,
-                "grants": self._show_grants,
             },
         )
 
@@ -673,14 +676,11 @@ class Daemon:
             "set",
             arg,
             {
-                "engagement": self._set_engagement,
+                **{n: self._styled(a) for n, a in control.SET_ACTIONS.items()},
                 "provider": self._set_provider,
                 "model": self._set_model,
-                "mode": self._mode,
-                "autonomous": self._autonomous,
                 "config": self._config,
                 "scope": self._scope,
-                "thread": self._set_thread,
             },
         )
 
@@ -688,7 +688,7 @@ class Daemon:
         yield from self._route_noun(
             "remove",
             arg,
-            {"memory": self._remove_memory, "grants": self._remove_grants},
+            {n: self._styled(a) for n, a in control.REMOVE_ACTIONS.items()},
         )
 
     # ----- control handlers (plain text over the socket) --------------------
@@ -722,9 +722,7 @@ class Daemon:
         yield from self._cheat_list(matches)
 
     def _cheat_resolve(self, name: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_cmd_plan(self.core.cmds.plan(name), self._surface())
-        )
+        yield from self._emit(control.resolve_cmd(self.core, name, self._surface()))
 
     def _cheat_list(self, aliases: tuple[CommandAlias, ...]) -> Iterator[str]:
         if not aliases:
@@ -776,55 +774,10 @@ class Daemon:
     def _review(self, arg: str) -> Iterator[str]:
         yield self.core.archive.review(arg.strip() or None) + "\n"
 
-    def _show_memory(self, _rest: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_memory(dispatch.run_memory(self.core, ""))
-        )
-
-    def _add_memory(self, rest: str) -> Iterator[str]:
-        if not rest:
-            yield from self._emit(dispatch.usage("add memory <entry>", self._surface()))
-            return
-        yield from self._emit(
-            dispatch.present_memory(dispatch.run_memory(self.core, f"add {rest}"))
-        )
-
-    def _remove_memory(self, rest: str) -> Iterator[str]:
-        if rest == "all":
-            yield from self._emit(
-                dispatch.present_memory(dispatch.run_memory(self.core, "clear"))
-            )
-            return
-        if not rest.isdigit():
-            yield from self._emit(
-                dispatch.usage("remove memory <id> | all", self._surface())
-            )
-            return
-        yield from self._emit(
-            dispatch.present_memory(dispatch.run_memory(self.core, f"forget {rest}"))
-        )
-
-    def _remove_grants(self, _rest: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_grants_revoked(self.core.grants.revoke_all())
-        )
-
     # ----- show <noun> -------------------------------------------------------
 
     def _show_config(self, _rest: str) -> Iterator[str]:
         yield self.core.config.summary() + "\n"
-
-    def _show_provider(self, _rest: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_show_provider(
-                readiness.from_core(self.core), self._surface()
-            )
-        )
-
-    def _show_model(self, _rest: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_show_model(readiness.from_core(self.core))
-        )
 
     def _show_engagement(self, _rest: str) -> Iterator[str]:
         described = self.core.describe_engagement()
@@ -835,9 +788,6 @@ class Daemon:
 
     def _show_db(self, _rest: str) -> Iterator[str]:
         yield dispatch.run_db_stats(self.core) + "\n"
-
-    def _show_grants(self, _rest: str) -> Iterator[str]:
-        yield from self._emit(dispatch.present_grants(self.core.grants.active()))
 
     def _show_tools(self, rest: str) -> Iterator[str]:
         which = rest.strip().lower() or "all"
@@ -856,23 +806,6 @@ class Daemon:
     def _show_findings(self, _rest: str) -> Iterator[str]:
         yield from self._render_findings()
 
-    def _show_threads(self, _rest: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_threads(
-                self.core.ledger.thread_summaries(), self.core.thread_id
-            )
-        )
-
-    def _show_sessions(self, _rest: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_sessions(dispatch.run_sessions(self.core))
-        )
-
-    def _show_status(self, _rest: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_status(dispatch.run_status(self.core), self._surface())
-        )
-
     def _engagement(self, arg: str) -> Iterator[str]:
         first = arg.split(maxsplit=1)[0] if arg.split() else ""
         if first in wizard.WIZARD_ARGS:
@@ -889,13 +822,6 @@ class Daemon:
             f"usage: {self._cmd('engagement setup | threat-model')} -- "
             f"adopt/scaffold a root with {self._cmd('set engagement [<path>]')}, "
             f"scope summary is {self._cmd('show engagement')}\n"
-        )
-
-    def _set_engagement(self, arg: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_set_engagement(
-                dispatch.run_set_engagement(self.core, arg), self._surface()
-            )
         )
 
     def _config(self, arg: str) -> Iterator[str]:
@@ -956,22 +882,6 @@ class Daemon:
             dispatch.present_install(dispatch.run_install(self.core, binary))
         )
 
-    def _mode(self, arg: str) -> Iterator[str]:
-        try:
-            self.core.set_mode(arg)
-        except ValueError as e:
-            yield from self._emit(dispatch.present_error(str(e)))
-            return
-        yield from self._emit(dispatch.present_mode(self.core.mode))
-
-    def _autonomous(self, arg: str) -> Iterator[str]:
-        try:
-            state = self.core.set_autonomous(parse_toggle(arg))
-        except ValueError as e:
-            yield from self._emit(dispatch.present_error(str(e)))
-            return
-        yield from self._emit(dispatch.present_autonomous(state))
-
     def _set_provider(self, arg: str) -> Iterator[str]:
         if not arg:
             # No name: the guided picker needs the attach loop; the client routes
@@ -979,27 +889,14 @@ class Daemon:
             yield f"set provider is interactive -- run {self._cmd('set provider')}\n"
             return
         yield from self._emit(
-            dispatch.present_provider(
-                dispatch.run_provider(self.core, arg), self._surface()
-            )
+            control.set_provider_named(self.core, arg, self._surface())
         )
 
     def _set_model(self, arg: str) -> Iterator[str]:
         if not arg:
             yield f"set model is interactive -- run {self._cmd('set model')}\n"
             return
-        yield from self._emit(
-            dispatch.present_model(dispatch.run_model(self.core, arg), self._surface())
-        )
-
-    def _set_thread(self, arg: str) -> Iterator[str]:
-        if arg in ("new", ""):
-            yield from self._emit(
-                dispatch.present_thread("new", self.core.new_thread())
-            )
-        else:
-            self.core.set_thread(arg)
-            yield from self._emit(dispatch.present_thread("switch", arg))
+        yield from self._emit(control.set_model_named(self.core, arg, self._surface()))
 
     def _history(self, arg: str) -> Iterator[str]:
         count = int(arg) if arg.isdigit() else 20
@@ -1029,11 +926,7 @@ class Daemon:
         yield from self.core.self_update()
 
     def _reconcile(self, arg: str) -> Iterator[str]:
-        yield from self._emit(
-            dispatch.present_reconcile(
-                dispatch.run_reconcile(self.core, arg), self._surface()
-            )
-        )
+        yield from self._emit(control.reconcile(self.core, arg, self._surface()))
 
     def _clear(self, _arg: str) -> Iterator[str]:
         yield "clear is only available in skuggi-repl\n"
@@ -1042,7 +935,9 @@ class Daemon:
         noun, _, rest = arg.partition(" ")
         noun = noun.strip().lower()
         if noun == "memory":
-            yield from self._add_memory(rest.strip())
+            yield from self._emit(
+                control.add_memory(self.core, rest.strip(), self._surface())
+            )
             return
         if noun in {"note", "loot", "finding"}:
             yield from self._add_record(f"{noun} {rest.strip()}".strip())
