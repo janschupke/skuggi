@@ -34,6 +34,7 @@ from skuggi.common import palette
 from skuggi.common.logs import get_logger
 from skuggi.frontend import (
     cmdflow,
+    completion,
     configflow,
     dispatch,
     installflow,
@@ -95,21 +96,10 @@ class Daemon:
             yield from self._dispatch(msg)
 
     def _completion_tree(self) -> dict[str, object]:
-        """A NestedCompleter-shaped vocabulary for the chat loop + ``--complete``.
-
-        ``{verb: {noun: None, ...} | None}`` -- grouping verbs expand to their
-        nouns, ``cmd`` to the cheatsheet names, ``reconcile`` to the config files
-        (and ``diff``/``all``). Built from the one verb registry plus the live
-        core, so it never drifts from what the dispatch actually accepts.
-        """
-        tree: dict[str, object] = {}
-        for verb in verbs.VERBS:
-            nouns = verbs.nouns_of(verb.name)
-            tree[verb.name] = {n.name: None for n in nouns} if nouns else None
-        tree["cmd"] = dict.fromkeys(self.core.commands.names())
-        files: dict[str, object] = dict.fromkeys(reconcile.known_names())
-        tree["reconcile"] = {"diff": dict(files), "all": None, **files}
-        return tree
+        """The shared Tab-completion vocabulary for the chat loop + ``--complete``."""
+        return completion.completion_tree(
+            self.core.commands.names(), reconcile.known_names()
+        )
 
     def _complete(self, words: list[str]) -> list[str]:
         """Candidates following the already-complete tokens `words` (host-shell TAB).
@@ -130,8 +120,8 @@ class Daemon:
 
         Sent before each chat-loop prompt so the client can render
         ``🐐 [<engagement>] >`` and refresh it after a ``set engagement``. The
-        first frame also carries ``ready`` (history path + completion tree) so the
-        thin client can build its prompt_toolkit session without loading config.
+        first frame also carries ``ready`` (the completion tree) so the thin
+        client can build its prompt_toolkit session without loading config.
         """
         eng = self.core.engagement
         frame: dict[str, object] = {
@@ -141,10 +131,7 @@ class Daemon:
             }
         }
         if ready:
-            frame["ready"] = {
-                "history_path": str(self.core.settings.history_path),
-                "tree": self._completion_tree(),
-            }
+            frame["ready"] = {"tree": self._completion_tree()}
         return frame
 
     def run_attached(  # noqa: PLR0912 -- one branch per interactive attach mode

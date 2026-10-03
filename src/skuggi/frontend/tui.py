@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING, cast
 
 from langgraph.graph.state import CompiledStateGraph
 from prompt_toolkit import PromptSession
-from prompt_toolkit.history import FileHistory
+from prompt_toolkit.completion import NestedCompleter
+from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.shortcuts import CompleteStyle
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
@@ -26,11 +28,11 @@ from skuggi.agent import protocol, readiness
 from skuggi.agent.core import AgentCore, parse_toggle
 from skuggi.agent.state import AgentState
 from skuggi.common import palette, text
-from skuggi.common.paths import ensure_parent
 from skuggi.config.config import Settings
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.frontend import (
     cmdflow,
+    completion,
     configflow,
     dispatch,
     installflow,
@@ -42,6 +44,7 @@ from skuggi.frontend import (
     wizard,
 )
 from skuggi.frontend.prompter import Prompter
+from skuggi.install import reconcile
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import Ledger, finding_line
 from skuggi.tooling.commands import CommandAlias
@@ -98,10 +101,15 @@ class Tui:
         self.console = console or Console()
         self.core = AgentCore(settings)
 
-        history_file = self.core.settings.history_path
-        ensure_parent(history_file)
         self.session: PromptSession[str] = session or PromptSession(
-            history=FileHistory(str(history_file))
+            history=InMemoryHistory(),
+            completer=NestedCompleter.from_nested_dict(
+                completion.completion_tree(
+                    self.core.commands.names(), reconcile.known_names()
+                )
+            ),
+            complete_style=CompleteStyle.READLINE_LIKE,
+            complete_while_typing=False,
         )
 
         # Surface any config-degrade warnings at construction (tests read these

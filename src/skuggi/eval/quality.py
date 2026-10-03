@@ -50,7 +50,6 @@ def build_live_core(  # pragma: no cover
             "engagement_root": workspace,
             "sqlite_path": tmp / "sessions.db",
             "faiss_path": tmp / "faiss",
-            "history_path": tmp / ".repl_history",
             "preferences_path": tmp / "preferences.db",
         }
     )

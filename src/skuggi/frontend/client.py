@@ -237,28 +237,21 @@ def _await_prompt(frames: Iterator[bytes]) -> dict[str, object] | None:
 
 
 def _make_session(ready: dict[str, object]) -> object:  # pragma: no cover -- terminal
-    """Build the prompt_toolkit session: file history, completion, Ctrl-C binding.
+    """Build the prompt_toolkit session: completion, history, Ctrl-C binding.
 
     Imported lazily so the fire-and-forget ``--record``/``--complete`` paths never
-    pay for prompt_toolkit. History is the daemon-resolved ``.repl_history`` in the
-    data home (internal to skuggi, never the host shell's). Completion is the
-    daemon's nested verb/noun/cmd vocabulary. Ctrl-C clears a typed draft silently
-    and only leaves the hint for an empty prompt.
+    pay for prompt_toolkit. Standard-CLI behavior: Tab completes (fill the single/
+    common prefix, a second Tab lists columns) via ``READLINE_LIKE`` -- nothing
+    floats, nothing appears until Tab, and the arrow keys stay on history. History
+    is in-memory and per-session (never written to disk). Ctrl-C clears a typed
+    draft silently and only leaves the hint for an empty prompt.
     """
     from prompt_toolkit import PromptSession  # noqa: PLC0415 -- keep ptk off hot paths
     from prompt_toolkit.completion import NestedCompleter  # noqa: PLC0415
-    from prompt_toolkit.history import FileHistory  # noqa: PLC0415
+    from prompt_toolkit.history import InMemoryHistory  # noqa: PLC0415
     from prompt_toolkit.key_binding import KeyBindings  # noqa: PLC0415
+    from prompt_toolkit.shortcuts import CompleteStyle  # noqa: PLC0415
 
-    history = None
-    hist_path = ready.get("history_path")
-    if isinstance(hist_path, str) and hist_path:
-        try:
-            # os over pathlib: this client stays dependency-thin (json/os/socket).
-            os.makedirs(os.path.dirname(hist_path), exist_ok=True)  # noqa: PTH103, PTH120
-            history = FileHistory(hist_path)
-        except OSError:
-            history = None
     completer = None
     tree = ready.get("tree")
     if isinstance(tree, dict):
@@ -274,7 +267,13 @@ def _make_session(ready: dict[str, object]) -> object:  # pragma: no cover -- te
         else:  # empty prompt: propagate so the caller shows the exit hint
             event.app.exit(exception=KeyboardInterrupt)  # type: ignore[attr-defined]
 
-    return PromptSession(history=history, completer=completer, key_bindings=bindings)
+    return PromptSession(
+        history=InMemoryHistory(),
+        completer=completer,
+        complete_style=CompleteStyle.READLINE_LIKE,
+        complete_while_typing=False,
+        key_bindings=bindings,
+    )
 
 
 def _prompt_turn(

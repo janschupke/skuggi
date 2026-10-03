@@ -164,7 +164,6 @@ def test_storage_paths_default_under_the_homes(
     settings = Settings()
     assert settings.sqlite_path == tmp_path / "d" / "sessions.db"
     assert settings.faiss_path == tmp_path / "d" / "faiss_index"
-    assert settings.history_path == tmp_path / "d" / ".repl_history"
     assert settings.preferences_path == tmp_path / "d" / "preferences.db"
     assert settings.managed_tools_dir == tmp_path / "d" / "toolbox"
     assert settings.registry_path == tmp_path / "c" / "tools.json"

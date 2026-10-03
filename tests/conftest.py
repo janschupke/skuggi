@@ -78,7 +78,6 @@ def offline_settings(
         provider="ollama",
         sqlite_path=tmp_path / "sessions.db",
         faiss_path=tmp_path / "faiss",
-        history_path=tmp_path / ".repl_history",
         engagement_root=engagement_root,
     )
 

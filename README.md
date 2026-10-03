@@ -478,7 +478,7 @@ standard `XDG_*` variables, each with a `SKUGGI_*` override in front of it:
 | | Default | Overrides | Holds |
 |---|---|---|---|
 | **Config home** | `~/.config/skuggi` | `SKUGGI_CONFIG_HOME`, else `XDG_CONFIG_HOME/skuggi` | `config.json`, `tools.json`, `layout.json`, `commands.json`, `env` |
-| **Data home** | `~/.local/share/skuggi` | `SKUGGI_DATA_HOME`, else `XDG_DATA_HOME/skuggi` | `sessions.db`, `preferences.db`, `faiss_index/`, `toolbox/`, `.repl_history` |
+| **Data home** | `~/.local/share/skuggi` | `SKUGGI_DATA_HOME`, else `XDG_DATA_HOME/skuggi` | `sessions.db`, `preferences.db`, `faiss_index/`, `toolbox/` |
 
 **The engagement root stays relative to your working directory.** That is the
 one deliberate exception, and the reason for the split: an engagement's scope,
@@ -542,7 +542,6 @@ Harness state, in the **data home** (`~/.local/share/skuggi`):
 - `preferences.db` — harness memory (global operator preferences)
 - `faiss_index/` — FAISS retrieval index
 - `toolbox/` — the managed tool venv (`SKUGGI_TOOL_SOURCE=managed|combine`)
-- `.repl_history` — REPL input history
 - `ledger.db`, `reports/` — agent-only fallback when no engagement is selected
 
 Per-case, **relative to your working directory**:

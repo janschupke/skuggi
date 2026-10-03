@@ -19,7 +19,7 @@ from prompt_toolkit.completion import (
     CompleteEvent,
     Completer,
     Completion,
-    FuzzyWordCompleter,
+    WordCompleter,
 )
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
@@ -28,6 +28,7 @@ from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.layout import HSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.output import Output
+from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
 
 # ANSI-named colours map to the parent terminal's own 16-colour palette, so the
@@ -241,10 +242,10 @@ def multiselect(
 
 
 class _CsvCompleter(Completer):
-    """Completes the token after the last comma against a word list."""
+    """Completes the token after the last comma against a word list (prefix)."""
 
     def __init__(self, words: Sequence[str]) -> None:
-        self._inner = FuzzyWordCompleter(list(words))
+        self._inner = WordCompleter(list(words), ignore_case=True)
 
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
@@ -265,16 +266,21 @@ def ask_complete(  # noqa: PLR0913 -- keyword-only widget options + test I/O
 ) -> str | None:
     """Free-text input with completion from `candidates`; ``None`` on abort.
 
-    `candidates` only assist -- any text is accepted. `multi=True` completes the
-    token after the last comma (for a comma-separated list). `pt_input`/
-    `pt_output` are injected by tests.
+    `candidates` only assist -- any text is accepted. Completion is standard-CLI
+    Tab (``READLINE_LIKE``): nothing floats, Tab fills the single/common prefix
+    and a second Tab lists columns. `multi=True` completes the token after the
+    last comma (for a comma-separated list). `pt_input`/`pt_output` are injected
+    by tests.
     """
     completer: Completer = (
-        _CsvCompleter(candidates) if multi else FuzzyWordCompleter(list(candidates))
+        _CsvCompleter(candidates)
+        if multi
+        else WordCompleter(list(candidates), ignore_case=True)
     )
     session: PromptSession[str] = PromptSession(
         completer=completer,
-        complete_while_typing=True,
+        complete_while_typing=False,
+        complete_style=CompleteStyle.READLINE_LIKE,
         input=pt_input,
         output=pt_output,
     )

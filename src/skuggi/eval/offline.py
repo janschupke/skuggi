@@ -105,7 +105,6 @@ def build_offline_core(
         registry_path=registry_path,
         sqlite_path=tmp / "sessions.db",
         faiss_path=tmp / "faiss",
-        history_path=tmp / ".repl_history",
         preferences_path=tmp / "preferences.db",
     )
     core = AgentCore(settings)

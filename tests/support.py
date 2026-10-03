@@ -63,7 +63,6 @@ def engaged_core(
         registry_path=registry_path,
         sqlite_path=tmp_path / "sessions.db",
         faiss_path=tmp_path / "faiss",
-        history_path=tmp_path / ".repl_history",
         preferences_path=tmp_path / "preferences.db",
         # Pinned under tmp_path even though all three are optional: their defaults
         # are in the operator's config home, and the live layers (L4 eval, L5 e2e)

@@ -216,9 +216,6 @@ class Settings(BaseSettings):
     # redirects SKUGGI_DATA_HOME between two Settings() gets two different paths.
     sqlite_path: Path = Field(default_factory=lambda: home.data_home() / "sessions.db")
     faiss_path: Path = Field(default_factory=lambda: home.data_home() / "faiss_index")
-    history_path: Path = Field(
-        default_factory=lambda: home.data_home() / ".repl_history"
-    )
     # The diagnostic file log (skuggi.logs), distinct from the SQLite ledger/audit
     # logs. `log_level` is here for discoverability and the doctor table; the level
     # actually applied at startup is resolved from the environment by

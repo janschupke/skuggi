@@ -84,7 +84,7 @@ reason for the split — not a bespoke scheme. Plus one deliberate exception.
   scope.example.json    # template to copy for a new engagement
 
 ~/.local/share/skuggi/
-  sessions.db  preferences.db  faiss_index/  toolbox/  .repl_history
+  sessions.db  preferences.db  faiss_index/  toolbox/
   ledger.db  reports/          # agent-only fallback, no engagement selected
   logs/skuggi.log              # diagnostic log (rotating); SKUGGI_LOG_LEVEL
 
