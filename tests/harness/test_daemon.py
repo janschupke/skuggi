@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from skuggi.agent.core import AgentCore
+from skuggi.agent.core import AgentCore, TurnEvent
 from skuggi.frontend.daemon import Daemon
 from skuggi.persistence import pdf as pdf_mod
 from skuggi.tooling import probe as probe_mod
@@ -507,3 +507,23 @@ def test_update_verb_streams_core_output(
     out = _chunks(daemon, {"op": "input", "text": "update"})
     assert "updating" in out
     assert "done" in out
+
+
+def test_agent_relays_a_multiline_error_in_full(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A pydantic ValidationError spans several lines; the daemon must not truncate
+    # the error node to its first line, or the field/reason are lost (which
+    # hid the real planner crash behind a bare "1 validation error").
+    err = (
+        "ValidationError: 1 validation error for PlannerResponse\n"
+        "phase\n  Field required"
+    )
+    monkeypatch.setattr(
+        daemon.core,
+        "turn",
+        lambda _text: iter([TurnEvent("status", err, node="error")]),
+    )
+    out = "".join(daemon._agent("ask who are you?"))
+    assert "phase" in out
+    assert "Field required" in out

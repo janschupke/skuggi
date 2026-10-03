@@ -364,7 +364,13 @@ class Daemon:
         final = ""
         for ev in self.core.turn(text):
             if ev.kind == "status" and ev.text:
-                yield f"({ev.node}) {ev.text.splitlines()[0]}\n"
+                if ev.node == "error":
+                    # Surface the whole error -- a pydantic ValidationError spans
+                    # several lines, and truncating to the first hides the field
+                    # and reason that make a failure diagnosable.
+                    yield f"({ev.node}) {ev.text}\n"
+                else:
+                    yield f"({ev.node}) {ev.text.splitlines()[0]}\n"
             elif ev.kind == "final":
                 final = ev.text
         yield (final or "(no answer)") + "\n"
