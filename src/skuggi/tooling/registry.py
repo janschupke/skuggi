@@ -16,10 +16,18 @@ Rich machinery.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import IntEnum
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Annotated, Literal, NamedTuple
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    field_validator,
+)
 
 from skuggi.common.text import safe_cmd_fragment
 
@@ -27,6 +35,53 @@ from skuggi.common.text import safe_cmd_fragment
 # ``-oA scan`` writes ``scan.nmap``/``.gnmap``/``.xml``), a single *file*
 # (``-o out.json``), or an output *directory* (``--output-dir dir``).
 OutputKind = Literal["prefix", "file", "dir"]
+
+
+class RiskTier(IntEnum):
+    """How risky an allowed command is, ordered low -> high.
+
+    Owned here because a tool's base risk is a registry fact (``ToolSpec.risk``);
+    the scoring that raises it per invocation lives in ``engagement.risk``, and
+    the autonomous ceiling that gates it lives on ``EngagementConfig``. Ordered so
+    ``tier > ceiling`` is a plain comparison.
+    """
+
+    recon = 0  # passive information gathering
+    active = 1  # touches the target but non-invasively (port/dir scans)
+    intrusive = 2  # brute-force / credential cracking
+    destructive = 3  # exploitation, privilege escalation, data extraction
+
+
+_TIER_NAMES = ", ".join(t.name for t in RiskTier)
+
+
+def _coerce_tier(value: object) -> RiskTier:
+    """Read a RiskTier from itself, its name (``"active"``) or its rank (``1``).
+
+    scope.json and tools.json are hand-editable, so the readable name is the
+    canonical form; an int rank is accepted as a convenience.
+    """
+    if isinstance(value, RiskTier):
+        return value
+    if isinstance(value, str):
+        try:
+            return RiskTier[value]
+        except KeyError:
+            msg = f"unknown risk tier {value!r} (expected one of {_TIER_NAMES})"
+            raise ValueError(msg) from None
+    if isinstance(value, int):
+        return RiskTier(value)  # raises ValueError if out of range
+    msg = f"cannot read a risk tier from {value!r}"
+    raise ValueError(msg)
+
+
+# A RiskTier field that validates from / serializes to its readable name, so
+# tools.json / scope.json carry ``"destructive"`` rather than ``3``.
+RiskTierField = Annotated[
+    RiskTier,
+    BeforeValidator(_coerce_tier),
+    PlainSerializer(lambda t: t.name, return_type=str),
+]
 
 
 class ToolSpec(BaseModel):
@@ -55,6 +110,10 @@ class ToolSpec(BaseModel):
     input_file_flags: tuple[str, ...] = ()
     requires_target: bool = True
     install: dict[str, str] = Field(default_factory=dict)
+    # Optional explicit risk tier. Unset -> derived from ``method`` by
+    # ``engagement.risk``; set -> overrides it (e.g. mark msfvenom/sqlmap
+    # ``destructive`` regardless of their method bucket).
+    risk: RiskTierField | None = None
     # Output convention (optional). When ``output_flag`` is set, the cheatsheet
     # renderer injects ``<output_flag> <workspace-dir>/<stamp>_${target}_<label>``
     # so every invocation of this tool lands a timestamped artefact in the right

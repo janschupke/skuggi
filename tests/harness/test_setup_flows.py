@@ -66,7 +66,8 @@ def _wizard_prompter(name: str, notes: list[str] | None = None) -> Prompter:
         ]
     )
     completes = iter(["UTC", "nmap, curl"])  # timezone, allowed_tools
-    chooses = iter(["phases", "cautious"])  # methodology, stance (threat declined)
+    # methodology, stance, autonomous_ceiling (threat-model declined)
+    chooses = iter(["phases", "cautious", "active"])
     multis: list[list[str]] = [["recon", "scan"], []]  # methods, taxonomies
     multi_it = iter(multis)
     confirms = iter([False, False])  # autonomous, enable-threat-model
@@ -278,6 +279,7 @@ def test_attach_wizard_creates_engagement_over_socket(tmp_path: Path) -> None:
             "[]",  # taxonomies (multiselect)
             "cautious",  # stance (choose)
             "no",  # autonomous (confirm -> yes/no choose)
+            "active",  # autonomous_ceiling (choose)
             "no",  # threat model: decline CVSS environmental scoring
         ]
         frames = _drive_attached(daemon, ["engagement setup", *answers])

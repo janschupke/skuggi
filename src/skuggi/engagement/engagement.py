@@ -39,7 +39,7 @@ from pydantic import (
 from skuggi.agent.protocol import Methodology, Stance, Taxonomy
 from skuggi.common.logs import get_logger
 from skuggi.engagement.workspace import Workspace
-from skuggi.tooling.registry import ToolRegistry
+from skuggi.tooling.registry import RiskTier, RiskTierField, ToolRegistry
 
 log = get_logger(__name__)
 
@@ -115,6 +115,13 @@ class EngagementConfig(BaseModel):
     allowed_tools: frozenset[str] = frozenset()
     allowed_methods: frozenset[str] = frozenset()
     autonomous: bool = False
+    # The highest risk tier autonomous mode runs without asking. A command above
+    # it is recorded ``proposed`` for the operator to run by hand, even when
+    # autonomous is armed -- the deterministic "manual escalation" gate (see
+    # skuggi.engagement.risk and graph._run_or_propose). Conservative by default:
+    # recon/scans auto-run, but brute-force/crack/exploit escalate. Unlike the
+    # scope allow-lists this never *widens* authority -- it only holds back.
+    autonomous_ceiling: RiskTierField = RiskTier.active
     # The engagement posture. Advisory only: it calibrates what the agent
     # proposes (see skuggi.prompts), never what the guard allows.
     stance: Stance = "cautious"

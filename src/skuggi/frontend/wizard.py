@@ -24,6 +24,10 @@ from typing import Literal
 from skuggi.config.configs import ConfigError, InvalidScopeError
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.frontend.prompter import Prompter
+from skuggi.tooling.registry import RiskTier
+
+# The risk tiers, low -> high, offered for the autonomous ceiling.
+_RISK_TIERS: tuple[str, ...] = tuple(t.name for t in RiskTier)
 
 Apply = Callable[[dict[str, object]], EngagementConfig]
 
@@ -211,6 +215,13 @@ _SECTIONS: tuple[Section, ...] = (
                 default="cautious",
             ),
             Field("autonomous", "autonomous execution?", "confirm"),
+            Field(
+                "autonomous_ceiling",
+                "highest risk tier autonomous mode runs without asking",
+                "select",
+                source=lambda _c: _RISK_TIERS,
+                default="active",
+            ),
             Field("threat_model", "threat model", "threat_model"),
         ),
     ),

@@ -297,6 +297,7 @@
       "binary": "nc",
       "method": "recon",
       "requires_target": false,
+      "risk": "destructive",
       "install": {
         "brew": "brew install netcat",
         "apt": "apt-get install -y netcat-openbsd"

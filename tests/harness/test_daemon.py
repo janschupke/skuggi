@@ -398,6 +398,7 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
             '["wstg"]',  # taxonomies (multiselect)
             "cautious",  # stance (choose)
             "no",  # autonomous (confirm -> yes/no choose)
+            "active",  # autonomous_ceiling (choose)
             "no",  # threat model: decline CVSS environmental scoring
         ]
     )

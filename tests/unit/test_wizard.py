@@ -94,8 +94,8 @@ def _full_script(**over: object) -> _Script:
             "",
         ],
         completes=["UTC", "nmap, curl"],  # timezone, allowed_tools
-        # methodology, stance, then the threat-model C/I/A dropdowns
-        chooses=["ptes", "cautious", "high", "medium", "low"],
+        # methodology, stance, autonomous_ceiling, then the threat-model C/I/A dropdowns
+        chooses=["ptes", "cautious", "active", "high", "medium", "low"],
         multis=[["recon", "scan"], ["wstg"]],  # allowed_methods, taxonomies
         confirms=[True, True],  # autonomous, enable-threat-model
     )
@@ -174,7 +174,7 @@ def test_collect_scope_edit_keeps_existing_on_blank() -> None:
     script = _Script(
         asks=["", "", "", "", "", ""],
         completes=["", ""],
-        chooses=["phases", "cautious"],
+        chooses=["phases", "cautious", "active"],  # methodology, stance, ceiling
         multis=[[], []],
         confirms=[False, False],  # autonomous, enable-threat-model (declined)
     )

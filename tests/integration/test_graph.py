@@ -287,6 +287,54 @@ def test_autonomous_loop_is_bounded(
     assert state["command_rounds"] == 3
 
 
+def test_autonomous_holds_a_command_above_the_risk_ceiling(
+    ledger: Ledger, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An in-scope but destructive command is NOT auto-run under the default ceiling."""
+
+    def must_not_run(*_a: object, **_k: object) -> CommandResult:
+        pytest.fail("a command above the ceiling must not execute")
+
+    monkeypatch.setattr("skuggi.common.execution.run", must_not_run)
+    registry = ToolRegistry(
+        tools=(
+            ToolSpec(name="msf", binary="msf", method="exploit", requires_target=False),
+        )
+    )
+    engagement = EngagementConfig.model_validate(
+        {
+            "name": "e",
+            "timezone": "UTC",
+            "authorized_start": datetime(2000, 1, 1, tzinfo=UTC),
+            "authorized_end": datetime(2999, 1, 1, tzinfo=UTC),
+            "target_networks": ("10.0.0.0/8",),
+            "allowed_tools": frozenset({"msf"}),
+            "allowed_methods": frozenset({"exploit"}),
+            "autonomous": True,  # armed, but ceiling defaults to `active`
+        }
+    )
+    model = RoleScriptedChatModel(
+        worker_replies=[WorkerResponse(command="msf -q", summary="pop it")],
+        critic_replies=[CriticResponse(approved=True)],
+    )
+    app = _app(
+        model,
+        engagement=engagement,
+        ledger=ledger,
+        registry=registry,
+        session_id="s1",
+        thread_id=lambda: "t1",
+        clock=lambda: _CLOCK,
+    )
+
+    state = _turn(app, "exploit it")
+
+    held = state["commands"][-1]
+    assert held.status == "proposed"
+    assert "destructive" in held.summary
+    assert state["command_rounds"] == 0  # the worker<->executor loop did not run
+
+
 def test_findings_are_recorded_from_the_worker_response(ledger: Ledger) -> None:
     model = RoleScriptedChatModel(
         worker_replies=[

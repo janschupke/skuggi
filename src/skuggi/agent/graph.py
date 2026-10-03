@@ -67,6 +67,7 @@ from skuggi.agent.state import (
 from skuggi.common import execution
 from skuggi.common.logs import get_logger
 from skuggi.engagement.engagement import EngagementConfig, check_command, parse_command
+from skuggi.engagement.risk import risk_tier
 from skuggi.engagement.workspace import Workspace
 from skuggi.persistence.ledger import FindingRefInput, Ledger
 from skuggi.persistence.vectorstore import Store, format_hits
@@ -483,7 +484,21 @@ def _run_or_propose(
             id=cid, status="blocked", command=command, summary=verdict.reason
         )
         return cid, brief, False
-    if not deps.engagement.autonomous:
+    # Risk gate: in scope, but is it low-risk enough to run unattended? A command
+    # above the engagement's autonomous ceiling is held as ``proposed`` for the
+    # operator to run by hand -- "manual escalation" -- exactly like the
+    # non-autonomous path, but with a reason that names the tier. Deterministic:
+    # no LLM decides this (see skuggi.engagement.risk).
+    tier = risk_tier(deps.registry.spec_for(parsed.binary), parsed.argv)
+    ceiling = deps.engagement.autonomous_ceiling
+    if not deps.engagement.autonomous or tier > ceiling:
+        if not deps.engagement.autonomous:
+            summary = "recorded proposed; the operator runs it manually"
+        else:
+            summary = (
+                f"recorded proposed; risk tier '{tier.name}' exceeds the "
+                f"autonomous ceiling '{ceiling.name}' -- run it manually"
+            )
         cid = deps.ledger.record_command(
             session_id=deps.session_id,
             thread_id=deps.thread_id(),
@@ -494,10 +509,7 @@ def _run_or_propose(
             turn_event_id=deps.turn_id(),
         )
         brief = CommandBrief(
-            id=cid,
-            status="proposed",
-            command=command,
-            summary="recorded proposed; the operator runs it manually",
+            id=cid, status="proposed", command=command, summary=summary
         )
         return cid, brief, False
     # Rehydrate any «KIND:id» placeholder in the argv to its real value just

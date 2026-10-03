@@ -10,6 +10,7 @@
   "allowed_methods": ["recon", "scan", "enumerate"],
   "stance": "cautious",
   "autonomous": false,
+  "autonomous_ceiling": "active",
   "methodology": "phases",
   "taxonomies": ["wstg"],
   "threat_model": {
