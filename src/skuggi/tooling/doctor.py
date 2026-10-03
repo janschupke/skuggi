@@ -10,6 +10,8 @@ renders to a forced-colour string for the socket). Probing itself lives in
 
 from __future__ import annotations
 
+import importlib.util
+import re
 import shutil
 from pathlib import Path
 
@@ -154,6 +156,41 @@ def doctor_hints(
     return "\n".join(lines)
 
 
+_WRAPPER_IMPORT = re.compile(r"^from (skuggi[\w.]*) import", re.MULTILINE)
+
+
+def stale_wrappers(bin_dir: Path) -> list[tuple[str, str]]:
+    """Installed ``skuggi*`` console scripts whose imported module no longer resolves.
+
+    A uv-generated wrapper hard-codes ``from skuggi.<module> import main`` at its
+    top; after an internal refactor moves ``<module>`` an old wrapper still names
+    the vanished path and crashes before any skuggi code runs. This reads each
+    wrapper in ``bin_dir`` and returns ``(wrapper_name, dead_module)`` for every
+    one whose module ``find_spec`` cannot resolve -- the cue to reinstall. Purely
+    diagnostic and best-effort: an unreadable file or a resolver error is skipped,
+    never raised, so ``doctor`` itself cannot be broken by the check.
+    """
+    stale: list[tuple[str, str]] = []
+    for script in sorted(bin_dir.glob("skuggi*")):
+        if not script.is_file():
+            continue
+        try:
+            text = script.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        match = _WRAPPER_IMPORT.search(text)
+        if match is None:
+            continue
+        module = match.group(1)
+        try:
+            resolved = importlib.util.find_spec(module) is not None
+        except (ImportError, AttributeError, ValueError):
+            resolved = False
+        if not resolved:
+            stale.append((script.name, module))
+    return stale
+
+
 def install_table(settings: Settings) -> Table:
     """A table of where this install reads and writes, and what is missing.
 
@@ -210,6 +247,23 @@ def install_table(settings: Settings) -> Table:
         else palette.paint("NOT ON PATH", palette.DANGER),
         client or "run `uv tool update-shell`, or add uv's bin dir to PATH",
     )
+    skuggi_path = shutil.which("skuggi") or client
+    if skuggi_path:
+        stale = stale_wrappers(Path(skuggi_path).resolve().parent)
+        if stale:
+            table.add_row(
+                "console scripts",
+                palette.paint(
+                    f"{len(stale)} STALE -- run `make install-cli`", palette.DANGER
+                ),
+                ", ".join(name for name, _ in stale),
+            )
+        else:
+            table.add_row(
+                "console scripts",
+                palette.paint("all current", palette.SUCCESS),
+                str(Path(skuggi_path).resolve().parent),
+            )
     table.add_row(
         "engagement",
         "",

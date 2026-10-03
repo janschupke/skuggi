@@ -72,16 +72,21 @@ documents = [
 ]
 
 [project.scripts]
-skuggi = "skuggi.frontend.shell:main"
-skuggi-repl = "skuggi.__main__:main"
-skuggi-init = "skuggi.install.init:main"
-skuggi-ingest = "skuggi.install.ingest:main"
-skuggi-doctor = "skuggi.tooling.doctor:main"
-skuggi-client = "skuggi.frontend.client:main"
-skuggi-login = "skuggi.providers.codex_login:main"
-skuggi-pdf = "skuggi.persistence.pdf:main"
-skuggi-visualize = "skuggi.persistence.visualize:main"
-skuggi-eval = "skuggi.eval.cli:main"
+# Every console script goes through the guarded shims in skuggi.cli (a stable
+# module that never moves), so a wrapper left over from an older install degrades
+# to one actionable line instead of a ModuleNotFoundError traceback when an
+# implementation module is relocated. tests/unit/test_cli.py pins these names to
+# skuggi.cli._TARGETS and proves each target imports.
+skuggi = "skuggi.cli:shell"
+skuggi-repl = "skuggi.cli:repl"
+skuggi-init = "skuggi.cli:init"
+skuggi-ingest = "skuggi.cli:ingest"
+skuggi-doctor = "skuggi.cli:doctor"
+skuggi-client = "skuggi.cli:client"
+skuggi-login = "skuggi.cli:login"
+skuggi-pdf = "skuggi.cli:pdf"
+skuggi-visualize = "skuggi.cli:visualize"
+skuggi-eval = "skuggi.cli:eval_"
 
 [tool.hatch.version]
 path = "src/skuggi/__init__.py"
@@ -237,6 +242,8 @@ runtime-evaluated-base-classes = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/skuggi/__init__.py" = ["D104"]
+# The guarded entry shims print one actionable line straight to the tty.
+"src/skuggi/cli.py" = ["T201"]
 # The boot guard prints its one actionable line straight to the operator's tty.
 "src/skuggi/install/boot.py" = ["T201"]
 # skuggi-login (codex_login.main) reports OAuth progress to the operator's tty.
