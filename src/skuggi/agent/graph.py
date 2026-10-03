@@ -40,9 +40,9 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from skuggi.agent.executor import _redactor, execute_node, route_after_executor
 from skuggi.agent.prompts import PromptSet, prompt_set
 from skuggi.agent.protocol import (
-    CommandBrief,
     CriticResponse,
     EngagementBrief,
     FindingBrief,
@@ -67,22 +67,16 @@ from skuggi.agent.state import (
 )
 from skuggi.common import execution
 from skuggi.common.logs import get_logger
-from skuggi.engagement.engagement import EngagementConfig, check_command, parse_command
-from skuggi.engagement.risk import risk_tier
+from skuggi.engagement.engagement import EngagementConfig
 from skuggi.engagement.workspace import Workspace
-from skuggi.persistence.ledger import FindingRefInput, Ledger
+from skuggi.persistence.ledger import Ledger
 from skuggi.persistence.vectorstore import Store, format_hits
 from skuggi.security.policy import RedactionPolicy
-from skuggi.security.redaction import redact
 from skuggi.security.tripwire import scrub
 from skuggi.security.vault import SecretVault
 from skuggi.tooling.registry import ToolRegistry
 
 log = get_logger(__name__)
-
-# How much captured command output the executor hands back to the worker as the
-# command's summary -- enough to decide the next step without dumping a whole scan.
-_OUTPUT_SUMMARY_CAP = 1_500
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,17 +139,6 @@ class GraphDeps:
 
 
 # --- prompt assembly --------------------------------------------------------
-
-
-def _redactor(deps: GraphDeps) -> Callable[[str], str]:
-    """A redact function bound to this session's policy and vault.
-
-    With a vault each secret becomes a reversible ``«KIND:id»`` placeholder;
-    without one (agent-only mode) a default policy still masks one-way, so no
-    request can carry a raw secret even when no engagement is loaded.
-    """
-    policy = deps.redaction_policy or RedactionPolicy()
-    return lambda text: redact(text, policy, deps.vault)
 
 
 def last_user_text(messages: Sequence[BaseMessage]) -> str:
@@ -242,25 +225,6 @@ def _finding_briefs(deps: GraphDeps) -> tuple[FindingBrief, ...]:
         )
         for r in rows
     )
-
-
-def _summarize_result(
-    result: execution.CommandResult, clean: Callable[[str], str]
-) -> str:
-    """A bounded summary of a command's output for the worker's next request.
-
-    ``clean`` redacts the captured output before it becomes model-facing: scan
-    output is the single largest source of discovered secrets/PII, so it is
-    scrubbed (and any secret vaulted) *before* truncation, so a secret cannot
-    survive by sitting past the cap.
-    """
-    parts = [result.stdout.strip()]
-    if result.stderr.strip():
-        parts.append("stderr: " + result.stderr.strip())
-    text = clean("\n".join(p for p in parts if p))
-    if not text:
-        return f"exit={result.exit_code} (no output)"
-    return f"exit={result.exit_code}\n{text[:_OUTPUT_SUMMARY_CAP]}"
 
 
 # --- routing ----------------------------------------------------------------
@@ -369,34 +333,6 @@ def _plan_update(
     }
 
 
-def _execute_node(state: AgentState, deps: GraphDeps, work_dir: Path) -> ExecutorUpdate:
-    """Run (autonomous) or propose the worker's command, recording any findings."""
-    resp = state.get("worker")
-    if resp is None:
-        return {}
-    commands = list(state.get("commands", []))
-    rounds = state.get("command_rounds") or 0
-    updates: ExecutorUpdate = {}
-    command_id: int | None = None
-    runnable = (
-        resp.command is not None
-        and deps.ledger is not None
-        and deps.engagement is not None
-        and deps.registry is not None
-        and bool(deps.session_id)
-    )
-    if runnable and resp.command is not None:
-        command_id, brief, ran = _run_or_propose(
-            deps, resp.command, work_dir, now=_now(deps)
-        )
-        commands.append(brief)
-        updates["commands"] = commands
-        if ran:
-            updates["command_rounds"] = rounds + 1
-    _record_findings(deps, resp, command_id)
-    return updates
-
-
 def _respond_node(state: AgentState) -> ReplyUpdate:
     """Emit the accumulated draft as the turn's answer."""
     return {"messages": [AIMessage(content=state.get("draft") or "")]}
@@ -417,23 +353,6 @@ def _retrieve_node(
     # Redact before the snippet is stored in graph state, so a secret in an
     # ingested document never lands in the checkpoint either.
     return {"context": clean(format_hits(hits))} if hits else {}
-
-
-def _route_after_executor(
-    state: AgentState, deps: GraphDeps
-) -> Literal["worker", "critic"]:
-    """Loop back to the worker only while an autonomous run can still make progress."""
-    resp = state.get("worker")
-    if resp is None or resp.done or resp.command is None:
-        return "critic"
-    if deps.engagement is None or not deps.engagement.autonomous:
-        return "critic"
-    if (state.get("command_rounds") or 0) >= deps.max_command_rounds:
-        return "critic"
-    commands = state.get("commands") or []
-    if not commands or commands[-1].status != "executed":
-        return "critic"
-    return "worker"
 
 
 def build_graph(
@@ -510,11 +429,11 @@ def build_graph(
         resp = ask(deps.prompts.worker, ctx, WorkerResponse)
         return {"worker": resp, "draft": render_response(resp)}
 
-    def execute_node(state: AgentState) -> ExecutorUpdate:
-        return _execute_node(state, deps, work_dir)
+    def executor_node(state: AgentState) -> ExecutorUpdate:
+        return execute_node(state, deps, work_dir)
 
-    def route_after_executor(state: AgentState) -> Literal["worker", "critic"]:
-        return _route_after_executor(state, deps)
+    def after_executor(state: AgentState) -> Literal["worker", "critic"]:
+        return route_after_executor(state, deps)
 
     def critique_node(state: AgentState) -> CritiqueUpdate:
         ctx = context(state, divisor=2, draft=state.get("draft") or "")
@@ -525,7 +444,7 @@ def build_graph(
     graph.add_node("planner", plan_node)
     graph.add_node("retriever", retrieve_node)
     graph.add_node("worker", work_node)
-    graph.add_node("executor", execute_node)
+    graph.add_node("executor", executor_node)
     graph.add_node("critic", critique_node)
     graph.add_node("respond", _respond_node)
     graph.add_node("bump", _bump_node)
@@ -534,178 +453,11 @@ def build_graph(
     graph.add_conditional_edges("planner", route_after_plan)
     graph.add_edge("retriever", "worker")
     graph.add_edge("worker", "executor")
-    graph.add_conditional_edges("executor", route_after_executor)
+    graph.add_conditional_edges("executor", after_executor)
     graph.add_conditional_edges("critic", route_after_critic)
     graph.add_edge("bump", "planner")
     graph.add_edge("respond", END)
     return graph.compile(checkpointer=checkpointer)
-
-
-def _now(deps: GraphDeps) -> datetime:
-    """The current time in the engagement timezone (or the injected clock)."""
-    if deps.clock is not None:
-        return deps.clock()
-    assert deps.engagement is not None  # noqa: S101 -- only called on the guarded path
-    return datetime.now(deps.engagement.tzinfo())
-
-
-def _run_or_propose(
-    deps: GraphDeps, command: str, work_dir: Path, *, now: datetime
-) -> tuple[int, CommandBrief, bool]:
-    """Guard, record and (autonomously) run one command. Returns (id, brief, ran).
-
-    ``ran`` is True only when the command actually executed, which is what gates
-    another turn of the worker <-> executor loop.
-    """
-    assert deps.ledger is not None  # noqa: S101
-    assert deps.engagement is not None  # noqa: S101
-    assert deps.registry is not None  # noqa: S101
-    parsed = parse_command(command, deps.registry)
-    verdict = check_command(
-        parsed,
-        deps.engagement,
-        now=now,
-        workspace=deps.workspace,
-        cwd=work_dir,
-        wordlist_roots=deps.wordlist_roots,
-    )
-    if not verdict.allowed:
-        cid = deps.ledger.record_command(
-            session_id=deps.session_id,
-            thread_id=deps.thread_id(),
-            command=command,
-            binary=parsed.binary,
-            method=parsed.method,
-            status="blocked",
-            reason=verdict.reason,
-            turn_event_id=deps.turn_id(),
-        )
-        brief = CommandBrief(
-            id=cid, status="blocked", command=command, summary=verdict.reason
-        )
-        return cid, brief, False
-    # Risk gate: in scope, but is it low-risk enough to run unattended? A command
-    # above the engagement's autonomous ceiling is held as ``proposed`` for the
-    # operator to run by hand -- "manual escalation" -- exactly like the
-    # non-autonomous path, but with a reason that names the tier. Deterministic:
-    # no LLM decides this (see skuggi.engagement.risk).
-    tier = risk_tier(deps.registry.spec_for(parsed.binary), parsed.argv)
-    ceiling = deps.engagement.autonomous_ceiling
-    if not deps.engagement.autonomous or tier > ceiling:
-        if not deps.engagement.autonomous:
-            summary = "recorded proposed; the operator runs it manually"
-        else:
-            summary = (
-                f"recorded proposed; risk tier '{tier.name}' exceeds the "
-                f"autonomous ceiling '{ceiling.name}' -- run it manually"
-            )
-        cid = deps.ledger.record_command(
-            session_id=deps.session_id,
-            thread_id=deps.thread_id(),
-            command=command,
-            binary=parsed.binary,
-            method=parsed.method,
-            status="proposed",
-            turn_event_id=deps.turn_id(),
-        )
-        brief = CommandBrief(
-            id=cid, status="proposed", command=command, summary=summary
-        )
-        return cid, brief, False
-    # Rehydrate any «KIND:id» placeholder in the argv to its real value just
-    # before the tool runs: a credential the agent discovered (and only ever saw
-    # as a placeholder) reaches the tool here, and nowhere else. The recorded
-    # command and the model-facing brief keep the placeholder form.
-    argv = (
-        tuple(deps.vault.rehydrate(token) for token in parsed.argv)
-        if deps.vault is not None
-        else parsed.argv
-    )
-    result = execution.run(
-        argv,
-        timeout=deps.command_timeout_s,
-        cwd=work_dir,
-        env=execution.safe_env(),
-    )
-    try:
-        cid = deps.ledger.record_command(
-            session_id=deps.session_id,
-            thread_id=deps.thread_id(),
-            command=command,
-            binary=parsed.binary,
-            method=parsed.method,
-            status="executed",
-            result=result,
-            turn_event_id=deps.turn_id(),
-        )
-    except Exception:
-        # Evidence loss: the command ran but its result did not persist. Make it
-        # unmistakable in the log, then let it surface (a bad turn is not silent).
-        # error, not exception: the full traceback is logged once where the turn
-        # catches it; here we want the one-line evidence-loss marker.
-        log.error(  # noqa: TRY400 -- traceback logged at the turn boundary
-            "evidence loss: failed to record executed command %r", command
-        )
-        raise
-    brief = CommandBrief(
-        id=cid,
-        status="executed",
-        command=command,
-        exit_code=result.exit_code,
-        summary=_summarize_result(result, _redactor(deps)),
-    )
-    return cid, brief, True
-
-
-def _record_findings(
-    deps: GraphDeps, resp: WorkerResponse, command_id: int | None
-) -> None:
-    """Record each of the worker's findings, linked to the command it cites."""
-    if deps.ledger is None or not deps.session_id or not resp.findings:
-        return
-    link = (
-        command_id
-        if command_id is not None
-        else deps.ledger.latest_command_id(deps.session_id)
-    )
-    threat_model = deps.engagement.threat_model if deps.engagement else None
-    env_metrics = threat_model.cvss_environmental_metrics() if threat_model else {}
-    tm_version = deps.ledger.current_threat_model_version() or None
-    primary = (
-        "attack"
-        if deps.engagement and deps.engagement.methodology == "attack"
-        else "wstg"
-    )
-    for finding in resp.findings:
-        vector = finding.cvss_vector or None
-        refs = [
-            FindingRefInput(
-                ref.framework, ref.ref_id, is_primary=ref.framework == primary
-            )
-            for ref in finding.refs
-        ]
-        try:
-            deps.ledger.record_finding(
-                session_id=deps.session_id,
-                title=finding.title,
-                severity=finding.severity,
-                description=finding.description,
-                evidence=finding.evidence,
-                command_id=link,
-                cvss_vector=vector,
-                env_metrics=env_metrics,
-                tm_version=tm_version,
-                refs=refs,
-                author="agent",
-            )
-        except Exception:
-            # Evidence loss: a finding the agent produced did not persist. This is
-            # the worst case for an engagement, so name it explicitly, then raise.
-            # error, not exception: the traceback is logged once at the turn boundary.
-            log.error(  # noqa: TRY400 -- traceback logged at the turn boundary
-                "evidence loss: failed to record finding %r", finding.title
-            )
-            raise
 
 
 def recursion_limit(*, max_revisions: int, max_command_rounds: int) -> int:
@@ -714,6 +466,11 @@ def recursion_limit(*, max_revisions: int, max_command_rounds: int) -> int:
     One pass is planner + retriever + (worker + executor) per command round +
     critic + bump/respond. A turn that both loops on commands and gets revised
     needs more than langgraph's default of 25.
+
+    ``2 * (rounds + 1)`` is the worker+executor pair per command round (plus the
+    final non-command pair); the ``+ 3`` is the per-pass planner, retriever and
+    critic. The trailing ``+ 4`` is slack so a worst-case turn stops at ``respond``
+    rather than tripping langgraph's recursion guard one step early.
     """
     per_pass = 2 * (max_command_rounds + 1) + 3
     return (max_revisions + 1) * per_pass + 4

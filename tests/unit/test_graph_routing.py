@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from skuggi.agent.executor import _record_findings
 from skuggi.agent.graph import (
     GraphDeps,
-    _record_findings,
     last_user_text,
     needs_pipeline,
     prior_turns,
