@@ -1,5 +1,8 @@
 .venv/
 data/
+# ...but the vendored, version-pinned framework taxonomies are shipped package data,
+# not a runtime home, so they ARE tracked.
+!src/skuggi/frameworks/data/
 .env
 __pycache__/
 *.pyc

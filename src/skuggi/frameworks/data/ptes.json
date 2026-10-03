@@ -1,0 +1,54 @@
+{
+  "framework": "ptes",
+  "provenance": {
+    "source_url": "http://www.pentest-standard.org/index.php/Main_Page",
+    "ref": "curated",
+    "version": "PTES technical guidelines (curated)",
+    "note": "PTES has no machine-readable release; the 7 phases are curated here.",
+    "fetched_at": "2026-10-03T03:54:38Z"
+  },
+  "entries": [
+    {
+      "id": "PTES-01",
+      "title": "Pre-engagement Interactions",
+      "category": "phase",
+      "url": "http://www.pentest-standard.org/index.php/Pre-engagement"
+    },
+    {
+      "id": "PTES-02",
+      "title": "Intelligence Gathering",
+      "category": "phase",
+      "url": "http://www.pentest-standard.org/index.php/Intelligence_Gathering"
+    },
+    {
+      "id": "PTES-03",
+      "title": "Threat Modeling",
+      "category": "phase",
+      "url": "http://www.pentest-standard.org/index.php/Threat_Modeling"
+    },
+    {
+      "id": "PTES-04",
+      "title": "Vulnerability Analysis",
+      "category": "phase",
+      "url": "http://www.pentest-standard.org/index.php/Vulnerability_Analysis"
+    },
+    {
+      "id": "PTES-05",
+      "title": "Exploitation",
+      "category": "phase",
+      "url": "http://www.pentest-standard.org/index.php/Exploitation"
+    },
+    {
+      "id": "PTES-06",
+      "title": "Post Exploitation",
+      "category": "phase",
+      "url": "http://www.pentest-standard.org/index.php/Post_Exploitation"
+    },
+    {
+      "id": "PTES-07",
+      "title": "Reporting",
+      "category": "phase",
+      "url": "http://www.pentest-standard.org/index.php/Reporting"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install install-cli lint format typecheck test eval e2e eval-det bench bench-fast check clean pdf \
+.PHONY: install install-cli lint format typecheck test eval e2e eval-det bench bench-fast check clean pdf frameworks \
 	lab-list lab-up lab-down lab-restore lab-wipe lab-verify
 
 # The user-facing practice range controller (labs/). Standalone dev tooling --
@@ -105,6 +105,12 @@ check:
 ## needs the `pdf` group (make install) and a system Pango (brew install pango)
 pdf:
 	$(UV) run skuggi-pdf $(IN)
+
+## Refresh the vendored framework taxonomies (WSTG/ATT&CK/PTES) from upstream at
+## their pins and rewrite src/skuggi/frameworks/data/*.json. Maintainer-only (hits
+## the network); commit the result. `make frameworks CHECK=1` only reports drift.
+frameworks:
+	$(UV) run python scripts/sync_frameworks.py all $(if $(CHECK),--check,)
 
 clean:
 	rm -rf .ruff_cache .mypy_cache .pytest_cache htmlcov coverage.xml .coverage dist *.egg-info
