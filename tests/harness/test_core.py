@@ -552,7 +552,7 @@ def test_findings_review_approve_and_reject(core: AgentCore) -> None:
     assert bad is not None
     assert bad.startswith("no such finding")
     assert dispatch.run_findings(core, "approve") == (
-        "usage: findings [approve <id> | reject <id> <reason>]"
+        "usage: findings [approve <id> | reject <id> <reason> | rescore [all|<id>]]"
     )
     # A bare `findings` (no action) defers to the caller's listing.
     assert dispatch.run_findings(core, "") is None
@@ -563,3 +563,39 @@ def test_findings_review_approve_and_reject(core: AgentCore) -> None:
     rejected = core.ledger.finding(drop.id)
     assert rejected is not None
     assert rejected.review_reason == "false positive"
+
+
+def test_threat_model_versioning_flags_and_rescore(core: AgentCore) -> None:
+    # v1 exists from session start (initial, no threat model on the default scope).
+    assert core.ledger.current_threat_model_version() == 1
+
+    # A CVSS finding is scored under v1 with no environmental overlay.
+    row = core.journal.record_finding(
+        cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"
+    )
+    assert row is not None
+    assert row.cvss_tm_version == 1
+    assert row.cvss_environmental is None
+    base_score = row.cvss_score
+
+    # Operator sets a threat model -> v2, change logged, prior finding now outdated.
+    msg = dispatch.run_threat_model(core, "high high high | crown-jewel asset")
+    assert "now v2" in msg
+    assert core.ledger.current_threat_model_version() == 2
+    history = core.ledger.threat_model_history()
+    assert history[-1].note == "crown-jewel asset"
+    stale = core.ledger.finding(row.id)
+    assert stale is not None
+    assert stale.cvss_tm_version == 1  # unchanged until rescored (freeze)
+    assert stale.cvss_score == base_score
+
+    # Rescore lifts it to v2; the environmental score now exists and the vector is
+    # still the threat-model-free base (reproducible).
+    assert dispatch.run_findings(core, "rescore all") == (
+        "rescored 1 finding(s) to the current threat model"
+    )
+    fresh = core.ledger.finding(row.id)
+    assert fresh is not None
+    assert fresh.cvss_tm_version == 2
+    assert fresh.cvss_environmental is not None
+    assert "CR:" not in (fresh.cvss_vector or "")

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from skuggi.common import palette
 from skuggi.config.configs import ConfigError
+from skuggi.engagement.engagement import ThreatModel
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
@@ -294,7 +295,7 @@ def run_add(core: AgentCore, arg: str) -> AddOutcome:
 
 
 # ----- findings review (approve / reject) -----------------------------------
-_FINDINGS_USAGE = "findings [approve <id> | reject <id> <reason>]"
+_FINDINGS_USAGE = "findings [approve <id> | reject <id> <reason> | rescore [all|<id>]]"
 
 
 def _review_finding(core: AgentCore, id_str: str, status: str, reason: str) -> str:
@@ -324,9 +325,71 @@ def run_findings(core: AgentCore, arg: str) -> str | None:
     if action == "reject" and len(tokens) >= 2:  # noqa: PLR2004 -- action + id
         reason = arg.split(maxsplit=2)[2] if len(tokens) >= 3 else ""  # noqa: PLR2004
         return _review_finding(core, tokens[1], "rejected", reason)
+    if action == "rescore":
+        return _rescore_findings(core, tokens[1] if len(tokens) >= 2 else "all")  # noqa: PLR2004
     if action in {"approve", "reject"}:
         return f"usage: {_FINDINGS_USAGE}"
     return None
+
+
+_TM_LEVELS = frozenset({"low", "medium", "high"})
+_TM_USAGE = "engagement threat-model <conf> <int> <avail> [| note]  (low|medium|high)"
+
+
+def run_threat_model(core: AgentCore, arg: str) -> str:
+    """Show or set the engagement's CVSS threat model, versioning any change.
+
+    ``<conf> <int> <avail>`` are the CR/IR/AR levels; ``clear`` removes the model.
+    An optional ``| note`` after the levels is the change-log entry. Setting it marks
+    findings scored under the prior version outdated (rescore with ``findings
+    rescore all``).
+    """
+    if core.engagement is None:
+        return "no engagement loaded; cannot set a threat model"
+    rest = arg.strip()
+    if not rest:
+        tm = core.engagement.threat_model
+        version = core.ledger.current_threat_model_version()
+        if tm is None:
+            return f"threat model: none (v{version})"
+        return (
+            f"threat model (v{version}): CR={tm.confidentiality_requirement} "
+            f"IR={tm.integrity_requirement} AR={tm.availability_requirement}"
+        )
+    body, _, note = rest.partition("|")
+    note = note.strip()
+    if body.strip().lower() in {"clear", "none"}:
+        version = core.update_threat_model(None, note=note or "cleared")
+        return f"threat model cleared (now v{version}); run `findings rescore all`"
+    levels = [t.strip().lower() for t in body.replace(",", " ").split() if t.strip()]
+    if len(levels) != 3 or any(level not in _TM_LEVELS for level in levels):  # noqa: PLR2004
+        return f"usage: {_TM_USAGE}"
+    threat_model = ThreatModel.model_validate(
+        {
+            "confidentiality_requirement": levels[0],
+            "integrity_requirement": levels[1],
+            "availability_requirement": levels[2],
+        }
+    )
+    version = core.update_threat_model(threat_model, note=note)
+    return f"threat model updated (now v{version}); run `findings rescore all`"
+
+
+def _rescore_findings(core: AgentCore, target: str) -> str:
+    """Rescore one finding (``<id>``) or every outdated one (``all``)."""
+    if target == "all":
+        n = core.journal.rescore(None)
+        return f"rescored {n} finding(s) to the current threat model"
+    try:
+        fid = int(target.lstrip("#").strip())
+    except ValueError:
+        return f"not a finding id: {target!r}"
+    ok = core.journal.rescore(fid)
+    return (
+        f"rescored finding [{fid}]"
+        if ok
+        else f"finding [{fid}] has no CVSS score to rescore"
+    )
 
 
 # ----- doctor install -------------------------------------------------------

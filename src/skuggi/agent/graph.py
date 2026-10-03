@@ -68,7 +68,6 @@ from skuggi.common import execution
 from skuggi.common.logs import get_logger
 from skuggi.engagement.engagement import EngagementConfig, check_command, parse_command
 from skuggi.engagement.workspace import Workspace
-from skuggi.frameworks import cvss
 from skuggi.persistence.ledger import FindingRefInput, Ledger
 from skuggi.persistence.vectorstore import Store, format_hits
 from skuggi.security.policy import RedactionPolicy
@@ -552,6 +551,8 @@ def _record_findings(
         else deps.ledger.latest_command_id(deps.session_id)
     )
     threat_model = deps.engagement.threat_model if deps.engagement else None
+    env_metrics = threat_model.cvss_environmental_metrics() if threat_model else {}
+    tm_version = deps.ledger.current_threat_model_version() or None
     primary = (
         "attack"
         if deps.engagement and deps.engagement.methodology == "attack"
@@ -559,8 +560,6 @@ def _record_findings(
     )
     for finding in resp.findings:
         vector = finding.cvss_vector or None
-        if vector and threat_model is not None:
-            vector = cvss.merged(vector, threat_model.cvss_environmental_metrics())
         refs = [
             FindingRefInput(
                 ref.framework, ref.ref_id, is_primary=ref.framework == primary
@@ -576,6 +575,8 @@ def _record_findings(
                 evidence=finding.evidence,
                 command_id=link,
                 cvss_vector=vector,
+                env_metrics=env_metrics,
+                tm_version=tm_version,
                 refs=refs,
                 author="agent",
             )

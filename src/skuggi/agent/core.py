@@ -54,6 +54,7 @@ from skuggi.config.configs import (
 from skuggi.engagement import datafiles
 from skuggi.engagement.engagement import (
     EngagementConfig,
+    ThreatModel,
     parse_command,
 )
 from skuggi.engagement.workspace import Workspace, WorkspaceLayout
@@ -144,6 +145,7 @@ class AgentCore:
             engagement_name=self.engagement.name if self.engagement else "(none)",
             mode=self.mode,
         )
+        self._ensure_threat_model_version()
         # Harness memory: global operator preferences, injected into every turn.
         self._prefs_ctx = preferences.open_preferences(self.settings.preferences_path)
         self.prefs = self._prefs_ctx.__enter__()
@@ -520,9 +522,52 @@ class AgentCore:
         self._vault_ctx, self.vault = self._open_vault()
         self.session_id = str(uuid.uuid4())
         self.ledger.start_session(self.session_id, engagement_name=name, mode=self.mode)
+        self._ensure_threat_model_version()
 
         self.graph = self._build()
         return self.engagement
+
+    def _threat_model_snapshot(self) -> str:
+        """The active engagement's threat model as JSON ('' when none is set)."""
+        tm = self.engagement.threat_model if self.engagement else None
+        return tm.model_dump_json() if tm else ""
+
+    def _ensure_threat_model_version(self) -> None:
+        """Record version 1 of the threat model if the ledger has none yet.
+
+        Later changes are versioned by ``update_threat_model`` (the supported path);
+        a hand-edited scope.json is not auto-versioned.
+        """
+        if self.ledger.current_threat_model_version() == 0:
+            self.ledger.record_threat_model(
+                self._threat_model_snapshot(), note="(initial)"
+            )
+
+    def update_threat_model(
+        self, threat_model: ThreatModel | None, *, note: str = ""
+    ) -> int:
+        """Set the engagement's threat model, version the change, hot-reload scope.
+
+        Persists the new model to scope.json (so it survives a restart), records a
+        threat-model version with ``note`` (the change log), and returns the new
+        version. Findings scored under an earlier version are now flagged outdated
+        until rescored. Requires an active engagement.
+        """
+        if self.engagement is None:
+            msg = "no engagement loaded; cannot set a threat model"
+            raise ConfigError(msg)
+        # Modify the engagement in place (like set_autonomous) rather than
+        # reloading: a threat-model change must not start a new session or orphan
+        # this session's findings from the version it bumps.
+        self.engagement = self.engagement.model_copy(
+            update={"threat_model": threat_model}
+        )
+        if self.workspace is not None:
+            self.workspace.scope_path.write_text(
+                self.engagement.model_dump_json(indent=2), encoding="utf-8"
+            )
+        self.graph = self._build()  # so GraphDeps carries the new threat model
+        return self.ledger.record_threat_model(self._threat_model_snapshot(), note=note)
 
     # ----- self-update (the `update` verb) -----------------------------------
 

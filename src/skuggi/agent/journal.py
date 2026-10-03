@@ -56,11 +56,14 @@ class Journal:
                 cvss.parse(cvss_vector)
             except cvss.CvssError:
                 return None
+            env_metrics, tm_version = self._scoring_context()
             fid = core.ledger.record_finding(
                 session_id=core.session_id,
                 title=clean_title,
                 description=clean_title,
                 cvss_vector=cvss_vector,
+                env_metrics=env_metrics,
+                tm_version=tm_version,
                 author="operator",
             )
             return core.ledger.finding(fid)
@@ -75,6 +78,32 @@ class Journal:
             author="operator",
         )
         return core.ledger.finding(fid)
+
+    def _scoring_context(self) -> tuple[dict[str, str], int | None]:
+        """The engagement's env metrics + current threat-model version for scoring."""
+        core = self._core
+        tm = core.engagement.threat_model if core.engagement else None
+        env_metrics = tm.cvss_environmental_metrics() if tm else {}
+        return env_metrics, core.ledger.current_threat_model_version() or None
+
+    def rescore(self, finding_id: int | None = None) -> int:
+        """Rescore one finding (or every outdated one) to the current threat model.
+
+        Returns how many findings were rescored. With ``finding_id=None`` it rescopes
+        exactly the findings whose stored score predates the current version.
+        """
+        core = self._core
+        env_metrics, tm_version = self._scoring_context()
+        current = core.ledger.current_threat_model_version()
+        if finding_id is not None:
+            return int(core.ledger.rescore_finding(finding_id, env_metrics, tm_version))
+        count = 0
+        for row in core.ledger.findings_for(core.session_id):
+            if row.cvss_tm_version is not None and row.cvss_tm_version != current:
+                count += int(
+                    core.ledger.rescore_finding(row.id, env_metrics, tm_version)
+                )
+        return count
 
     def set_status(
         self, finding_id: int, status: str, *, reason: str = ""

@@ -89,7 +89,18 @@ CREATE TABLE IF NOT EXISTS findings (
     status       TEXT NOT NULL DEFAULT 'draft',
     review_reason TEXT NOT NULL DEFAULT '',
     reviewed_at  TEXT,
+    -- Score provenance for the freeze/flag/rescore flow: which threat-model version
+    -- the environmental score was computed under, and when. A finding is "outdated"
+    -- when this version != the engagement's current threat-model version.
+    cvss_tm_version INTEGER,
+    cvss_scored_at  TEXT,
     created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS threat_model_versions (
+    version    INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot   TEXT NOT NULL,       -- the ThreatModel as JSON, or '' for none
+    note       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS finding_refs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,6 +151,8 @@ _FINDING_MIGRATIONS = (
     ("status", "TEXT NOT NULL DEFAULT 'draft'"),
     ("review_reason", "TEXT NOT NULL DEFAULT ''"),
     ("reviewed_at", "TEXT"),
+    ("cvss_tm_version", "INTEGER"),
+    ("cvss_scored_at", "TEXT"),
 )
 
 
@@ -209,6 +222,8 @@ class FindingRow:
     status: str
     review_reason: str
     reviewed_at: str | None
+    cvss_tm_version: int | None
+    cvss_scored_at: str | None
     created_at: str
 
 
@@ -232,6 +247,16 @@ class FindingRefInput:
     framework: str
     ref_id: str
     is_primary: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ThreatModelVersionRow:
+    """One recorded threat-model version -- CVSS env scores are tagged by it."""
+
+    version: int
+    snapshot: str
+    note: str
+    created_at: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,12 +318,23 @@ _SESSION_COLS = tuple(f.name for f in fields(SessionRow))
 _COMMAND_COLS = tuple(f.name for f in fields(CommandRow))
 _FINDING_COLS = tuple(f.name for f in fields(FindingRow))
 _FINDING_REF_COLS = tuple(f.name for f in fields(FindingRefRow))
+_TM_VERSION_COLS = tuple(f.name for f in fields(ThreatModelVersionRow))
 _EVENT_COLS = tuple(f.name for f in fields(EventRow))
 _AUDIT_COLS = tuple(f.name for f in fields(AuditRow))
 
 
 # The column names interpolated below are code-defined dataclass field names
 # (never user input), so the S608 string-building warning does not apply.
+def _effective_score(
+    vector: str | None, env_metrics: dict[str, str] | None
+) -> cvss.Score | None:
+    """Score ``vector`` with the threat-model env overlay applied (not baked in)."""
+    if not vector:
+        return None
+    effective = cvss.merged(vector, env_metrics) if env_metrics else vector
+    return cvss.score(effective)
+
+
 def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
     """An INSERT statement for `columns` with positional placeholders."""
     placeholders = ", ".join("?" * len(columns))
@@ -424,25 +460,30 @@ class Ledger:
         evidence: str = "",
         command_id: int | None = None,
         cvss_vector: str | None = None,
+        env_metrics: dict[str, str] | None = None,
+        tm_version: int | None = None,
         refs: Sequence[FindingRefInput] = (),
         author: str = "agent",
     ) -> int:
         """Insert a finding (plus its timeline event and any refs); return its id.
 
-        When ``cvss_vector`` is given it is scored deterministically here and the
-        full CVSS breakdown is stored, so the numbers reconstruct from the row
-        alone. ``severity`` may be omitted when a vector is present (it then takes
-        the CVSS band); otherwise it is required. Each ``refs`` entry is resolved
-        against the vendored taxonomies to capture its title + link. Every finding
-        is born ``status='draft'``; ``author`` is 'agent' or 'operator'. Only an
-        approved finding reaches a report (see ``set_finding_status``).
+        ``cvss_vector`` is the worker's intrinsic vector, stored **verbatim** (base +
+        any temporal) so it can be rescored. ``env_metrics`` (the engagement threat
+        model's CR/IR/AR) is overlaid only to derive the environmental/overall score;
+        it is never baked into the stored vector, and ``tm_version`` records which
+        threat-model version that overlay came from (so the score can be flagged
+        outdated and recomputed later -- see :meth:`rescore_finding`). ``severity``
+        may be omitted when a vector is present (it then takes the effective CVSS
+        band). Every finding is born ``status='draft'``; ``author`` is 'agent' or
+        'operator'. Only an approved finding reaches a report.
         """
-        scored = cvss.score(cvss_vector) if cvss_vector else None
+        base = cvss.score(cvss_vector) if cvss_vector else None
+        eff = _effective_score(cvss_vector, env_metrics)
         if severity is None:
-            if scored is None:
+            if eff is None:
                 msg = "record_finding needs either a severity or a cvss_vector"
                 raise ValueError(msg)
-            severity = scored.severity
+            severity = eff.severity
         created_at = now_iso()
         with self._lock:
             cur = self._conn.execute(
@@ -454,17 +495,19 @@ class Ledger:
                     severity,
                     description,
                     evidence,
-                    scored.version if scored else None,
-                    scored.vector if scored else None,
-                    scored.base if scored else None,
-                    scored.temporal if scored else None,
-                    scored.environmental if scored else None,
-                    scored.overall if scored else None,
-                    scored.severity if scored else None,
+                    base.version if base else None,
+                    base.vector if base else None,
+                    base.base if base else None,
+                    base.temporal if base else None,
+                    eff.environmental if eff else None,
+                    eff.overall if eff else None,
+                    eff.severity if eff else None,
                     author,
                     "draft",
                     "",
                     None,
+                    tm_version if base else None,
+                    created_at if base else None,
                     created_at,
                 ),
             )
@@ -675,6 +718,77 @@ class Ledger:
                 (finding_id,),
             ).fetchall()
         return [FindingRefRow(*row) for row in rows]
+
+    # ----- threat-model versioning ------------------------------------------
+
+    def record_threat_model(self, snapshot: str, *, note: str = "") -> int:
+        """Append a threat-model version (the snapshot env scores are tagged by)."""
+        created_at = now_iso()
+        with self._lock:
+            cur = self._conn.execute(
+                _insert_sql("threat_model_versions", _TM_VERSION_COLS[1:]),
+                (snapshot, note, created_at),
+            )
+            self._conn.commit()
+            return int(cur.lastrowid or 0)
+
+    def current_threat_model_version(self) -> int:
+        """The latest recorded threat-model version, or 0 when none is recorded."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MAX(version) FROM threat_model_versions"
+            ).fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+
+    def latest_threat_model_snapshot(self) -> str | None:
+        """The most recent recorded snapshot, or None when none is recorded."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT snapshot FROM threat_model_versions"
+                " ORDER BY version DESC LIMIT 1"
+            ).fetchone()
+        return str(row[0]) if row else None
+
+    def threat_model_history(self) -> list[ThreatModelVersionRow]:
+        """Every recorded threat-model version, oldest first (the change log)."""
+        with self._lock:
+            rows = self._conn.execute(
+                _select_sql(
+                    "threat_model_versions", _TM_VERSION_COLS, "ORDER BY version"
+                )
+            ).fetchall()
+        return [ThreatModelVersionRow(*row) for row in rows]
+
+    def rescore_finding(
+        self, finding_id: int, env_metrics: dict[str, str], tm_version: int | None
+    ) -> bool:
+        """Recompute a finding's env/overall score from its stored base vector.
+
+        Deliberate and explicit (the operator runs it) -- a recorded score changes
+        only here. Returns False when the finding has no vector to rescore.
+        """
+        row = self.finding(finding_id)
+        if row is None or not row.cvss_vector:
+            return False
+        eff = _effective_score(row.cvss_vector, env_metrics)
+        assert eff is not None  # noqa: S101 -- guaranteed by the vector check above
+        with self._lock:
+            self._conn.execute(
+                "UPDATE findings SET cvss_environmental = ?, cvss_score = ?,"
+                " cvss_severity = ?, severity = ?, cvss_tm_version = ?,"
+                " cvss_scored_at = ? WHERE id = ?",
+                (
+                    eff.environmental,
+                    eff.overall,
+                    eff.severity,
+                    eff.severity,
+                    tm_version,
+                    now_iso(),
+                    finding_id,
+                ),
+            )
+            self._conn.commit()
+        return True
 
 
 @contextmanager

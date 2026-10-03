@@ -314,6 +314,10 @@ class Tui:
         if parts and parts[0] in wizard.WIZARD_ARGS:
             self._engagement_wizard()
             return
+        if parts and parts[0] == "threat-model":
+            rest = arg.split(maxsplit=1)[1] if len(parts) > 1 else ""
+            self.console.print(dispatch.run_threat_model(self.core, rest))
+            return
         eng = self.engagement
         if eng is None:
             self.console.print(
@@ -551,11 +555,14 @@ class Tui:
         if not rows:
             self.console.print("[dim](no findings yet)[/dim]")
             return
+        current = self.core.ledger.current_threat_model_version()
         for finding in rows:
             self.console.print(
                 finding_line(
                     finding,
                     lambda text, sev: palette.paint(text, palette.severity_style(sev)),
+                    outdated=finding.cvss_tm_version is not None
+                    and finding.cvss_tm_version != current,
                 )
             )
 

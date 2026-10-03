@@ -437,6 +437,10 @@ class Daemon:
             hint = self._cmd("engagement setup")
             yield f"engagement setup is interactive -- run {hint}\n"
             return
+        if parts and parts[0] == "threat-model":
+            rest = arg.split(maxsplit=1)[1] if len(parts) > 1 else ""
+            yield dispatch.run_threat_model(self.core, rest) + "\n"
+            return
         described = self.core.describe_engagement()
         if described:
             yield described + "\n"
@@ -631,7 +635,18 @@ class Daemon:
         if not rows:
             yield "(no findings yet)\n"
             return
-        yield "\n".join(finding_line(f) for f in rows) + "\n"
+        current = self.core.ledger.current_threat_model_version()
+        yield (
+            "\n".join(
+                finding_line(
+                    f,
+                    outdated=f.cvss_tm_version is not None
+                    and f.cvss_tm_version != current,
+                )
+                for f in rows
+            )
+            + "\n"
+        )
 
     def _help_text(self) -> str:
         rows = [

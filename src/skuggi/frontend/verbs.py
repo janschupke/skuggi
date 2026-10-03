@@ -84,7 +84,11 @@ VERBS: tuple[Verb, ...] = (
         "show / add / forget remembered operator preferences",
         "[add <text> | forget <id> | clear]",
     ),
-    Verb("engagement", "show scope, or run the setup wizard", "[setup]"),
+    Verb(
+        "engagement",
+        "show scope, run setup, or set the threat model",
+        "[setup | threat-model <conf> <int> <avail>]",
+    ),
     Verb("config", "show or change app settings", "[show | <key> <value> | <request>]"),
     Verb("setup", "configure a provider + credentials (guided)", "[provider]"),
     Verb("doctor", "probe host tools / runtimes / net tools", "[install <tool>]"),

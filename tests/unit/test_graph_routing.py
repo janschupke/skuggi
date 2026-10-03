@@ -113,6 +113,12 @@ def test_render_history_empty() -> None:
 class _ExplodingLedger:
     """A ledger whose finding write always fails, to exercise evidence loss."""
 
+    def current_threat_model_version(self) -> int:
+        return 0
+
+    def latest_command_id(self, _session_id: str) -> int | None:
+        return None
+
     def record_finding(self, **_kwargs: object) -> int:
         msg = "disk full"
         raise RuntimeError(msg)
@@ -151,6 +157,8 @@ def test_record_findings_scores_cvss_and_augments_with_threat_model(
     )
     with open_ledger(tmp_path / "l.db") as led:
         led.start_session("s", engagement_name="e", mode="pentest")
+        assert engagement.threat_model is not None
+        led.record_threat_model(engagement.threat_model.model_dump_json(), note="init")
         deps = GraphDeps(ledger=led, session_id="s", engagement=engagement)
         resp = WorkerResponse(
             findings=(
@@ -168,10 +176,12 @@ def test_record_findings_scores_cvss_and_augments_with_threat_model(
         assert row.cvss_version == "3.1"
         assert row.cvss_base == 6.1
         assert row.severity == "medium"  # derived, not model-chosen
-        # The threat model (CR:H) was folded in, so an environmental score exists.
-        assert "CR:H" in (row.cvss_vector or "")
+        # The stored vector is the worker's intrinsic base -- the threat model is NOT
+        # baked into it (so it can be rescored), but it IS reflected in the env score.
+        assert "CR:H" not in (row.cvss_vector or "")
         assert row.cvss_environmental is not None
         assert row.cvss_score == row.cvss_environmental  # environmental is the overall
+        assert row.cvss_tm_version == 1  # scored under the initial threat-model version
 
         [ref] = led.finding_refs_for(row.id)
         assert (ref.framework, ref.ref_id, ref.is_primary) == (
