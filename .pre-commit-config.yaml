@@ -41,6 +41,14 @@ repos:
         language: system
         types_or: [python, pyi]
         pass_filenames: false
+      # ruff has no file-length rule; this caps module size (functions are capped
+      # by ruff's PLR09xx/C901). pass_filenames: false -- it scans fixed roots.
+      - id: file-size
+        name: file size cap
+        entry: uv run python scripts/check_file_size.py
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
       - id: mypy
         name: mypy (strict)
         entry: uv run mypy

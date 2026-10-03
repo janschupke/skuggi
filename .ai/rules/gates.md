@@ -5,14 +5,21 @@ any task done. It is, in order (the same order as
 [.github/workflows/ci.yml](../../.github/workflows/ci.yml)):
 
 ```
-ruff format --check     # never `ruff format` in the gate — a rewrite can't fail
-ruff check              # the lint rule set is large; read pyproject before silencing one
-mypy                    # strict, + pydantic plugin; no bare `# type: ignore`
-pytest                  # --cov-fail-under=90, branch coverage
+ruff format --check          # never `ruff format` in the gate — a rewrite can't fail
+ruff check                   # the lint rule set is large; read pyproject before silencing one
+python scripts/check_file_size.py  # file-length cap (ruff has no file-length rule)
+mypy                         # strict, + pydantic plugin; no bare `# type: ignore`
+pytest                       # --cov-fail-under=90, branch coverage
 ```
 
 - **`make format`** rewrites (ruff format + `ruff check --fix`); the gate only
   verifies. Fix a finding at its root, don't widen a `per-file-ignores` entry.
+- **Size guards.** Function size/complexity is ruff's job: the `PLR09xx` family
+  (branches/returns/args/statements) plus `C901` at `max-complexity = 15`. File
+  length is [`scripts/check_file_size.py`](../../scripts/check_file_size.py) — a
+  1050-line cap, since ruff has no file-length rule. Over the cap? Split along a
+  real seam (the way `dispatch.py` became outcomes/presenters and `daemon.py` shed
+  `daemon_server.py`), never raise the cap or cut a file arbitrarily.
 - **Coverage is branch-based and floored at 90%** (measured ~92%). A new branch
   needs a test; don't drop the floor.
 - **The gate is offline and isolated.** It never talks to a provider and never

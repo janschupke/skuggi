@@ -223,7 +223,7 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
     from skuggi.agent import readiness
     from skuggi.agent.core import AgentCore
     from skuggi.config.config import Settings
-    from skuggi.frontend import daemon as daemon_mod
+    from skuggi.frontend import daemon_server
     from skuggi.install.boot import guard_boot
 
     setup_logging()
@@ -244,7 +244,7 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
     with tempfile.TemporaryDirectory() as raw_tmp:
         tmp = Path(raw_tmp)
         sock_path = str(tmp / "skuggi.sock")
-        handle = daemon_mod.serve(core, sock_path)
+        handle = daemon_server.serve(core, sock_path)
         argv, env_overrides = build_shell_invocation(shell_path, tmp, home=Path.home())
         env = {
             **os.environ,

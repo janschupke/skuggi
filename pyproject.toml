@@ -213,7 +213,8 @@ select = [
     "ISC",              # implicit str concat
     "PIE", "PT", "RET", "SIM", "SLF", "TID", "ARG", "PTH",
     "ERA",              # commented-out code
-    "PL",               # pylint
+    "PL",               # pylint (incl. PLR09xx function size/arg/return/branch caps)
+    "C901",             # mccabe cyclomatic complexity (threshold in [lint.mccabe])
     "TRY",              # tryceratops
     "FLY", "PERF", "FURB", "LOG", "G",
     "RUF",
@@ -231,6 +232,15 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.mccabe]
+# Cyclomatic-complexity ceiling for C901. 15 (vs the stricter default 10) is the
+# healthy line for this codebase: it flags genuinely tangled logic while leaving
+# the irreducibly-branchy cohesive functions -- a graph/widget builder whose nodes
+# are its statements, a one-branch-per-outcome match -- alone rather than forcing a
+# noqa on each. The PLR09xx family (branches/returns/args/statements) guards the
+# rest. File length is capped by scripts/check_file_size.py.
+max-complexity = 15
 
 [tool.ruff.lint.flake8-type-checking]
 # CodexChatModel is a pydantic model; its field annotations are evaluated at
@@ -265,7 +275,6 @@ runtime-evaluated-base-classes = [
 # plumbing lazily inside the interactive functions, so importing the module for
 # its unit-tested helpers stays cheap. shell.main prints to the operator's tty.
 "src/skuggi/frontend/shell.py" = ["PLC0415", "T201"]
-"src/skuggi/frontend/daemon.py" = ["PLC0415"]
 # WeasyPrint is imported lazily inside the render function (native dep, kept out
 # of the import graph for the core agent); the CLI prints its result to the tty.
 "src/skuggi/persistence/pdf.py" = ["PLC0415", "T201"]
@@ -278,6 +287,8 @@ runtime-evaluated-base-classes = [
 # tty, and shells out to `docker compose` with a fixed argv (shell=False).
 # Maintainer tool: prints its progress/results and lives outside the package tree.
 "scripts/sync_frameworks.py" = ["T201", "INP001", "S310"]
+# The file-size gate prints its offenders to the tty and lives outside the package.
+"scripts/check_file_size.py" = ["T201", "INP001"]
 "labs/_lib/labctl/cli.py" = ["T201"]
 "labs/_lib/labctl/compose.py" = ["S603", "S607"]
 "tests/**" = [

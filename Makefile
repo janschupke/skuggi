@@ -98,6 +98,7 @@ bench-fast:
 check:
 	$(UV) run ruff format --check
 	$(UV) run ruff check
+	$(UV) run python scripts/check_file_size.py
 	$(UV) run mypy
 	$(UV) run pytest
 

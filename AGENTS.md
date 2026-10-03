@@ -53,8 +53,10 @@ SQLite ledger.
 
 The most-violated. Full set in [`.ai/rules/`](.ai/rules/).
 
-- **`make check` before done** — ruff format --check, ruff, mypy strict, pytest
-  (90% branch). Fix a finding at its root; don't widen a `per-file-ignores` entry.
+- **`make check` before done** — ruff format --check, ruff (incl. `C901` +
+  `PLR09xx` size/complexity), the file-size cap (`scripts/check_file_size.py`),
+  mypy strict, pytest (90% branch). Fix a finding at its root; don't widen a
+  `per-file-ignores` entry or raise a cap — split along a real seam instead.
 - **A green gate is not proof of isolation** — tests must redirect
   `SKUGGI_CONFIG_HOME`/`SKUGGI_DATA_HOME`; verify `ls ~/.config/skuggi
   ~/.local/share/skuggi` is unchanged after a run.
