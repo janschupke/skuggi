@@ -111,3 +111,15 @@ def labeled(label: str, body: str, *, heading: bool = False) -> str:
 def join_blocks(*blocks: str) -> str:
     """Join non-empty blocks with a blank line between them."""
     return "\n\n".join(block for block in blocks if block)
+
+
+def slug(text: str) -> str:
+    """A filesystem-safe slug for an output filename; ``"engagement"`` when empty.
+
+    Shared by the report and visualization writers so the two output-filename
+    conventions cannot drift.
+    """
+    return (
+        "".join(c if c.isalnum() or c in "-_" else "-" for c in text).strip("-")
+        or "engagement"
+    )

@@ -17,7 +17,7 @@ from pathlib import Path
 from skuggi.common import palette
 from skuggi.common.clock import file_stamp, now_iso
 from skuggi.common.paths import ensure_dir
-from skuggi.common.text import join_blocks, labeled
+from skuggi.common.text import join_blocks, labeled, slug
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.persistence.ledger import (
     CommandRow,
@@ -159,14 +159,6 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
     )
 
 
-def _slug(text: str) -> str:
-    """A filesystem-safe slug for the report filename."""
-    return (
-        "".join(c if c.isalnum() or c in "-_" else "-" for c in text).strip("-")
-        or "engagement"
-    )
-
-
 def write_report(
     session_id: str,
     ledger: Ledger,
@@ -195,7 +187,7 @@ def write_report(
     refs = {f.id: ledger.finding_refs_for(f.id) for f in findings}
 
     reports_dir = ensure_dir(reports_dir)
-    prefix = f"{_slug(session.engagement_name)}-{session_id[:8]}-"
+    prefix = f"{slug(session.engagement_name)}-{session_id[:8]}-"
     # Sort by write time, not name, so the ordering is robust to stamp collisions.
     prior = sorted(reports_dir.glob(f"{prefix}*.md"), key=lambda p: p.stat().st_mtime)
     changelog_path = reports_dir / "CHANGELOG.md"
