@@ -202,6 +202,7 @@ def _stream_turn(
     *,
     conn: socket.socket | None = None,
     ask: Callable[[str], str | None] | None = None,
+    spinner: _Spinner | None = None,
 ) -> bool:
     """Consume one reply (through its terminal frame) from `frames`.
 
@@ -214,6 +215,8 @@ def _stream_turn(
     replies off one long-lived frame stream.
     """
     for line in frames:
+        if spinner is not None:
+            spinner.stop()  # first frame arrived; stop the spinner (idempotent)
         try:
             resp = json.loads(line)
         except json.JSONDecodeError:
@@ -267,8 +270,13 @@ def attach_over(
         if not line:
             break
         conn.sendall((json.dumps(build_message(line)) + "\n").encode())
-        if _stream_turn(frames, out, conn=conn, ask=prompt_in):
-            break
+        spinner = _Spinner()
+        spinner.maybe_start()  # look busy until the daemon's first frame
+        try:
+            if _stream_turn(frames, out, conn=conn, ask=prompt_in, spinner=spinner):
+                break
+        finally:
+            spinner.stop()  # idempotent; guarantees cleanup on abort/EOF
     return 0
 
 

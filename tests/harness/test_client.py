@@ -150,6 +150,23 @@ def test_stream_turn_returns_false_when_frames_run_dry() -> None:
     assert _stream_turn(iter([]), out) is False
 
 
+def test_stream_turn_stops_spinner_on_first_frame() -> None:
+    class _StubSpinner:
+        def __init__(self) -> None:
+            self.stops = 0
+
+        def stop(self) -> None:
+            self.stops += 1
+
+    out = io.StringIO()
+    spinner = _StubSpinner()
+    lines = _reply({"chunk": "hi\n"}, {"end": True}).splitlines()
+    result = _stream_turn(iter(lines), out, spinner=cast(client._Spinner, spinner))
+    assert result is False
+    assert out.getvalue() == "hi\n"
+    assert spinner.stops >= 1  # stopped the moment the first frame arrived
+
+
 def test_attach_over_streams_replies_then_ends_on_blank_line() -> None:
     conn = _FakeConn(
         {
