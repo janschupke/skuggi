@@ -36,12 +36,12 @@ from prompt_toolkit.styles import Style
 # fill. A checked box is green, an unchecked one dim.
 _STYLE = Style.from_dict(
     {
-        "menu.prompt": "bold",
-        "menu.hint": "ansibrightblack italic",
-        "menu.cursor": "ansicyan bold",
-        "menu.selected": "bold",
-        "menu.checked": "ansigreen",
-        "menu.unchecked": "ansibrightblack",
+        "sk.prompt": "bold",
+        "sk.hint": "ansibrightblack italic",
+        "sk.cursor": "ansicyan bold",
+        "sk.selected": "ansicyan",  # active row text in colour -- never a background
+        "sk.checked": "ansigreen",
+        "sk.unchecked": "ansibrightblack",
     }
 )
 
@@ -92,8 +92,8 @@ def select(
         rows: StyleAndTextTuples = []
         for i, opt in enumerate(opts):
             if i == state["pos"]:
-                rows.append(("class:menu.cursor", "▸ "))
-                rows.append(("class:menu.selected", f"{opt}\n"))
+                rows.append(("class:sk.cursor", "▸ "))
+                rows.append(("class:sk.selected", f"{opt}\n"))
             else:
                 rows.append(("", f"  {opt}\n"))
         return rows
@@ -102,10 +102,15 @@ def select(
         HSplit(
             [
                 Window(
-                    FormattedTextControl(lambda: [("class:menu.prompt", prompt)]),
+                    FormattedTextControl(lambda: [("class:sk.prompt", prompt)]),
                     height=1,
                 ),
-                Window(FormattedTextControl(_render, focusable=True)),
+                # show_cursor=False + always_hide_cursor: no terminal block cursor
+                # paints a reverse-video square over the first row.
+                Window(
+                    FormattedTextControl(_render, focusable=True, show_cursor=False),
+                    always_hide_cursor=True,
+                ),
             ]
         )
     )
@@ -195,27 +200,31 @@ def multiselect(
 
     def _header() -> StyleAndTextTuples:
         return [
-            ("class:menu.prompt", prompt + "\n"),
-            ("class:menu.hint", "space toggles · enter accepts"),
+            ("class:sk.prompt", prompt + "\n"),
+            ("class:sk.hint", "space toggles · enter accepts"),
         ]
 
     def _render() -> StyleAndTextTuples:
         rows: StyleAndTextTuples = []
         for i, opt in enumerate(opts):
             on_cursor = i == state["pos"]
-            rows.append(("class:menu.cursor", "▸ " if on_cursor else "  "))
+            rows.append(("class:sk.cursor", "▸ " if on_cursor else "  "))
             if i in checked:
-                rows.append(("class:menu.checked", "[x] "))
+                rows.append(("class:sk.checked", "[x] "))
             else:
-                rows.append(("class:menu.unchecked", "[ ] "))
-            rows.append(("class:menu.selected" if on_cursor else "", f"{opt}\n"))
+                rows.append(("class:sk.unchecked", "[ ] "))
+            rows.append(("class:sk.selected" if on_cursor else "", f"{opt}\n"))
         return rows
 
     layout = Layout(
         HSplit(
             [
                 Window(FormattedTextControl(_header), height=2),
-                Window(FormattedTextControl(_render, focusable=True)),
+                # show_cursor=False + always_hide_cursor: no terminal block cursor.
+                Window(
+                    FormattedTextControl(_render, focusable=True, show_cursor=False),
+                    always_hide_cursor=True,
+                ),
             ]
         )
     )
