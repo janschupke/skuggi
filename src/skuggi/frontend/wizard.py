@@ -41,6 +41,23 @@ def _yesno(answer: str) -> bool:
     return answer.strip().lower() in ("y", "yes", "true", "on", "1")
 
 
+def _threat_model(answer: str) -> dict[str, str] | None:
+    """Parse ``CR,IR,AR`` levels (low/medium/high) into a threat-model dict.
+
+    A blank answer leaves the field unset (no environmental scoring); fewer than
+    three values pad with ``medium``.
+    """
+    levels = _csv(answer.lower())
+    if not levels:
+        return None
+    levels = [*levels, "medium", "medium", "medium"][:3]
+    return {
+        "confidentiality_requirement": levels[0],
+        "integrity_requirement": levels[1],
+        "availability_requirement": levels[2],
+    }
+
+
 def _show(value: object) -> str:
     if isinstance(value, list):
         parts = [
@@ -69,6 +86,17 @@ _STEPS: tuple[tuple[str, str, Callable[[str], object]], ...] = (
     ("allowed_tools", "allowed tools (comma-separated)", _csv),
     ("allowed_methods", "allowed methods (comma-separated)", _csv),
     ("autonomous", "autonomous execution? (y/N)", _yesno),
+    ("methodology", "driving methodology (phases | ptes | attack)", str),
+    (
+        "taxonomies",
+        "finding taxonomies to tag with (wstg, attack; comma-separated, blank = none)",
+        _csv,
+    ),
+    (
+        "threat_model",
+        "threat model CR,IR,AR (low/medium/high, comma-separated; blank = none)",
+        _threat_model,
+    ),
 )
 
 

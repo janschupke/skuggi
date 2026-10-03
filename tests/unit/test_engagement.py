@@ -11,8 +11,10 @@ from datetime import UTC, datetime, time
 
 import pytest
 
+from skuggi.agent.protocol import methodology_phases
 from skuggi.engagement.engagement import (
     EngagementConfig,
+    ThreatModel,
     TimeWindow,
     check_command,
     parse_command,
@@ -346,3 +348,48 @@ def test_a_port_range_is_not_treated_as_a_target() -> None:
     cmd = parse_command("nmap -p 1-1000 10.0.0.5", REGISTRY)
     assert cmd.targets == ("10.0.0.5",)
     assert not cmd.unresolved
+
+
+def test_threat_model_maps_requirements_to_cvss_metrics() -> None:
+    tm = ThreatModel(
+        confidentiality_requirement="high",
+        integrity_requirement="medium",
+        availability_requirement="low",
+    )
+    # Neutral "medium" (CVSS "M") is omitted; only shifting levels appear.
+    assert tm.cvss_environmental_metrics() == {"CR": "H", "AR": "L"}
+    assert ThreatModel().cvss_environmental_metrics() == {}  # all-medium default
+
+
+def test_scope_defaults_and_framework_fields() -> None:
+    base = {
+        "name": "e",
+        "timezone": "UTC",
+        "authorized_start": "2026-01-01T00:00:00+00:00",
+        "authorized_end": "2026-12-31T00:00:00+00:00",
+    }
+    # Defaults: built-in phases, no taxonomies, no threat model.
+    default = EngagementConfig.model_validate(base)
+    assert default.methodology == "phases"
+    assert default.taxonomies == frozenset()
+    assert default.threat_model is None
+    # And the full framework-aware form validates.
+    full = EngagementConfig.model_validate(
+        {
+            **base,
+            "methodology": "attack",
+            "taxonomies": ["wstg", "attack"],
+            "threat_model": {"confidentiality_requirement": "high"},
+        }
+    )
+    assert full.methodology == "attack"
+    assert full.taxonomies == frozenset({"wstg", "attack"})
+    assert full.threat_model is not None
+    assert full.threat_model.cvss_environmental_metrics() == {"CR": "H"}
+
+
+def test_methodology_phases_per_driver() -> None:
+    assert methodology_phases("phases")[0] == "recon"
+    # PTES phases come from the vendored taxonomy (single source).
+    assert methodology_phases("ptes")[0] == "Pre-engagement Interactions"
+    assert "initial-access" in methodology_phases("attack")

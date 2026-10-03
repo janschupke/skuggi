@@ -49,6 +49,7 @@ from skuggi.agent.protocol import (
     RequestContext,
     WorkerResponse,
     clamp_phase,
+    methodology_phases,
     render_request,
     render_response,
     structured_invoke,
@@ -174,6 +175,10 @@ def engagement_brief(engagement: EngagementConfig) -> EngagementBrief:
         hosts=tuple(sorted(engagement.allowed_hosts)),
         allowed_tools=tuple(sorted(engagement.allowed_tools)),
         allowed_methods=tuple(sorted(engagement.allowed_methods)),
+        methodology=engagement.methodology,
+        methodology_phases=methodology_phases(engagement.methodology),
+        taxonomies=tuple(sorted(engagement.taxonomies)),
+        threat_model=engagement.threat_model is not None,
     )
 
 

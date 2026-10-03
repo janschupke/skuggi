@@ -24,13 +24,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, time
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, IPvAnyNetwork, field_validator
 
-from skuggi.agent.protocol import Stance
+from skuggi.agent.protocol import Methodology, Stance, Taxonomy
 from skuggi.common.logs import get_logger
 from skuggi.tooling.registry import ToolRegistry
 
@@ -64,6 +64,32 @@ class TimeWindow(BaseModel):
         return moment >= self.start or moment <= self.end
 
 
+class ThreatModel(BaseModel):
+    """Per-engagement CVSS Environmental inputs -- the asset's security requirements.
+
+    Present on a scope means environmental scoring is in play; its three
+    requirements map to CVSS CR/IR/AR (``medium`` is the neutral default, so a
+    threat model with all-medium is harmless but still switches environmental on).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    confidentiality_requirement: Literal["low", "medium", "high"] = "medium"
+    integrity_requirement: Literal["low", "medium", "high"] = "medium"
+    availability_requirement: Literal["low", "medium", "high"] = "medium"
+
+    def cvss_environmental_metrics(self) -> dict[str, str]:
+        """The CR/IR/AR CVSS metrics for this threat model (non-neutral levels only)."""
+        level = {"low": "L", "medium": "M", "high": "H"}
+        pairs = {
+            "CR": level[self.confidentiality_requirement],
+            "IR": level[self.integrity_requirement],
+            "AR": level[self.availability_requirement],
+        }
+        # "M" is CVSS "Medium" == the neutral 1.0 weight; omit it to keep vectors lean.
+        return {code: value for code, value in pairs.items() if value != "M"}
+
+
 class EngagementConfig(BaseModel):
     """The authorized boundary for one engagement, loaded from JSON."""
 
@@ -86,6 +112,13 @@ class EngagementConfig(BaseModel):
     # wrapped shell. Optional: when blank it is derived from a sole allowed host
     # or sole target network (see ``primary_target``).
     primary_target: str | None = None
+    # Framework awareness. ``methodology`` is the driving framework (prescriptive);
+    # ``taxonomies`` are the per-finding classification schemes enabled for this
+    # engagement (descriptive, never forced); ``threat_model`` enables CVSS
+    # Environmental scoring. All advisory to the agent -- none affect the guard.
+    methodology: Methodology = "phases"
+    taxonomies: frozenset[Taxonomy] = frozenset()
+    threat_model: ThreatModel | None = None
 
     @field_validator("timezone")
     @classmethod

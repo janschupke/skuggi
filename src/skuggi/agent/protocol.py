@@ -36,6 +36,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from skuggi.common.text import join_blocks, labeled
+from skuggi.frameworks import registry
 
 # --- domain enums -----------------------------------------------------------
 
@@ -55,6 +56,42 @@ STANCES: tuple[Stance, ...] = get_args(Stance)
 
 # Kept in lockstep with palette.severities(); test_protocol pins the two equal.
 Severity = Literal["info", "low", "medium", "high", "critical"]
+
+# The engagement's driving methodology (prescriptive -- what the agent follows):
+# skuggi's built-in phase model, PTES, or ATT&CK adversary-emulation. It shapes the
+# phase vocabulary presented to the planner/worker; the internal Phase channel above
+# stays the stable state machine regardless.
+Methodology = Literal["phases", "ptes", "attack"]
+METHODOLOGIES: tuple[Methodology, ...] = get_args(Methodology)
+
+# Optional per-finding classification taxonomies (descriptive -- applied where they
+# fit, never forced). CVSS is always-on and is NOT one of these.
+Taxonomy = Literal["wstg", "attack"]
+TAXONOMIES: tuple[Taxonomy, ...] = get_args(Taxonomy)
+
+# The ATT&CK Enterprise tactics, in kill-chain order -- the "phases" an adversary-
+# emulation engagement works through (the technique catalogue is in frameworks.data).
+_ATTACK_TACTICS: tuple[str, ...] = (
+    "reconnaissance", "resource-development", "initial-access", "execution",
+    "persistence", "privilege-escalation", "defense-evasion", "credential-access",
+    "discovery", "lateral-movement", "collection", "command-and-control",
+    "exfiltration", "impact",
+)  # fmt: skip
+
+
+def methodology_phases(methodology: Methodology) -> tuple[str, ...]:
+    """The phase/stage names a methodology works through, for the prompt framing.
+
+    ``phases`` is skuggi's built-in model; ``ptes`` reads the vendored PTES phase
+    titles (single source with the taxonomy data); ``attack`` is the ATT&CK tactic
+    chain. This is what the driver uses to steer the agent without changing the
+    internal :data:`Phase` channel.
+    """
+    if methodology == "ptes":
+        return tuple(ref.title for ref in registry.entries("ptes"))
+    if methodology == "attack":
+        return _ATTACK_TACTICS
+    return PHASES
 
 
 def clamp_phase(current: Phase, requested: Phase | None) -> Phase:
@@ -85,6 +122,12 @@ class EngagementBrief(BaseModel):
     hosts: tuple[str, ...] = ()
     allowed_tools: tuple[str, ...] = ()
     allowed_methods: tuple[str, ...] = ()
+    # Framework awareness: the driving methodology + its phase outline, the enabled
+    # per-finding classification taxonomies, and whether a CVSS threat model is set.
+    methodology: Methodology = "phases"
+    methodology_phases: tuple[str, ...] = ()
+    taxonomies: tuple[Taxonomy, ...] = ()
+    threat_model: bool = False
 
 
 class FindingBrief(BaseModel):

@@ -35,6 +35,9 @@ def test_collect_scope_shapes_answers_into_valid_scope() -> None:
             "nmap, curl",
             "recon, scan",
             "yes",
+            "ptes",
+            "wstg, attack",
+            "high, medium, high",
         )
     )
     assert raw is not None
@@ -46,6 +49,13 @@ def test_collect_scope_shapes_answers_into_valid_scope() -> None:
     assert raw["target_networks"] == ["192.0.2.0/24", "198.51.100.0/24"]
     assert raw["allowed_tools"] == ["nmap", "curl"]
     assert raw["autonomous"] is True
+    assert raw["methodology"] == "ptes"
+    assert raw["taxonomies"] == ["wstg", "attack"]
+    assert raw["threat_model"] == {
+        "confidentiality_requirement": "high",
+        "integrity_requirement": "medium",
+        "availability_requirement": "high",
+    }
     EngagementConfig.model_validate(raw)  # the shaped dict validates
 
 
@@ -56,6 +66,9 @@ def test_collect_scope_blank_timezone_seeds_utc() -> None:
             "",
             "2026-01-01T00:00:00+00:00",
             "2026-12-31T00:00:00+00:00",
+            "",
+            "",
+            "",
             "",
             "",
             "",
@@ -74,7 +87,7 @@ def test_collect_scope_aborts_when_ask_returns_none() -> None:
 
 def test_collect_scope_edit_keeps_existing_on_blank() -> None:
     raw = collect_scope(
-        _answers("", "", "", "", "", "", "", "", "", ""), existing=_VALID
+        _answers("", "", "", "", "", "", "", "", "", "", "", "", ""), existing=_VALID
     )
     assert raw is not None
     assert raw["name"] == "x"  # blank kept the existing value
@@ -83,7 +96,7 @@ def test_collect_scope_edit_keeps_existing_on_blank() -> None:
 def test_run_wizard_applies_and_reports_loaded() -> None:
     notes: list[str] = []
     eng = run_wizard(
-        _answers("a", "b", "c", "d", "e", "f", "g", "h", "i", "j"),
+        _answers("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "phases", "", ""),
         lambda _raw: _VALID,
         notes.append,
     )
@@ -102,7 +115,7 @@ def test_run_wizard_retries_on_rejection() -> None:
         return _VALID
 
     notes: list[str] = []
-    ask = _answers(*(["x"] * 20))  # two full passes
+    ask = _answers(*(["x"] * 26))  # two full passes (13 steps each)
     eng = run_wizard(ask, apply, notes.append)
     assert eng is _VALID
     assert calls["n"] == 2

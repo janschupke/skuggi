@@ -9,5 +9,12 @@
   "allowed_tools": ["nmap", "nikto", "curl", "gobuster", "sqlmap", "whatweb"],
   "allowed_methods": ["recon", "scan", "enumerate"],
   "stance": "cautious",
-  "autonomous": false
+  "autonomous": false,
+  "methodology": "phases",
+  "taxonomies": ["wstg"],
+  "threat_model": {
+    "confidentiality_requirement": "high",
+    "integrity_requirement": "medium",
+    "availability_requirement": "medium"
+  }
 }

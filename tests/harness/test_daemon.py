@@ -390,12 +390,15 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
             "nmap",
             "scan",
             "no",
+            "ptes",  # methodology
+            "wstg",  # taxonomies
+            "",  # threat model -> none
         ]
     )
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
     asks = [f["ask"] for f in emitted if "ask" in f]
-    assert len(asks) == 10  # one prompt per field, round-tripped over the socket
+    assert len(asks) == 13  # one prompt per field, round-tripped over the socket
     assert daemon.core.engagement is not None
     assert daemon.core.engagement.name == "acme"  # hot-loaded into the warm core
     assert "loaded" in "".join(str(f.get("chunk", "")) for f in emitted)
