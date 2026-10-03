@@ -51,6 +51,7 @@ from skuggi.frontend.outcomes import (
     ReconcileList,
     ReconcileOutcome,
     ReconcileOverwritten,
+    ReconcileRow,
     ReconcileUnknown,
     ReconcileUsage,
     SessionCount,
@@ -61,6 +62,8 @@ from skuggi.frontend.render import Styled
 from skuggi.install import configdiff, reconcile
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from skuggi.agent.readiness import Readiness
     from skuggi.persistence.ledger import ThreadSummary
 
@@ -296,7 +299,64 @@ def _diff_sections(diff: configdiff.StructuredDiff) -> Styled:
     return lines
 
 
-def present_reconcile(  # noqa: PLR0911, PLR0912 -- one branch per outcome
+def _reconcile_list_lines(
+    rows: tuple[ReconcileRow, ...], surface: verbs.Surface
+) -> Styled:
+    """The ``reconcile`` listing: one status line per file, plus a how-to footer."""
+    lines: Styled = [render.heading("installed config vs packaged templates:")]
+    for row in rows:
+        s = row.status
+        mag = (
+            f"  (+{row.added} \N{MINUS SIGN}{row.removed} ~{row.changed})"
+            if s.state == "drifted"
+            else ""
+        )
+        lines.append(_RECONCILE_STYLE[s.state](f"  {s.name:<16} {s.state}{mag}"))
+    if any(r.status.state == "drifted" for r in rows):
+        lines.append(
+            render.info(
+                "update one with "
+                + verbs.cmd("reconcile <file>", surface)
+                + ", all with "
+                + verbs.cmd("reconcile all", surface)
+                + " (a backup is saved); inspect with "
+                + verbs.cmd("reconcile diff <file>", surface)
+            )
+        )
+    return lines
+
+
+def _reconcile_diff_lines(
+    name: str, diff: configdiff.StructuredDiff, surface: verbs.Surface
+) -> Styled:
+    """The ``reconcile diff`` view: the structured diff, plus an apply hint."""
+    if diff.empty:
+        return [render.success(f"{name} is up to date with the packaged template")]
+    lines: Styled = [render.heading(f"{name}: installed -> packaged")]
+    lines += _diff_sections(diff)
+    lines.append(
+        render.info(
+            "apply with "
+            + verbs.cmd(f"reconcile {name}", surface)
+            + " (a backup is saved)"
+        )
+    )
+    return lines
+
+
+def _reconcile_all_lines(results: tuple[tuple[str, Path | None], ...]) -> Styled:
+    """The ``reconcile all`` summary: each file updated, with its backup path."""
+    if not results:
+        return [render.success("all config files already up to date")]
+    lines: Styled = [render.heading("updated from the packaged templates:")]
+    for name, backup in results:
+        lines.append(render.success(f"  {name}"))
+        if backup is not None:
+            lines.append(render.info(f"    backup saved: {backup}"))
+    return lines
+
+
+def present_reconcile(  # noqa: PLR0911 -- one return per outcome
     outcome: ReconcileOutcome, surface: verbs.Surface
 ) -> Styled:
     """Render a ``reconcile`` outcome identically on both surfaces."""
@@ -314,58 +374,16 @@ def present_reconcile(  # noqa: PLR0911, PLR0912 -- one branch per outcome
                 render.danger(f"unknown config file {name!r}; choose one of: {choices}")
             ]
         case ReconcileList(rows):
-            lines: Styled = [render.heading("installed config vs packaged templates:")]
-            for row in rows:
-                s = row.status
-                mag = (
-                    f"  (+{row.added} \N{MINUS SIGN}{row.removed} ~{row.changed})"
-                    if s.state == "drifted"
-                    else ""
-                )
-                text = f"  {s.name:<16} {s.state}{mag}"
-                lines.append(_RECONCILE_STYLE[s.state](text))
-            drifted = [r.status.name for r in rows if r.status.state == "drifted"]
-            if drifted:
-                lines.append(
-                    render.info(
-                        "update one with "
-                        + verbs.cmd("reconcile <file>", surface)
-                        + ", all with "
-                        + verbs.cmd("reconcile all", surface)
-                        + " (a backup is saved); inspect with "
-                        + verbs.cmd("reconcile diff <file>", surface)
-                    )
-                )
-            return lines
+            return _reconcile_list_lines(rows, surface)
         case ReconcileDiff(name, diff):
-            if diff.empty:
-                return [
-                    render.success(f"{name} is up to date with the packaged template")
-                ]
-            lines = [render.heading(f"{name}: installed -> packaged")]
-            lines += _diff_sections(diff)
-            lines.append(
-                render.info(
-                    "apply with "
-                    + verbs.cmd(f"reconcile {name}", surface)
-                    + " (a backup is saved)"
-                )
-            )
-            return lines
+            return _reconcile_diff_lines(name, diff, surface)
         case ReconcileOverwritten(name, backup):
             done = render.success(f"{name} updated from the packaged template")
             if backup is not None:
                 return [done, render.info(f"backup saved: {backup}")]
             return [done]
         case ReconcileAll(results):
-            if not results:
-                return [render.success("all config files already up to date")]
-            lines = [render.heading("updated from the packaged templates:")]
-            for name, backup in results:
-                lines.append(render.success(f"  {name}"))
-                if backup is not None:
-                    lines.append(render.info(f"    backup saved: {backup}"))
-            return lines
+            return _reconcile_all_lines(results)
 
 
 def present_sessions(rows: list[SessionCount]) -> Styled:

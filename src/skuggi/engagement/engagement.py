@@ -456,23 +456,10 @@ def _datafiles_in_scope(
     return None
 
 
-def check_command(  # noqa: PLR0911, PLR0912, PLR0913 -- a guard is a linear sequence of denials over its inputs
-    cmd: ParsedCommand,
-    engagement: EngagementConfig,
-    *,
-    now: datetime,
-    workspace: Workspace | None = None,
-    cwd: Path | None = None,
-    wordlist_roots: tuple[Path, ...] = (),
-) -> GuardVerdict:
-    """The single choke point: is this command inside the engagement boundary?
-
-    Runs cheapest-to-costliest, returning the first failure's reason. `now`
-    must be timezone-aware; it is converted into the engagement timezone for
-    the daily-window check. `workspace`/`cwd`/`wordlist_roots` enable data-file
-    confinement: a wordlist/credential-list path is allowed only when it stays
-    inside the engagement workspace or a configured wordlist root.
-    """
+def _authorization_verdict(
+    cmd: ParsedCommand, engagement: EngagementConfig
+) -> GuardVerdict | None:
+    """Deny unless the command's tool and method are authorized (or ``*``)."""
     if not cmd.binary:
         return GuardVerdict(False, "empty or unparseable command")
     if cmd.method is None:
@@ -492,6 +479,13 @@ def check_command(  # noqa: PLR0911, PLR0912, PLR0913 -- a guard is a linear seq
         return GuardVerdict(
             False, f"method {cmd.method!r} is not authorized for this engagement"
         )
+    return None
+
+
+def _time_window_verdict(
+    engagement: EngagementConfig, now: datetime
+) -> GuardVerdict | None:
+    """Deny when `now` is outside the authorization window or the daily windows."""
     start, end = engagement.authorized_start, engagement.authorized_end
     if start is not None and now < start:
         return GuardVerdict(False, "before the authorized start time")
@@ -501,6 +495,13 @@ def check_command(  # noqa: PLR0911, PLR0912, PLR0913 -- a guard is a linear seq
         local = now.astimezone(engagement.tzinfo()).timetz().replace(tzinfo=None)
         if not any(window.contains(local) for window in engagement.daily_windows):
             return GuardVerdict(False, "outside the allowed daily time window")
+    return None
+
+
+def _target_verdict(
+    cmd: ParsedCommand, engagement: EngagementConfig
+) -> GuardVerdict | None:
+    """Deny unless every target the command names resolves inside the scope."""
     if cmd.target_file:
         return GuardVerdict(
             False,
@@ -519,7 +520,31 @@ def check_command(  # noqa: PLR0911, PLR0912, PLR0913 -- a guard is a linear seq
             return GuardVerdict(
                 False, f"target {target!r} is outside the authorized scope"
             )
-    datafile_verdict = _datafiles_in_scope(cmd, workspace, cwd, wordlist_roots)
-    if datafile_verdict is not None:
-        return datafile_verdict
-    return GuardVerdict(True, "in scope")
+    return None
+
+
+def check_command(  # noqa: PLR0913 -- a guard reads over many engagement inputs
+    cmd: ParsedCommand,
+    engagement: EngagementConfig,
+    *,
+    now: datetime,
+    workspace: Workspace | None = None,
+    cwd: Path | None = None,
+    wordlist_roots: tuple[Path, ...] = (),
+) -> GuardVerdict:
+    """The single choke point: is this command inside the engagement boundary?
+
+    An ordered, cheapest-to-costliest deny-chain: the first gate to return a
+    verdict wins, and passing every gate is in scope. `now` must be
+    timezone-aware; it is converted into the engagement timezone for the
+    daily-window check. `workspace`/`cwd`/`wordlist_roots` enable data-file
+    confinement: a wordlist/credential-list path is allowed only when it stays
+    inside the engagement workspace or a configured wordlist root.
+    """
+    return (
+        _authorization_verdict(cmd, engagement)
+        or _time_window_verdict(engagement, now)
+        or _target_verdict(cmd, engagement)
+        or _datafiles_in_scope(cmd, workspace, cwd, wordlist_roots)
+        or GuardVerdict(True, "in scope")
+    )

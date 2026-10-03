@@ -120,7 +120,8 @@ def distil_attack() -> dict[str, Any]:
     """Distil MITRE ATT&CK Enterprise techniques from the pinned STIX bundle."""
     pin = PINS["attack"]
     version = pin["version"]
-    url = f"{_RAW}/{pin['repo']}/master/enterprise-attack/enterprise-attack-{version}.json"
+    stix = f"enterprise-attack/enterprise-attack-{version}.json"
+    url = f"{_RAW}/{pin['repo']}/master/{stix}"
     bundle = json.loads(_fetch(url))
     collection = next(
         (o for o in bundle["objects"] if o.get("type") == "x-mitre-collection"), {}
@@ -190,7 +191,9 @@ def distil_ptes() -> dict[str, Any]:
             "source_url": _PTES_SOURCE,
             "ref": "curated",
             "version": "PTES technical guidelines (curated)",
-            "note": "PTES has no machine-readable release; the 7 phases are curated here.",
+            "note": (
+                "PTES has no machine-readable release; the 7 phases are curated here."
+            ),
             "fetched_at": _now(),
         },
         "entries": entries,
@@ -215,9 +218,8 @@ def _write(name: str, doc: dict[str, Any]) -> None:
     path.write_text(
         json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    print(
-        f"wrote {path.relative_to(_DATA_DIR.parent.parent.parent.parent)} ({len(doc['entries'])} entries)"
-    )
+    rel = path.relative_to(_DATA_DIR.parent.parent.parent.parent)
+    print(f"wrote {rel} ({len(doc['entries'])} entries)")
 
 
 def main() -> int:

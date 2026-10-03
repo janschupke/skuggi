@@ -277,7 +277,7 @@ runtime-evaluated-base-classes = [
 # The lab-range controller renders its tables/prompts straight to the operator's
 # tty, and shells out to `docker compose` with a fixed argv (shell=False).
 # Maintainer tool: prints its progress/results and lives outside the package tree.
-"scripts/sync_frameworks.py" = ["T201", "INP001", "S310", "E501"]
+"scripts/sync_frameworks.py" = ["T201", "INP001", "S310"]
 "labs/_lib/labctl/cli.py" = ["T201"]
 "labs/_lib/labctl/compose.py" = ["S603", "S607"]
 "tests/**" = [
