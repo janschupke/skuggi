@@ -98,7 +98,7 @@ def wire_offline_core(
         worker_replies=[WorkerResponse(summary="the answer")],
         critic_replies=[CriticResponse(approved=True, reason="ok")],
     )
-    core.graph = core._build()
+    core.rebuild_graph()
 
 
 def _is_eval(request: pytest.FixtureRequest) -> bool:

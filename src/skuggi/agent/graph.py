@@ -327,10 +327,119 @@ def needs_pipeline(text: str, deps: GraphDeps) -> bool:
 # --- graph ------------------------------------------------------------------
 
 
-def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are its statements
+def _plan_update(
+    resp: PlannerResponse, state: AgentState, deps: GraphDeps
+) -> PlanUpdate:
+    """Map a planner response to a state update, triaging direct answers.
+
+    A direct answer short-circuits the pipeline (planner -> respond) for
+    conversational/identity/clarification turns -- but only on the first pass
+    (never abandon an in-flight revision and discard the worker's accumulated
+    draft/critique), only with a real answer to give, and never when the turn
+    plainly targets the engagement (the deterministic backstop). A conversational
+    turn does NOT advance the methodology phase.
+    """
+    current = state.get("phase", "recon")
+    revising = (state.get("revision_count") or 0) > 0
+    answer = resp.answer.strip()
+    direct = (
+        resp.action == "answer"
+        and bool(answer)
+        and not revising
+        and not needs_pipeline(last_user_text(state["messages"]), deps)
+    )
+    if direct:
+        return {
+            "plan_action": "answer",
+            "draft": answer,
+            "phase": current,
+            "commands": [],
+            "command_rounds": 0,
+        }
+    # Advance the phase at most once per turn (on the first pass), so a
+    # multi-revision turn cannot walk several phases forward.
+    phase = clamp_phase(current, resp.advance_to) if not revising else current
+    return {
+        "plan_action": "plan",
+        "plan": list(resp.steps),
+        "phase": phase,
+        # Reset this turn's command trail and round counter for the new pass.
+        "commands": [],
+        "command_rounds": 0,
+    }
+
+
+def _execute_node(state: AgentState, deps: GraphDeps, work_dir: Path) -> ExecutorUpdate:
+    """Run (autonomous) or propose the worker's command, recording any findings."""
+    resp = state.get("worker")
+    if resp is None:
+        return {}
+    commands = list(state.get("commands", []))
+    rounds = state.get("command_rounds") or 0
+    updates: ExecutorUpdate = {}
+    command_id: int | None = None
+    runnable = (
+        resp.command is not None
+        and deps.ledger is not None
+        and deps.engagement is not None
+        and deps.registry is not None
+        and bool(deps.session_id)
+    )
+    if runnable and resp.command is not None:
+        command_id, brief, ran = _run_or_propose(
+            deps, resp.command, work_dir, now=_now(deps)
+        )
+        commands.append(brief)
+        updates["commands"] = commands
+        if ran:
+            updates["command_rounds"] = rounds + 1
+    _record_findings(deps, resp, command_id)
+    return updates
+
+
+def _respond_node(state: AgentState) -> ReplyUpdate:
+    """Emit the accumulated draft as the turn's answer."""
+    return {"messages": [AIMessage(content=state.get("draft") or "")]}
+
+
+def _bump_node(state: AgentState) -> RevisionUpdate:
+    """Count a revision pass so the planner can cap how many it allows."""
+    return {"revision_count": (state.get("revision_count") or 0) + 1}
+
+
+def _retrieve_node(
+    state: AgentState, deps: GraphDeps, clean: Callable[[str], str]
+) -> ContextUpdate:
+    """Inline a top-k retrieval snippet ahead of the worker."""
+    if deps.store is None:
+        return {}
+    hits = deps.store.search(last_user_text(state["messages"]), k=deps.retrieve_k)
+    # Redact before the snippet is stored in graph state, so a secret in an
+    # ingested document never lands in the checkpoint either.
+    return {"context": clean(format_hits(hits))} if hits else {}
+
+
+def _route_after_executor(
+    state: AgentState, deps: GraphDeps
+) -> Literal["worker", "critic"]:
+    """Loop back to the worker only while an autonomous run can still make progress."""
+    resp = state.get("worker")
+    if resp is None or resp.done or resp.command is None:
+        return "critic"
+    if deps.engagement is None or not deps.engagement.autonomous:
+        return "critic"
+    if (state.get("command_rounds") or 0) >= deps.max_command_rounds:
+        return "critic"
+    commands = state.get("commands") or []
+    if not commands or commands[-1].status != "executed":
+        return "critic"
+    return "worker"
+
+
+def build_graph(
     deps: GraphDeps, checkpointer: BaseCheckpointSaver[str]
 ) -> CompiledStateGraph[AgentState]:
-    """Compile the agent graph."""
+    """Compile the agent graph (its nodes are its statements)."""
     work_dir = (deps.cwd or Path.cwd()).resolve()
     policy = deps.redaction_policy or RedactionPolicy()
     clean = _redactor(deps)
@@ -391,49 +500,10 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
     def plan_node(state: AgentState) -> PlanUpdate:
         ctx = context(state, prior_critique=state.get("critique") or "")
         resp = ask(deps.prompts.planner, ctx, PlannerResponse)
-        current = state.get("phase", "recon")
-        revising = (state.get("revision_count") or 0) > 0
-        answer = resp.answer.strip()
-        # Triage: a direct answer short-circuits the pipeline (planner -> respond)
-        # for conversational/identity/clarification turns -- but only on the first
-        # pass (never abandon an in-flight revision and discard the worker's
-        # accumulated draft/critique), only with a real answer to give, and never
-        # when the turn plainly targets the engagement (the deterministic
-        # backstop). A conversational turn does NOT advance the methodology phase.
-        direct = (
-            resp.action == "answer"
-            and bool(answer)
-            and not revising
-            and not needs_pipeline(last_user_text(state["messages"]), deps)
-        )
-        if direct:
-            return {
-                "plan_action": "answer",
-                "draft": answer,
-                "phase": current,
-                "commands": [],
-                "command_rounds": 0,
-            }
-        # Advance the phase at most once per turn (on the first pass), so a
-        # multi-revision turn cannot walk several phases forward.
-        phase = clamp_phase(current, resp.advance_to) if not revising else current
-        return {
-            "plan_action": "plan",
-            "plan": list(resp.steps),
-            "phase": phase,
-            # Reset this turn's command trail and round counter for the new pass.
-            "commands": [],
-            "command_rounds": 0,
-        }
+        return _plan_update(resp, state, deps)
 
     def retrieve_node(state: AgentState) -> ContextUpdate:
-        """Inline a top-k retrieval snippet ahead of the worker."""
-        if deps.store is None:
-            return {}
-        hits = deps.store.search(last_user_text(state["messages"]), k=deps.retrieve_k)
-        # Redact before the snippet is stored in graph state, so a secret in an
-        # ingested document never lands in the checkpoint either.
-        return {"context": clean(format_hits(hits))} if hits else {}
+        return _retrieve_node(state, deps, clean)
 
     def work_node(state: AgentState) -> WorkerUpdate:
         ctx = context(state, plan=tuple(state.get("plan") or ()))
@@ -441,54 +511,15 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
         return {"worker": resp, "draft": render_response(resp)}
 
     def execute_node(state: AgentState) -> ExecutorUpdate:
-        resp = state.get("worker")
-        if resp is None:
-            return {}
-        commands = list(state.get("commands", []))
-        rounds = state.get("command_rounds") or 0
-        updates: ExecutorUpdate = {}
-        command_id: int | None = None
-        runnable = (
-            resp.command is not None
-            and deps.ledger is not None
-            and deps.engagement is not None
-            and deps.registry is not None
-            and bool(deps.session_id)
-        )
-        if runnable and resp.command is not None:
-            command_id, brief, ran = _run_or_propose(
-                deps, resp.command, work_dir, now=_now(deps)
-            )
-            commands.append(brief)
-            updates["commands"] = commands
-            if ran:
-                updates["command_rounds"] = rounds + 1
-        _record_findings(deps, resp, command_id)
-        return updates
+        return _execute_node(state, deps, work_dir)
 
     def route_after_executor(state: AgentState) -> Literal["worker", "critic"]:
-        resp = state.get("worker")
-        if resp is None or resp.done or resp.command is None:
-            return "critic"
-        if deps.engagement is None or not deps.engagement.autonomous:
-            return "critic"
-        if (state.get("command_rounds") or 0) >= deps.max_command_rounds:
-            return "critic"
-        commands = state.get("commands") or []
-        if not commands or commands[-1].status != "executed":
-            return "critic"
-        return "worker"
+        return _route_after_executor(state, deps)
 
     def critique_node(state: AgentState) -> CritiqueUpdate:
         ctx = context(state, divisor=2, draft=state.get("draft") or "")
         resp = ask(deps.prompts.critic, ctx, CriticResponse)
         return {"approved": resp.approved, "critique": resp.reason}
-
-    def respond_node(state: AgentState) -> ReplyUpdate:
-        return {"messages": [AIMessage(content=state.get("draft") or "")]}
-
-    def bump_node(state: AgentState) -> RevisionUpdate:
-        return {"revision_count": (state.get("revision_count") or 0) + 1}
 
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("planner", plan_node)
@@ -496,8 +527,8 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
     graph.add_node("worker", work_node)
     graph.add_node("executor", execute_node)
     graph.add_node("critic", critique_node)
-    graph.add_node("respond", respond_node)
-    graph.add_node("bump", bump_node)
+    graph.add_node("respond", _respond_node)
+    graph.add_node("bump", _bump_node)
 
     graph.add_edge(START, "planner")
     graph.add_conditional_edges("planner", route_after_plan)

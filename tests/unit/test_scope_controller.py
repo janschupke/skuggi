@@ -119,7 +119,7 @@ def test_propose_keeps_only_well_formed_edits(monkeypatch: pytest.MonkeyPatch) -
         lambda *_a, **_k: proposal,
     )
     core = SimpleNamespace(
-        _ensure_llm=object,
+        ensure_llm=object,
         settings=SimpleNamespace(supports_structured_output=lambda: False),
     )
     kept = ScopeController(cast("AgentCore", core)).propose("add nikto")

@@ -110,5 +110,5 @@ def build_offline_core(
     core = AgentCore(settings)
     core.store = Store(core.settings.faiss_path, _ConstantEmbeddings())
     core.llm = OfflineModel(worker=worker)
-    core.graph = core._build()  # noqa: SLF001 -- the documented rewire seam
+    core.rebuild_graph()
     return core

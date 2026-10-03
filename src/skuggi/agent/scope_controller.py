@@ -96,7 +96,7 @@ class ScopeController:
         core = self._core
         fields = ", ".join(SCOPE_FIELDS)
         proposal = structured_invoke(
-            core._ensure_llm(),  # noqa: SLF001 -- sub-component drives the model kernel
+            core.ensure_llm(),
             ScopeProposal,
             [
                 SystemMessage(

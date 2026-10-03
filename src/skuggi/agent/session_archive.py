@@ -94,7 +94,7 @@ class SessionArchive:
         # ``transcript`` stay raw for the operator's own eyes). Redact the
         # timeline -- raw command output and finding text -- before it reaches
         # the model, then apply the egress net over the whole prompt.
-        policy = core._redaction_policy()  # noqa: SLF001 -- sub-component reads the core
+        policy = core.redaction_policy()
         timeline = redact(timeline, policy, core.vault)
         prompt = scrub(
             join_blocks(
@@ -104,7 +104,7 @@ class SessionArchive:
             policy,
         )
         llm = (
-            core._ensure_llm()  # noqa: SLF001 -- sub-component drives the core's model kernel
+            core.ensure_llm()
             if core.settings.review_model is None
             else providers.get_chat_model(
                 core.settings, model=core.settings.review_model

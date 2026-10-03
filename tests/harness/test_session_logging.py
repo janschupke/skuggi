@@ -42,7 +42,7 @@ def test_turn_records_prompt_and_response_events(core: AgentCore) -> None:
     assert texts["prompt"] == "what is exposed?"
     assert texts["response"]  # the critic-approved draft
     # the turn is closed: a later command is not misattributed to it
-    assert core._current_turn_event_id is None
+    assert core.current_turn_event_id is None
 
 
 def test_agent_command_links_to_the_current_turn(core: AgentCore) -> None:
@@ -53,7 +53,7 @@ def test_agent_command_links_to_the_current_turn(core: AgentCore) -> None:
         ],
         critic_replies=[CriticResponse(approved=True, reason="ok")],
     )
-    core.graph = core._build()
+    core.rebuild_graph()
     list(core.turn("scan the host"))
 
     events = core.ledger.events_for(core.session_id)

@@ -94,7 +94,7 @@ class ConfigController:
         core = self._core
         keys = ", ".join(sorted(self.settable_keys()))
         proposal = structured_invoke(
-            core._ensure_llm(),  # noqa: SLF001 -- sub-component drives the core's model kernel
+            core.ensure_llm(),
             ConfigProposal,
             [
                 SystemMessage(

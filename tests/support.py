@@ -85,4 +85,4 @@ def wire_offline_llm(core: AgentCore, worker: RoleScriptedChatModel) -> None:
     """
     core.store = Store(core.settings.faiss_path, CountingFakeEmbeddings())
     core.llm = worker
-    core.graph = core._build()
+    core.rebuild_graph()

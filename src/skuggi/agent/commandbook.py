@@ -115,7 +115,7 @@ class CommandBook:
             method=parsed.method,
             status=status,
             reason="" if verdict.allowed else verdict.reason,
-            turn_event_id=core._current_turn_event_id,  # noqa: SLF001 -- links to the in-flight turn
+            turn_event_id=core.current_turn_event_id,
         )
         if not verdict.allowed:
             note = verdict.reason
@@ -197,7 +197,7 @@ class CommandBook:
         core = self._core
         existing = ", ".join(core.commands.names()) or "(none)"
         return structured_invoke(
-            core._ensure_llm(),  # noqa: SLF001 -- sub-component drives the model kernel
+            core.ensure_llm(),
             CmdProposal,
             [
                 SystemMessage(

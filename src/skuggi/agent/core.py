@@ -165,7 +165,7 @@ class AgentCore:
         self._prefs_ctx = preferences.open_preferences(self.settings.preferences_path)
         self.prefs = self._prefs_ctx.__enter__()
 
-        self.graph = self._build()
+        self.rebuild_graph()
 
         # Per-session approval grants for gated writes (config/install/scope/cmd).
         self.grants = SessionGrants()
@@ -298,7 +298,17 @@ class AgentCore:
         """The harness command catalogue (verbs/nouns + saved cmd aliases)."""
         return awareness.harness_catalogue_block(self.commands.names())
 
-    def _redaction_policy(self) -> RedactionPolicy:
+    @property
+    def current_turn_event_id(self) -> int | None:
+        """The ledger event id of the in-flight turn (``None`` between turns).
+
+        A sub-component (the command book) links a proposed command to the turn
+        that produced it; this read-only seam exposes that link without reaching
+        into the core's internals.
+        """
+        return self._current_turn_event_id
+
+    def redaction_policy(self) -> RedactionPolicy:
         """The redaction policy for this session, allow-listing in-scope identifiers.
 
         The agent has to reason about its own targets, so the engagement's name,
@@ -346,7 +356,7 @@ class AgentCore:
             engagement=self.engagement,
             ledger=self.ledger,
             registry=self.registry,
-            redaction_policy=self._redaction_policy(),
+            redaction_policy=self.redaction_policy(),
             vault=self.vault,
             workspace=self.workspace,
             wordlist_roots=tuple(Path(r) for r in self.settings.wordlist_roots),
@@ -369,6 +379,17 @@ class AgentCore:
 
     def _build(self) -> CompiledStateGraph[AgentState]:
         return build_graph(self._deps(), self.saver)
+
+    def rebuild_graph(self) -> None:
+        """Recompile the graph so ``GraphDeps`` picks up changed state.
+
+        The compiled graph snapshots config/scope/threat-model/preferences into
+        ``GraphDeps`` at build time, so any change to those must be followed by a
+        rebuild. This is the one public seam for that: the core calls it itself
+        after a session control, and a sub-component (e.g. the preference book)
+        calls it after mutating state the deps capture.
+        """
+        self.graph = self._build()
 
     def close(self) -> None:
         """Close the ledger, vault, preferences and checkpointer connections."""
@@ -482,7 +503,7 @@ class AgentCore:
 
     def _rebuild_llm(self) -> None:
         self.llm = providers.get_chat_model(self.settings, model=self.model)
-        self.graph = self._build()
+        self.rebuild_graph()
 
     def _load_chat_model(self) -> BaseChatModel | None:
         """Build the chat model at boot, or degrade to a warning if uncredentialed.
@@ -490,7 +511,7 @@ class AgentCore:
         Boot must never die for lack of a model: the shell wrapper only needs one
         when the operator actually asks something, and the graph just holds the
         reference until a turn runs. A missing/unusable credential becomes a
-        warning (the front-end shows it) and a ``None`` llm; `_ensure_llm` builds
+        warning (the front-end shows it) and a ``None`` llm; `ensure_llm` builds
         it on first use, where the operator can fix it with `/setup` or
         `/provider`. Mirrors the credential-free boot of `providers.get_embeddings`.
         """
@@ -501,7 +522,7 @@ class AgentCore:
             self.warnings.append(providers.NO_MODEL_CONFIGURED)
             return None
 
-    def _ensure_llm(self) -> BaseChatModel:
+    def ensure_llm(self) -> BaseChatModel:
         """Return the chat model, building it on first use.
 
         Deferred from construction so the session boots without credentials.
@@ -511,7 +532,7 @@ class AgentCore:
         """
         if self.llm is None:
             self.llm = providers.get_chat_model(self.settings, model=self.model)
-            self.graph = self._build()
+            self.rebuild_graph()
         return self.llm
 
     def set_mode(self, mode: str) -> Mode:
@@ -520,7 +541,7 @@ class AgentCore:
             msg = f"unknown mode: {mode!r} (choose {', '.join(MODES)})"
             raise ValueError(msg)
         self.mode = mode
-        self.graph = self._build()
+        self.rebuild_graph()
         return self.mode
 
     def set_autonomous(self, want: bool | None) -> bool:
@@ -533,7 +554,7 @@ class AgentCore:
             raise ValueError(msg)
         target = (not self.engagement.autonomous) if want is None else want
         self.engagement = self.engagement.model_copy(update={"autonomous": target})
-        self.graph = self._build()
+        self.rebuild_graph()
         return target
 
     def new_thread(self) -> str:
@@ -635,7 +656,7 @@ class AgentCore:
         )
         self._ensure_threat_model_version()
 
-        self.graph = self._build()
+        self.rebuild_graph()
         return self.engagement
 
     def _threat_model_snapshot(self) -> str:
@@ -677,7 +698,7 @@ class AgentCore:
             self.workspace.scope_path.write_text(
                 self.engagement.model_dump_json(indent=2), encoding="utf-8"
             )
-        self.graph = self._build()  # so GraphDeps carries the new threat model
+        self.rebuild_graph()  # so GraphDeps carries the new threat model
         return self.ledger.record_threat_model(self._threat_model_snapshot(), note=note)
 
     def apply_engagement_scope(self, engagement: EngagementConfig) -> None:
@@ -692,7 +713,7 @@ class AgentCore:
             self.workspace.scope_path.write_text(
                 engagement.model_dump_json(indent=2), encoding="utf-8"
             )
-        self.graph = self._build()
+        self.rebuild_graph()
 
     # ----- self-update (the `update` verb) -----------------------------------
 
@@ -767,7 +788,7 @@ class AgentCore:
         """Rebuild the registry/commands/graph from disk after a template write."""
         self.registry = self._load_registry()
         self.commands = self._load_commands()
-        self.graph = self._build()
+        self.rebuild_graph()
 
     # ----- session logging, retrieval, replay & review ----------------------
 
@@ -851,7 +872,7 @@ class AgentCore:
             # Build the model on first use. A missing credential raises here and
             # is caught below, surfacing as a clean, actionable error event
             # (pointing at /setup) rather than a dead session.
-            self._ensure_llm()
+            self.ensure_llm()
             # Structured output is not token-streamed; each node's state update is
             # turned into a status/final event as the graph advances.
             stream: Iterator[Any] = self.graph.stream(

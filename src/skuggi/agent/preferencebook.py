@@ -32,7 +32,7 @@ class PreferenceBook:
 
     def _rebuild(self) -> None:
         """Rebuild the core's graph so the next turn sees the preference change."""
-        self._core.graph = self._core._build()  # noqa: SLF001 -- prefs re-snapshot into GraphDeps
+        self._core.rebuild_graph()
 
     def entries(self) -> list[preferences.PreferenceRow]:
         """Every remembered operator preference (grouped by category)."""
