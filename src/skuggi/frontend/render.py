@@ -17,6 +17,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from rich.console import Console
+from rich.markup import escape
+
 from skuggi.common import palette
 
 # Semantic intent of a line; the surface decides the actual styling.
@@ -77,11 +80,29 @@ def heading(text: str) -> Line:
 
 
 def to_markup(line: Line) -> str:
-    """Render `line` as Rich markup for the REPL (unpainted when ``plain``)."""
+    """Render `line` as Rich markup for the REPL (unpainted when ``plain``).
+
+    The text is escaped first: it is literal content (a tool renders as
+    ``name [binary]``, a command carries its argv), never markup, so a stray
+    ``[`` must not be read as a style tag.
+    """
+    text = escape(line.text)
     style = _STYLE_TO_RICH[line.style]
-    return palette.paint(line.text, style) if style is not None else line.text
+    return palette.paint(text, style) if style is not None else text
 
 
-def to_plain(line: Line) -> str:
-    """Render `line` as plain text for the wrapped-shell socket."""
-    return line.text
+def to_ansi(line: Line) -> str:
+    """Render `line` as an ANSI string for the wrapped-shell socket.
+
+    The daemon runs on a non-terminal (the socket) while the client writes the
+    result to the operator's real terminal, so colour is forced on here --
+    mirroring :func:`skuggi.tooling.doctor.table_ansi`. Painting goes through
+    :func:`to_markup` so the chat loop and the REPL share the one palette and
+    cannot drift; a ``plain`` line stays bare text (no escape codes).
+    """
+    if _STYLE_TO_RICH[line.style] is None:
+        return line.text
+    console = Console(force_terminal=True, width=10_000)
+    with console.capture() as capture:
+        console.print(to_markup(line), end="", soft_wrap=True)
+    return capture.get()

@@ -82,9 +82,14 @@ class Daemon:
         return surface
 
     def _emit(self, lines: render.Styled) -> Iterator[str]:
-        """Yield presenter output as plain text frames (styling is REPL-only)."""
+        """Yield presenter output as ANSI frames (coloured for the real terminal).
+
+        The client writes straight to the operator's terminal, so the daemon
+        paints here just as the REPL does -- the same palette, via ``to_ansi`` --
+        rather than stripping colour over the socket.
+        """
         for line in lines:
-            yield render.to_plain(line) + "\n"
+            yield render.to_ansi(line) + "\n"
 
     def _cmd(self, invocation: str) -> str:
         """A command hint formatted for this connection's surface."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -30,8 +31,14 @@ def daemon(tmp_path: Path, pentest_configs: Callable[..., Path]) -> Iterator[Dae
     core.close()
 
 
+# The daemon now paints presenter output with ANSI (matching the REPL); these
+# tests assert on the logical content, so strip the SGR codes before matching.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def _chunks(daemon: Daemon, msg: dict[str, object]) -> str:
-    return "".join(str(r.get("chunk", "")) for r in daemon.handle_request(msg))
+    joined = "".join(str(r.get("chunk", "")) for r in daemon.handle_request(msg))
+    return _ANSI.sub("", joined)
 
 
 def _responses(daemon: Daemon, msg: dict[str, object]) -> list[dict[str, object]]:
