@@ -15,6 +15,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
+from pydantic import ValidationError
 
 from skuggi.agent.protocol import (
     PHASES,
@@ -23,6 +24,8 @@ from skuggi.agent.protocol import (
     CriticResponse,
     EngagementBrief,
     FindingBrief,
+    FindingDraft,
+    FindingRefDraft,
     PlannerResponse,
     RequestContext,
     Severity,
@@ -187,3 +190,30 @@ def test_structured_invoke_native_uses_with_structured_output() -> None:
         llm, PlannerResponse, [HumanMessage(content="plan")], native=True
     )
     assert out == want
+
+
+def test_finding_draft_requires_vector_or_severity() -> None:
+    with pytest.raises(ValidationError):
+        FindingDraft(title="x", description="d")  # neither vector nor severity
+
+
+def test_finding_draft_rejects_a_malformed_vector() -> None:
+    with pytest.raises(ValidationError):
+        FindingDraft(title="x", description="d", cvss_vector="CVSS:3.1/AV:Z")
+
+
+def test_finding_draft_display_severity_prefers_the_vector() -> None:
+    scored = FindingDraft(
+        title="xss",
+        description="d",
+        cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",  # 6.1
+    )
+    assert scored.display_severity() == "medium"
+    info = FindingDraft(title="note", description="d", severity="info")
+    assert info.display_severity() == "info"
+
+
+def test_finding_ref_draft_validates_against_the_taxonomy() -> None:
+    assert FindingRefDraft(framework="wstg", ref_id="WSTG-ATHN-01").ref_id
+    with pytest.raises(ValidationError):
+        FindingRefDraft(framework="wstg", ref_id="WSTG-NOPE-99")

@@ -67,7 +67,8 @@ from skuggi.agent.state import (
 from skuggi.common import execution
 from skuggi.common.logs import get_logger
 from skuggi.engagement.engagement import EngagementConfig, check_command, parse_command
-from skuggi.persistence.ledger import Ledger
+from skuggi.frameworks import cvss
+from skuggi.persistence.ledger import FindingRefInput, Ledger
 from skuggi.persistence.vectorstore import Store, format_hits
 from skuggi.tooling.registry import ToolRegistry
 
@@ -467,7 +468,22 @@ def _record_findings(
         if command_id is not None
         else deps.ledger.latest_command_id(deps.session_id)
     )
+    threat_model = deps.engagement.threat_model if deps.engagement else None
+    primary = (
+        "attack"
+        if deps.engagement and deps.engagement.methodology == "attack"
+        else "wstg"
+    )
     for finding in resp.findings:
+        vector = finding.cvss_vector or None
+        if vector and threat_model is not None:
+            vector = cvss.merged(vector, threat_model.cvss_environmental_metrics())
+        refs = [
+            FindingRefInput(
+                ref.framework, ref.ref_id, is_primary=ref.framework == primary
+            )
+            for ref in finding.refs
+        ]
         try:
             deps.ledger.record_finding(
                 session_id=deps.session_id,
@@ -476,6 +492,8 @@ def _record_findings(
                 description=finding.description,
                 evidence=finding.evidence,
                 command_id=link,
+                cvss_vector=vector,
+                refs=refs,
             )
         except Exception:
             # Evidence loss: a finding the agent produced did not persist. This is

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, get_args
 from skuggi.agent.protocol import Severity
 from skuggi.common import logs
 from skuggi.engagement import journal as journal_io
+from skuggi.frameworks import cvss
 from skuggi.persistence import reports, visualize
 
 if TYPE_CHECKING:
@@ -34,23 +35,42 @@ class Journal:
         """Findings recorded this session."""
         return self._core.ledger.findings_for(self._core.session_id)
 
-    def record_finding(self, severity: str, title: str) -> FindingRow | None:
-        """Record an operator finding in the ledger, or ``None`` on a bad severity.
+    def record_finding(
+        self,
+        severity: str | None = None,
+        title: str = "",
+        *,
+        cvss_vector: str | None = None,
+    ) -> FindingRow | None:
+        """Record an operator finding in the ledger, or ``None`` on invalid input.
 
         The same writer the worker uses, so hand-entered and agent-found findings
-        share one store -- the ``findings`` listing and the report's severity
-        section. ``description`` defaults to the title (the one-line operator
-        grammar); evidence is left for the agent or a later edit.
+        share one store. Pass a ``cvss_vector`` to score it deterministically (the
+        band is derived); otherwise pass a ``severity``. ``description`` defaults to
+        the title; evidence is left for the agent or a later edit.
         """
-        sev = severity.strip().lower()
+        core = self._core
+        clean_title = title.strip()
+        if cvss_vector:
+            try:
+                cvss.parse(cvss_vector)
+            except cvss.CvssError:
+                return None
+            fid = core.ledger.record_finding(
+                session_id=core.session_id,
+                title=clean_title,
+                description=clean_title,
+                cvss_vector=cvss_vector,
+            )
+            return core.ledger.finding(fid)
+        sev = (severity or "").strip().lower()
         if sev not in get_args(Severity):
             return None
-        core = self._core
         fid = core.ledger.record_finding(
             session_id=core.session_id,
-            title=title.strip(),
+            title=clean_title,
             severity=sev,
-            description=title.strip(),
+            description=clean_title,
         )
         return core.ledger.finding(fid)
 

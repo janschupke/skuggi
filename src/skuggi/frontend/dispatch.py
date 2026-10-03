@@ -254,11 +254,18 @@ AddOutcome = (
 
 
 def _run_add_finding(core: AgentCore, rest: str) -> AddOutcome:
-    """Parse ``<severity> <title>`` and record the finding, or explain the problem."""
-    severity, _, title = rest.partition(" ")
-    severity, title = severity.strip().lower(), title.strip()
-    if not severity or not title:
-        return AddUsage("finding <severity> <title>")
+    """Parse ``<severity|CVSS:3.1/...> <title>`` and record the finding, or explain."""
+    first, _, title = rest.partition(" ")
+    first, title = first.strip(), title.strip()
+    if not first or not title:
+        return AddUsage("finding <severity|CVSS:3.1/...> <title>")
+    # A CVSS vector scores deterministically (band derived); otherwise a severity word.
+    if first.upper().startswith("CVSS:"):
+        row = core.journal.record_finding(title=title, cvss_vector=first)
+        if row is None:
+            return AddUsage("finding <severity|CVSS:3.1/...> <title>")
+        return FindingRecorded(row)
+    severity = first.lower()
     if severity not in palette.severities():
         return BadSeverity(severity, palette.severities())
     row = core.journal.record_finding(severity, title)

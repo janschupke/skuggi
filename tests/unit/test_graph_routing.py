@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -13,8 +16,10 @@ from skuggi.agent.graph import (
     render_history,
     route_after_critic,
 )
-from skuggi.agent.protocol import FindingDraft, WorkerResponse
+from skuggi.agent.protocol import FindingDraft, FindingRefDraft, WorkerResponse
 from skuggi.agent.state import AgentState
+from skuggi.engagement.engagement import EngagementConfig, ThreatModel
+from skuggi.persistence.ledger import open_ledger
 
 
 def _state(**kwargs: object) -> AgentState:
@@ -131,3 +136,47 @@ def test_record_findings_logs_evidence_loss_and_reraises(
     with caplog.at_level("ERROR", logger="skuggi.graph"), pytest.raises(RuntimeError):
         _record_findings(deps, resp, command_id=1)
     assert any("evidence loss" in r.message for r in caplog.records)
+
+
+def test_record_findings_scores_cvss_and_augments_with_threat_model(
+    tmp_path: Path,
+) -> None:
+    engagement = EngagementConfig(
+        name="e",
+        timezone="UTC",
+        authorized_start=datetime(2026, 1, 1, tzinfo=UTC),
+        authorized_end=datetime(2026, 12, 31, tzinfo=UTC),
+        taxonomies=frozenset({"wstg"}),
+        threat_model=ThreatModel(confidentiality_requirement="high"),
+    )
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s", engagement_name="e", mode="pentest")
+        deps = GraphDeps(ledger=led, session_id="s", engagement=engagement)
+        resp = WorkerResponse(
+            findings=(
+                FindingDraft(
+                    title="Reflected XSS",
+                    description="unencoded reflection",
+                    cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+                    refs=(FindingRefDraft(framework="wstg", ref_id="WSTG-CLNT-01"),),
+                ),
+            )
+        )
+        _record_findings(deps, resp, command_id=None)
+
+        [row] = led.findings_for("s")
+        assert row.cvss_version == "3.1"
+        assert row.cvss_base == 6.1
+        assert row.severity == "medium"  # derived, not model-chosen
+        # The threat model (CR:H) was folded in, so an environmental score exists.
+        assert "CR:H" in (row.cvss_vector or "")
+        assert row.cvss_environmental is not None
+        assert row.cvss_score == row.cvss_environmental  # environmental is the overall
+
+        [ref] = led.finding_refs_for(row.id)
+        assert (ref.framework, ref.ref_id, ref.is_primary) == (
+            "wstg",
+            "WSTG-CLNT-01",
+            1,
+        )
+        assert ref.url.startswith("https://owasp.org/")

@@ -41,7 +41,12 @@ _WORKER_CONTRACT = (
     "as a recent command), or leave `command` null and give prose `advice`. "
     "Always fill `summary` (what this step does or observed) and `conclusions`, "
     "and set `stance` to match the engagement posture. Record anything noteworthy "
-    "as a `findings` entry. Set `done` true when no further command is needed. "
+    "as a `findings` entry: give each a CVSS:3.1 `cvss_vector` by assessing the "
+    "metrics (AV/AC/PR/UI/S/C/I/A, and temporal/environmental only if you have "
+    "grounds) -- do NOT compute a score, the harness does that deterministically -- "
+    "and, where one genuinely applies, classify it with a `refs` id from the "
+    "engagement's finding taxonomies (see the scope); omit the id rather than "
+    "forcing a weak mapping. Set `done` true when no further command is needed. "
     "Stay strictly within the engagement scope; if a request is out of scope, say "
     "so in `advice`, set `command` null and `done` true."
 )

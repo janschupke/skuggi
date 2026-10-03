@@ -33,10 +33,10 @@ from typing import Literal, cast, get_args
 
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from skuggi.common.text import join_blocks, labeled
-from skuggi.frameworks import registry
+from skuggi.frameworks import cvss, registry
 
 # --- domain enums -----------------------------------------------------------
 
@@ -190,15 +190,55 @@ class PlannerResponse(BaseModel):
     rationale: str = ""
 
 
+class FindingRefDraft(BaseModel):
+    """A framework classification the worker attaches to a finding (validated)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    framework: Taxonomy
+    ref_id: str
+
+    @model_validator(mode="after")
+    def _known_id(self) -> FindingRefDraft:
+        if not registry.validate_id(self.framework, self.ref_id):
+            msg = f"unknown {self.framework} id: {self.ref_id!r}"
+            raise ValueError(msg)
+        return self
+
+
 class FindingDraft(BaseModel):
-    """A finding the worker wants recorded, before it reaches the ledger."""
+    """A finding the worker wants recorded, before it reaches the ledger.
+
+    The worker supplies a CVSS v3.1 ``cvss_vector`` (it assesses the metrics; the
+    harness computes the score -- never the model) and optionally classifies the
+    finding with ``refs`` from the engagement's enabled taxonomies. ``severity`` is
+    only for a finding CVSS does not apply to (e.g. an informational note); when a
+    vector is given the band is derived from it.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     title: str
-    severity: Severity
     description: str
     evidence: str = ""
+    cvss_vector: str = ""
+    severity: Severity | None = None
+    refs: tuple[FindingRefDraft, ...] = ()
+
+    @model_validator(mode="after")
+    def _scorable(self) -> FindingDraft:
+        if self.cvss_vector:
+            cvss.parse(self.cvss_vector)  # raises on a malformed vector
+        elif self.severity is None:
+            msg = "a finding needs a cvss_vector or a severity"
+            raise ValueError(msg)
+        return self
+
+    def display_severity(self) -> str:
+        """The severity band to show/record: from the vector, else the bare severity."""
+        if self.cvss_vector:
+            return cvss.score(self.cvss_vector).severity
+        return self.severity or "info"
 
 
 class WorkerResponse(BaseModel):
@@ -276,6 +316,10 @@ def _commands_block(commands: Sequence[CommandBrief]) -> str:
 
 
 def _engagement_block(brief: EngagementBrief) -> str:
+    methodology = str(brief.methodology)
+    if brief.methodology_phases:
+        methodology += f" (phases: {', '.join(brief.methodology_phases)})"
+    taxonomies = ", ".join(brief.taxonomies) or "(none)"
     return (
         f"name: {brief.name}\n"
         f"stance: {brief.stance}\n"
@@ -283,7 +327,10 @@ def _engagement_block(brief: EngagementBrief) -> str:
         f"networks: {', '.join(brief.networks) or '(none)'}\n"
         f"hosts: {', '.join(brief.hosts) or '(none)'}\n"
         f"allowed tools: {', '.join(brief.allowed_tools) or '(none)'}\n"
-        f"allowed methods: {', '.join(brief.allowed_methods) or '(none)'}"
+        f"allowed methods: {', '.join(brief.allowed_methods) or '(none)'}\n"
+        f"methodology: {methodology}\n"
+        f"finding taxonomies: {taxonomies}\n"
+        f"threat model: {'configured' if brief.threat_model else 'none'}"
     )
 
 
@@ -325,7 +372,7 @@ def render_response(resp: WorkerResponse) -> str:
     ]
     if resp.findings:
         recorded = "\n".join(
-            f"- {f.severity.upper()}: {f.title}" for f in resp.findings
+            f"- {f.display_severity().upper()}: {f.title}" for f in resp.findings
         )
         blocks.append(labeled("Findings", recorded))
     return join_blocks(*blocks) or "(no answer)"

@@ -301,3 +301,18 @@ def serialize(cvss: Cvss) -> str:
 def score(vector: str) -> Score:
     """Parse ``vector`` and return its full :class:`Score` -- the public entry point."""
     return parse(vector).score()
+
+
+def merged(vector: str, extra: dict[str, str]) -> str:
+    """Return ``vector`` with ``extra`` metrics added where it does not set them.
+
+    Used to fold an engagement's threat model (CR/IR/AR) into a worker-supplied base
+    vector without overriding anything the worker already decided. Validated by a
+    re-parse, so the result is always a well-formed vector.
+    """
+    cvss = parse(vector)
+    combined = {
+        **{k: v for k, v in extra.items() if k not in cvss.metrics},
+        **cvss.metrics,
+    }
+    return serialize(Cvss(metrics=combined))
