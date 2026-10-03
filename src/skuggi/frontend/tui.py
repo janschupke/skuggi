@@ -8,8 +8,7 @@ only renders. The wrapped-shell daemon is the other front-end over the same core
 
 from __future__ import annotations
 
-import zoneinfo
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -24,7 +23,7 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 
-from skuggi.agent import protocol, readiness
+from skuggi.agent import readiness
 from skuggi.agent.core import AgentCore
 from skuggi.agent.state import AgentState
 from skuggi.common import palette, text
@@ -33,20 +32,16 @@ from skuggi.engagement.engagement import EngagementConfig
 from skuggi.frontend import (
     cmdflow,
     completion,
-    configflow,
     control,
     dispatch,
-    installflow,
     menu,
     outcomes,
     presenters,
     render,
-    scopeflow,
-    setup,
     verbs,
     wizard,
 )
-from skuggi.frontend.prompter import Prompter
+from skuggi.frontend.repl_flows import ReplFlows
 from skuggi.install import reconcile
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import Ledger
@@ -111,6 +106,10 @@ class Tui:
             complete_while_typing=False,
             key_bindings=cancel_bindings,
         )
+        # The interactive, prompt-driven flows (setup, wizard, config/scope/install/
+        # cmd proposals, the alias editor) live in ReplFlows, which reads this app's
+        # console/core/session live (tests reassign session after construction).
+        self._flows = ReplFlows(self)
 
         # Surface any config-degrade warnings at construction (tests read these
         # straight after building the app, before run()/the banner).
@@ -134,7 +133,7 @@ class Tui:
             "remove": self._cmd_remove,
             "cmd": self._cmd_cmd,
             "engagement": self._cmd_engagement,
-            "login": self._cmd_login,
+            "login": self._flows.login,
             "doctor": self._cmd_doctor,
             "findings": self._cmd_findings,
             "report": self._cmd_report,
@@ -164,8 +163,8 @@ class Tui:
             **{n: self._styled(a) for n, a in control.SET_ACTIONS.items()},
             "provider": self._set_provider,
             "model": self._set_model,
-            "config": self._set_config,
-            "scope": self._set_scope,
+            "config": self._flows.set_config,
+            "scope": self._flows.set_scope,
         }
         self._add_nouns: dict[str, Callable[[str], None]] = {
             "note": lambda rest: self._add_record("note", rest),
@@ -317,9 +316,6 @@ class Tui:
             return None
         return handler(rest)
 
-    def _cmd_quit(self, _arg: str) -> bool:
-        return False
-
     def _cmd_help(self, arg: str) -> None:
         verb = arg.strip().split(" ", 1)[0]
         if verb:
@@ -379,27 +375,21 @@ class Tui:
     def _set_provider(self, arg: str) -> None:
         """Switch provider; with no name, run the guided provider+model setup."""
         if not arg:
-            self._run_setup()
+            self._flows.run_setup()
             return
         self._emit(control.set_provider_named(self.core, arg, "repl"))
 
     def _set_model(self, arg: str) -> None:
         """Switch model; with no name, pick one from the provider's curated list."""
         if not arg:
-            setup.run_model_select(
-                self.core,
-                self.core.provider,
-                self._ask,
-                self._choose,
-                lambda text: self.console.print(f"[dim]{text}[/dim]"),
-            )
+            self._flows.model_select()
             return
         self._emit(control.set_model_named(self.core, arg, "repl"))
 
     def _cmd_engagement(self, arg: str) -> None:
         first = arg.split(maxsplit=1)[0] if arg.split() else ""
         if first in wizard.WIZARD_ARGS:
-            self._engagement_wizard()
+            self._flows.engagement_wizard()
             return
         if first == "threat-model":
             rest = arg.split(maxsplit=1)[1] if len(arg.split()) > 1 else ""
@@ -413,124 +403,10 @@ class Tui:
             f"scope summary is {verbs.cmd('show engagement', 'repl')}"
         )
 
-    def _ask(self, prompt: str) -> str | None:
-        """Prompt the operator for one line; None on EOF / Ctrl-C (an abort)."""
-        try:
-            return self.session.prompt(prompt)
-        except (EOFError, KeyboardInterrupt):
-            return None
-
-    def _choose(
-        self, prompt: str, options: list[str], default: str | None
-    ) -> str | None:
-        """Pick one option via an arrow-key menu; None on abort."""
-        return menu.select(prompt, options, default=default)
-
-    def _ask_complete(
-        self, prompt: str, candidates: Sequence[str], default: str | None
-    ) -> str | None:
-        """Prompt for one line with Tab completion; None on abort."""
-        return menu.ask_complete(prompt, candidates, default=default, multi=True)
-
-    def _multiselect(
-        self, prompt: str, options: Sequence[str], preselected: Sequence[str]
-    ) -> list[str] | None:
-        """Pick several options via a checklist; None on abort."""
-        return menu.multiselect(prompt, options, preselected=preselected)
-
-    def _confirm(self, prompt: str, default: bool) -> bool | None:
-        """Yes/no via an arrow menu; None on abort."""
-        return menu.confirm(prompt, default=default)
-
-    def _progress(self, step: int, total: int, label: str) -> None:
-        """Render a horizontal step bar above the next question."""
-        done = "▸" * step
-        todo = "▹" * (total - step)
-        self.console.print(f"[dim]\\[{step}/{total}] {label}[/dim] {done}{todo}")
-
-    def _engagement_catalog(self) -> wizard.Catalog:
-        """The option sources the engagement wizard offers (zones, tools, enums)."""
-        tools = tuple(spec.binary for spec in self.core.registry.tools)
-        return wizard.Catalog(
-            timezones=tuple(sorted(zoneinfo.available_timezones())),
-            tools=tools,
-            methods=palette.methods(),
-            methodologies=protocol.METHODOLOGIES,
-            taxonomies=protocol.TAXONOMIES,
-            stances=protocol.STANCES,
-        )
-
-    def _engagement_wizard(self) -> None:
-        """Collect a scope field-by-field via rich widgets and load it."""
-        prompter = Prompter(
-            ask=self._ask,
-            ask_complete=self._ask_complete,
-            choose=self._choose,
-            multiselect=self._multiselect,
-            confirm=self._confirm,
-            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
-            progress=self._progress,
-        )
-        wizard.run_wizard(
-            prompter,
-            self.core.create_engagement,
-            self._engagement_catalog(),
-            existing=self.core.engagement,
-        )
-
-    def _set_config(self, arg: str) -> None:
-        text = self.core.config.line(arg)
-        if text is not None:  # show / mechanical key-value
-            self.console.print(text)
-            return
-        configflow.run_config_request(  # natural-language request -> LLM + confirm
-            arg,
-            choose=self._choose,
-            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
-            propose=self.core.config.propose,
-            apply=self.core.config.apply,
-            grants=self.core.grants,
-        )
-
-    def _set_scope(self, arg: str) -> None:
-        if not arg.strip():
-            self._emit(presenters.usage("set scope <request>", "repl"))
-            return
-        scopeflow.run_scope_request(
-            arg,
-            choose=self._choose,
-            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
-            propose=self.core.scope.propose,
-            preview=self.core.scope.preview,
-            apply=self.core.scope.apply,
-            grants=self.core.grants,
-        )
-
-    def _run_setup(self) -> None:
-        """Guided provider + credential setup (the app owns the credentials)."""
-        setup.run_setup(
-            self.core,
-            self._ask,
-            self._choose,
-            lambda text: self.console.print(f"[dim]{text}[/dim]"),
-        )
-
-    def _cmd_login(self, _arg: str) -> None:
-        """Log in to a ChatGPT account via OAuth and switch to the provider."""
-        try:
-            account = self.core.login_chatgpt(
-                lambda text: self.console.print(f"[dim]{text}[/dim]")
-            )
-        except (RuntimeError, ImportError) as e:
-            self.console.print(f"[red]login failed:[/red] {e}")
-            return
-        suffix = f" (account {account})" if account else ""
-        self.console.print(f"[dim]logged in to chatgpt{suffix}[/dim]")
-
     def _cmd_doctor(self, arg: str) -> None:
         target = dispatch.doctor_install_target(arg)
         if target == "missing":
-            self._install_missing()
+            self._flows.install_missing()
             return
         if target is not None:
             self._install_tool(target)
@@ -556,16 +432,6 @@ class Tui:
                     f"[red]install failed or unavailable[/red] for {name}"
                 )
 
-    def _install_missing(self) -> None:
-        """Install the missing scoped tools, gated by the shared confirm."""
-        installflow.run_install_missing(
-            choose=self._choose,
-            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
-            propose=self.core.doctor.propose_installs,
-            install=self.core.doctor.install,
-            grants=self.core.grants,
-        )
-
     def _cmd_cmd(self, arg: str) -> None:  # noqa: PLR0911 -- one return per cmd sub-command
         """Search the cheatsheet, resolve an exact alias, or edit the registry."""
         sub, _, rest = arg.partition(" ")
@@ -574,16 +440,16 @@ class Tui:
             self._cheatsheet(self.core.commands.commands, "")
             return
         if sub in cmdflow.ADD_ARGS:
-            self._cmd_alias_add()
+            self._flows.alias_add()
             return
         if sub in cmdflow.EDIT_ARGS:
-            self._cmd_alias_edit(rest)
+            self._flows.alias_edit(rest)
             return
         if sub in cmdflow.REMOVE_ARGS:
-            self._cmd_alias_remove(rest)
+            self._flows.alias_remove(rest)
             return
         if sub in cmdflow.SUGGEST_ARGS:
-            self._cmd_suggest(rest)
+            self._flows.cmd_suggest(rest)
             return
         if self.core.commands.alias_for(sub) is not None:  # exact name -> resolve
             self._resolve_cmd(sub)
@@ -613,50 +479,6 @@ class Tui:
 
     def _resolve_cmd(self, name: str) -> None:
         self._emit(control.resolve_cmd(self.core, name, "repl"))
-
-    def _cmd_suggest(self, request: str) -> None:
-        if not request.strip():
-            self._emit(presenters.usage("cmd suggest <request>", "repl"))
-            return
-        cmdflow.run_cmd_suggest(
-            request,
-            choose=self._choose,
-            notify=lambda text: self.console.print(f"[dim]{text}[/dim]"),
-            propose=self.core.cmds.propose,
-            preview=self.core.cmds.preview_proposal,
-            apply=self.core.cmds.apply_proposal,
-            grants=self.core.grants,
-        )
-
-    def _cmd_alias_add(self) -> None:
-        cmdflow.run_cmd_editor(
-            self._ask,
-            self.core.cmds.add,
-            lambda text: self.console.print(f"[dim]{text}[/dim]"),
-        )
-
-    def _cmd_alias_edit(self, name: str) -> None:
-        existing = self.core.commands.alias_for(name)
-        if existing is None:
-            self.console.print(f"[yellow]unknown alias[/yellow] {name!r}")
-            return
-        cmdflow.run_cmd_editor(
-            self._ask,
-            lambda raw: self.core.cmds.update(name, raw),
-            lambda text: self.console.print(f"[dim]{text}[/dim]"),
-            existing=existing,
-        )
-
-    def _cmd_alias_remove(self, name: str) -> None:
-        if not name:
-            self.console.print(
-                f"[yellow]usage:[/yellow] {verbs.cmd('cmd rm <name>', 'repl')}"
-            )
-            return
-        if self.core.cmds.remove(name):
-            self.console.print(f"[dim]removed alias '{name}'[/dim]")
-        else:
-            self.console.print(f"[yellow]unknown alias[/yellow] {name!r}")
 
     # ----- add <noun> --------------------------------------------------------
 
