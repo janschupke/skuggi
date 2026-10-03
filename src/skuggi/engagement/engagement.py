@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, IPvAnyNetwork, field_validator
 
 from skuggi.agent.protocol import Methodology, Stance, Taxonomy
 from skuggi.common.logs import get_logger
+from skuggi.engagement.workspace import Workspace
 from skuggi.tooling.registry import ToolRegistry
 
 log = get_logger(__name__)
@@ -201,6 +202,11 @@ class ParsedCommand:
     # The command names a target-list *file* (nmap ``-iL`` …) whose contents
     # cannot be scope-checked statically -- the guard denies it.
     target_file: bool = False
+    # Data-file paths the command passes to the tool (wordlist/user/cred lists,
+    # from the spec's ``input_file_flags``). The guard confines each to the
+    # engagement workspace, so the file reaches the tool while its contents stay
+    # out of the model's context.
+    input_files: tuple[str, ...] = ()
 
 
 class GuardVerdict(NamedTuple):
@@ -321,6 +327,31 @@ def _extract_targets(argv: tuple[str, ...], target_flags: tuple[str, ...]) -> _T
     return _Targets(tuple(dict.fromkeys(found)), unresolved)
 
 
+def _flag_values(argv: tuple[str, ...], flags: tuple[str, ...]) -> tuple[str, ...]:
+    """Each value immediately following one of `flags` in `argv`, in order.
+
+    Handles both ``-w list.txt`` (separate token) and ``-w=list.txt`` (glued);
+    a flag at the very end with no value contributes nothing.
+    """
+    if not flags:
+        return ()
+    found: list[str] = []
+    expect = False
+    for token in argv[1:]:
+        if expect:
+            found.append(token)
+            expect = False
+            continue
+        if token in flags:
+            expect = True
+            continue
+        for flag in flags:
+            if token.startswith(f"{flag}="):
+                found.append(token[len(flag) + 1 :])
+                break
+    return tuple(found)
+
+
 def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
     """Decompose `raw` into the fields the guard needs.
 
@@ -340,6 +371,7 @@ def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
     spec = registry.spec_for(binary)
     target_flags = spec.target_flags if spec else ()
     target_file_flags = spec.target_file_flags if spec else ()
+    input_file_flags = spec.input_file_flags if spec else ()
     targets = _extract_targets(argv, target_flags)
     return ParsedCommand(
         raw=raw,
@@ -350,6 +382,7 @@ def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
         requires_target=spec.requires_target if spec else True,
         unresolved=targets.unresolved,
         target_file=any(flag in argv for flag in target_file_flags),
+        input_files=_flag_values(argv, input_file_flags),
     )
 
 
@@ -368,14 +401,43 @@ def _target_in_scope(target: str, engagement: EngagementConfig) -> bool:
     return False
 
 
-def check_command(  # noqa: PLR0911 -- a guard is a linear sequence of denials; each check is one return
-    cmd: ParsedCommand, engagement: EngagementConfig, *, now: datetime
+def _datafiles_in_scope(
+    cmd: ParsedCommand, workspace: Workspace | None, cwd: Path | None
+) -> GuardVerdict | None:
+    """Confine each data-file path to the workspace, or deny. None = all clear.
+
+    A data-file flag (wordlist/credential list) is allowed only when its path
+    stays inside the engagement workspace; without a workspace+cwd to confine
+    against there is nothing to prove it safe, so it is denied -- the same
+    conservative posture as an un-enumerable target.
+    """
+    if not cmd.input_files:
+        return None
+    if workspace is None or cwd is None:
+        return GuardVerdict(False, "data-file paths need a loaded engagement workspace")
+    for path in cmd.input_files:
+        try:
+            workspace.confine_datafile(path, cwd=cwd)
+        except ValueError as exc:
+            return GuardVerdict(False, str(exc))
+    return None
+
+
+def check_command(  # noqa: PLR0911, PLR0912 -- a guard is a linear sequence of denials; each check is one return
+    cmd: ParsedCommand,
+    engagement: EngagementConfig,
+    *,
+    now: datetime,
+    workspace: Workspace | None = None,
+    cwd: Path | None = None,
 ) -> GuardVerdict:
     """The single choke point: is this command inside the engagement boundary?
 
     Runs cheapest-to-costliest, returning the first failure's reason. `now`
     must be timezone-aware; it is converted into the engagement timezone for
-    the daily-window check.
+    the daily-window check. `workspace`/`cwd` enable data-file confinement: a
+    wordlist/credential-list path is allowed only when it stays inside the
+    engagement workspace.
     """
     if not cmd.binary:
         return GuardVerdict(False, "empty or unparseable command")
@@ -413,4 +475,7 @@ def check_command(  # noqa: PLR0911 -- a guard is a linear sequence of denials; 
             return GuardVerdict(
                 False, f"target {target!r} is outside the authorized scope"
             )
+    datafile_verdict = _datafiles_in_scope(cmd, workspace, cwd)
+    if datafile_verdict is not None:
+        return datafile_verdict
     return GuardVerdict(True, "in scope")

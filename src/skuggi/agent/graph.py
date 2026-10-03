@@ -67,6 +67,7 @@ from skuggi.agent.state import (
 from skuggi.common import execution
 from skuggi.common.logs import get_logger
 from skuggi.engagement.engagement import EngagementConfig, check_command, parse_command
+from skuggi.engagement.workspace import Workspace
 from skuggi.frameworks import cvss
 from skuggi.persistence.ledger import FindingRefInput, Ledger
 from skuggi.persistence.vectorstore import Store, format_hits
@@ -108,6 +109,8 @@ class GraphDeps:
     # masks one-way so RAG/history cannot leak a secret into a request.
     redaction_policy: RedactionPolicy | None = None
     vault: SecretVault | None = None
+    # The engagement workspace, for confining data-file paths a command names.
+    workspace: Workspace | None = None
     session_id: str = ""
     thread_id: Callable[[], str] = field(default=lambda: "")
     turn_id: Callable[[], int | None] = field(default=lambda: None)
@@ -443,7 +446,9 @@ def _run_or_propose(
     assert deps.engagement is not None  # noqa: S101
     assert deps.registry is not None  # noqa: S101
     parsed = parse_command(command, deps.registry)
-    verdict = check_command(parsed, deps.engagement, now=now)
+    verdict = check_command(
+        parsed, deps.engagement, now=now, workspace=deps.workspace, cwd=work_dir
+    )
     if not verdict.allowed:
         cid = deps.ledger.record_command(
             session_id=deps.session_id,
@@ -476,8 +481,17 @@ def _run_or_propose(
             summary="recorded proposed; the operator runs it manually",
         )
         return cid, brief, False
+    # Rehydrate any «KIND:id» placeholder in the argv to its real value just
+    # before the tool runs: a credential the agent discovered (and only ever saw
+    # as a placeholder) reaches the tool here, and nowhere else. The recorded
+    # command and the model-facing brief keep the placeholder form.
+    argv = (
+        tuple(deps.vault.rehydrate(token) for token in parsed.argv)
+        if deps.vault is not None
+        else parsed.argv
+    )
     result = execution.run(
-        parsed.argv,
+        argv,
         timeout=deps.command_timeout_s,
         cwd=work_dir,
         env=execution.safe_env(),

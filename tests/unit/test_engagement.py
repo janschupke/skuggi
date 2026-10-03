@@ -8,6 +8,7 @@ the host a command acts on.
 from __future__ import annotations
 
 from datetime import UTC, datetime, time
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +20,7 @@ from skuggi.engagement.engagement import (
     check_command,
     parse_command,
 )
+from skuggi.engagement.workspace import Workspace
 from skuggi.tooling.registry import ToolRegistry, ToolSpec
 
 REGISTRY = ToolRegistry(
@@ -29,7 +31,13 @@ REGISTRY = ToolRegistry(
         ToolSpec(
             name="sqlmap", binary="sqlmap", method="enumerate", target_flags=("-u",)
         ),
-        ToolSpec(name="hydra", binary="hydra", method="scan", target_flags=("-t",)),
+        ToolSpec(
+            name="hydra",
+            binary="hydra",
+            method="scan",
+            target_flags=("-t",),
+            input_file_flags=("-P", "-L"),
+        ),
     )
 )
 
@@ -393,3 +401,78 @@ def test_methodology_phases_per_driver() -> None:
     # PTES phases come from the vendored taxonomy (single source).
     assert methodology_phases("ptes")[0] == "Pre-engagement Interactions"
     assert "initial-access" in methodology_phases("attack")
+
+
+# --- data-file flag confinement (wordlists reach tools, not the model) ------
+
+
+def test_parse_extracts_input_files_separate_and_glued() -> None:
+    cmd = parse_command("hydra -P inputs/pw.txt -L=inputs/users.txt 10.0.0.5", REGISTRY)
+    assert cmd.input_files == ("inputs/pw.txt", "inputs/users.txt")
+
+
+def _ws(tmp_path: Path) -> Workspace:
+    ws = Workspace.for_engagement(tmp_path / "engagements", "e")
+    ws.ensure()
+    return ws
+
+
+def test_confined_wordlist_is_allowed(tmp_path: Path) -> None:
+    ws = _ws(tmp_path)
+    (ws.inputs_dir / "pw.txt").write_text("hunter2\n", encoding="utf-8")
+    verdict = check_command(
+        parse_command("hydra -P inputs/pw.txt 10.0.0.5", REGISTRY),
+        _engagement(),
+        now=NOW,
+        workspace=ws,
+        cwd=ws.root,
+    )
+    assert verdict.allowed, verdict.reason
+
+
+def test_wordlist_outside_the_workspace_is_denied(tmp_path: Path) -> None:
+    ws = _ws(tmp_path)
+    verdict = check_command(
+        parse_command("hydra -P /etc/shadow 10.0.0.5", REGISTRY),
+        _engagement(),
+        now=NOW,
+        workspace=ws,
+        cwd=ws.root,
+    )
+    assert not verdict.allowed
+    assert "escapes the workspace" in verdict.reason
+
+
+def test_wordlist_traversal_is_denied(tmp_path: Path) -> None:
+    ws = _ws(tmp_path)
+    verdict = check_command(
+        parse_command("hydra -P ../../../etc/passwd 10.0.0.5", REGISTRY),
+        _engagement(),
+        now=NOW,
+        workspace=ws,
+        cwd=ws.root,
+    )
+    assert not verdict.allowed
+
+
+def test_wordlist_targeting_a_control_file_is_denied(tmp_path: Path) -> None:
+    ws = _ws(tmp_path)
+    verdict = check_command(
+        parse_command("hydra -P .vault.db 10.0.0.5", REGISTRY),
+        _engagement(),
+        now=NOW,
+        workspace=ws,
+        cwd=ws.root,
+    )
+    assert not verdict.allowed
+    assert "control file" in verdict.reason
+
+
+def test_input_file_without_a_workspace_is_denied() -> None:
+    verdict = check_command(
+        parse_command("hydra -P inputs/pw.txt 10.0.0.5", REGISTRY),
+        _engagement(),
+        now=NOW,
+    )
+    assert not verdict.allowed
+    assert "workspace" in verdict.reason

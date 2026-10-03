@@ -168,3 +168,72 @@ def test_ledger_keeps_the_output_raw_but_vault_can_rehydrate(
     assert TOKEN in stored.stdout
     # And the vault round-trips the masked summary back to the real secret.
     assert vault.rehydrate(vault.intern(TOKEN, "TOKEN")) == TOKEN
+
+
+# --- rehydration: a vaulted secret reaches the tool, never the model --------
+
+
+def test_a_placeholder_in_a_command_is_rehydrated_for_the_tool(
+    ledger: Ledger, vault: SecretVault, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[Sequence[str]] = []
+
+    def _run(argv: Sequence[str], **_kwargs: object) -> CommandResult:
+        captured.append(tuple(argv))
+        now = datetime.now(UTC)
+        return CommandResult(
+            command=" ".join(argv),
+            exit_code=0,
+            stdout="ok",
+            stderr="",
+            started_at=now,
+            finished_at=now,
+        )
+
+    monkeypatch.setattr("skuggi.common.execution.run", _run)
+
+    # A secret the agent only ever saw as a placeholder.
+    placeholder = vault.intern("SuperSecret123!", "PASSWORD")
+    model = RoleScriptedChatModel(
+        worker_replies=[
+            WorkerResponse(command=f"echo {placeholder}", summary="use the cred"),
+            WorkerResponse(summary="done", done=True),
+        ],
+        critic_replies=[CriticResponse(approved=True)],
+    )
+    app = build_graph(
+        GraphDeps(
+            llm=model,
+            engagement=_engagement(),
+            ledger=ledger,
+            registry=_REGISTRY,
+            redaction_policy=_policy(),
+            vault=vault,
+            session_id="s1",
+            thread_id=lambda: "t1",
+            clock=lambda: _CLOCK,
+        ),
+        InMemorySaver(),
+    )
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "t1"},
+        "recursion_limit": recursion_limit(max_revisions=4, max_command_rounds=4),
+    }
+    app.invoke(
+        {
+            "messages": [HumanMessage(content="use it")],
+            "revision_count": 0,
+            "max_revisions": 2,
+        },
+        config,
+    )
+
+    # The tool received the REAL secret...
+    assert captured, "the command never executed"
+    assert "SuperSecret123!" in captured[-1]
+    # ...but the ledger kept the placeholder form, and the model never saw the
+    # real value in any prompt.
+    assert placeholder in ledger.commands_for("s1")[-1].command
+    assert "SuperSecret123!" not in ledger.commands_for("s1")[-1].command
+    all_prompts = "\n".join(m.text for _r, msgs in model.calls for m in msgs)
+    assert "SuperSecret123!" not in all_prompts

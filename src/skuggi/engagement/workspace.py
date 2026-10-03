@@ -181,6 +181,35 @@ class Workspace:
         """Files pulled from a target (downloads, dropped documents)."""
         return self.root / self.layout.evidence
 
+    def _reserved_files(self) -> set[Path]:
+        """Control files a tool must never be pointed at (scope, ledger, vault)."""
+        return {
+            self.scope_path.resolve(),
+            self.ledger_path.resolve(),
+            self.vault_path.resolve(),
+        }
+
+    def confine_datafile(self, relpath: str, *, cwd: Path) -> Path:
+        """Resolve a tool data-file path the way the tool will, and confine it.
+
+        The autonomously-run command's path is interpreted by the tool relative
+        to its working directory (`cwd`), so this resolves it the same way and
+        requires the result to stay inside the workspace root and not be one of
+        the harness control files (``scope.json``/ledger/vault). A symlink or
+        ``..`` that climbs out, an absolute ``/etc/shadow``, or a reserved file
+        all raise ``ValueError`` -- so a wordlist reaches the tool by path while
+        nothing outside the engagement's own data can.
+        """
+        root = self.root.resolve()
+        candidate = (cwd / relpath).resolve()
+        if root != candidate and not candidate.is_relative_to(root):
+            msg = f"data-file path escapes the workspace: {relpath!r}"
+            raise ValueError(msg)
+        if candidate in self._reserved_files():
+            msg = f"data-file path targets a harness control file: {relpath!r}"
+            raise ValueError(msg)
+        return candidate
+
     def resolve_within(self, subdir: Path, relpath: str) -> Path:
         """Resolve `relpath` under `subdir`, refusing any escape from `subdir`.
 

@@ -47,6 +47,12 @@ class ToolSpec(BaseModel):
     # statically, so the guard denies any command carrying one -- the operator
     # must enumerate hosts explicitly. See ``engagement.check_command``.
     target_file_flags: tuple[str, ...] = ()
+    # Argv flags whose value is a *data* file the tool reads -- a wordlist, user
+    # or credential list (hydra ``-L``/``-P``, ffuf/gobuster ``-w``, ...). The
+    # guard requires each such path to be confined to the engagement workspace
+    # (inputs/evidence/loot), so a wordlist reaches the tool by path while its
+    # contents never enter the model's context. See ``engagement.check_command``.
+    input_file_flags: tuple[str, ...] = ()
     requires_target: bool = True
     install: dict[str, str] = Field(default_factory=dict)
     # Output convention (optional). When ``output_flag`` is set, the cheatsheet
