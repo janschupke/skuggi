@@ -125,6 +125,9 @@ class GraphDeps:
     commands_limit: int = 10
     # The operator's standing preferences, pre-rendered as a bullet list.
     preferences: str = ""
+    # Metadata-only inventory of tool-input/evidence files, pre-rendered. The
+    # agent references a file by path; its contents never enter a request.
+    data_files: str = ""
     # The mode's prompts. Defaults to pentest so an unset caller still gets a
     # coherent (and role-dispatchable) set; the REPL passes the active mode's.
     prompts: PromptSet = field(default_factory=lambda: prompt_set("pentest"))
@@ -292,6 +295,7 @@ def build_graph(  # noqa: PLR0915 -- one graph is one function; its nodes are it
             engagement=brief,
             history=clean(history(state, divisor=divisor)),
             preferences=clean(deps.preferences),
+            data_files=deps.data_files,
             retrieved_context=clean(state.get("context") or ""),
             findings=_finding_briefs(deps),
             recent_commands=tuple(commands),

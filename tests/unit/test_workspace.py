@@ -18,6 +18,46 @@ def test_default_layout_lists_every_directory() -> None:
     assert "recon/web" in dirs
     assert "reports" in dirs
     assert "loot" in dirs
+    assert "inputs" in dirs
+    assert "evidence" in dirs
+
+
+def test_ensure_creates_inputs_and_evidence(tmp_path: Path) -> None:
+    ws = Workspace.for_engagement(tmp_path / "engagements", "acme-2026")
+    ws.ensure()
+    assert ws.inputs_dir.is_dir()
+    assert ws.evidence_dir.is_dir()
+
+
+def test_vault_path_is_a_root_dotfile(tmp_path: Path) -> None:
+    ws = Workspace.for_engagement(tmp_path / "e", "x")
+    assert ws.vault_path == ws.root / ".vault.db"
+
+
+def test_resolve_within_allows_a_confined_path(tmp_path: Path) -> None:
+    ws = Workspace.for_engagement(tmp_path / "e", "x")
+    ws.ensure()
+    resolved = ws.resolve_within(ws.inputs_dir, "rockyou.txt")
+    assert resolved == (ws.inputs_dir / "rockyou.txt").resolve()
+
+
+@pytest.mark.parametrize("escape", ["../../etc/passwd", "../../../tmp/x", "../loot/x"])
+def test_resolve_within_rejects_traversal(tmp_path: Path, escape: str) -> None:
+    ws = Workspace.for_engagement(tmp_path / "e", "x")
+    ws.ensure()
+    with pytest.raises(ValueError, match="escapes the workspace"):
+        ws.resolve_within(ws.inputs_dir, escape)
+
+
+def test_resolve_within_rejects_a_symlink_out(tmp_path: Path) -> None:
+    ws = Workspace.for_engagement(tmp_path / "e", "x")
+    ws.ensure()
+    secret = (tmp_path / "secret.txt").resolve()
+    secret.write_text("SECRET", encoding="utf-8")
+    link = ws.inputs_dir / "link.txt"
+    link.symlink_to(secret)
+    with pytest.raises(ValueError, match="escapes the workspace"):
+        ws.resolve_within(ws.inputs_dir, "link.txt")
 
 
 def test_derives_paths_from_the_engagement_name(tmp_path: Path) -> None:

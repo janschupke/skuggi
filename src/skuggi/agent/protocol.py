@@ -169,6 +169,9 @@ class RequestContext(BaseModel):
     history: str = ""
     preferences: str = ""
     retrieved_context: str = ""
+    # Metadata-only inventory of tool-input/evidence files (names, sizes, hashes)
+    # so the agent can point a tool at one by path without ever seeing contents.
+    data_files: str = ""
     findings: tuple[FindingBrief, ...] = ()
     recent_commands: tuple[CommandBrief, ...] = ()
     plan: tuple[str, ...] = ()  # planner output, for the worker
@@ -350,6 +353,7 @@ def render_request(ctx: RequestContext) -> str:
         labeled("Conversation so far", ctx.history),
         labeled("Prior findings", _findings_block(ctx.findings)),
         labeled("Recent commands", _commands_block(ctx.recent_commands)),
+        labeled("Data files", ctx.data_files),
         labeled("Retrieved context", ctx.retrieved_context),
         labeled("Plan", steps),
         labeled("Prior critique", ctx.prior_critique),

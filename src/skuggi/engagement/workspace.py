@@ -58,6 +58,14 @@ class WorkspaceLayout(BaseModel):
     scripts: str = "scripts"
     tests: str = "tests"
     loot: str = "loot"
+    # Operator-supplied data the agent feeds to tools *by path* (wordlists, user
+    # and credential lists, email lists); the agent references the file, a tool
+    # reads it, and the contents never enter the model's context.
+    inputs: str = "inputs"
+    # Files pulled from a target (downloads, exfil, dropped documents). Parsed
+    # read-only, never executed; parsed text is redacted before it reaches the
+    # model (see skuggi.persistence.documents).
+    evidence: str = "evidence"
 
     def dirs(self) -> tuple[str, ...]:
         """Every directory (relative to the workspace root) ``ensure`` creates."""
@@ -71,6 +79,8 @@ class WorkspaceLayout(BaseModel):
             self.scripts,
             self.tests,
             self.loot,
+            self.inputs,
+            self.evidence,
         )
 
 
@@ -160,6 +170,38 @@ class Workspace:
     def loot_file(self) -> Path:
         """The appended captured-loot journal (``loot/loot.md``)."""
         return self.loot_dir / self.layout.loot_log
+
+    @property
+    def inputs_dir(self) -> Path:
+        """Operator-supplied tool inputs (wordlists, user/credential lists)."""
+        return self.root / self.layout.inputs
+
+    @property
+    def evidence_dir(self) -> Path:
+        """Files pulled from a target (downloads, dropped documents)."""
+        return self.root / self.layout.evidence
+
+    def resolve_within(self, subdir: Path, relpath: str) -> Path:
+        """Resolve `relpath` under `subdir`, refusing any escape from `subdir`.
+
+        The confinement guard for every path the agent can influence: a tool
+        input or evidence file it names by a workspace-relative path. The result
+        is fully resolved (so a symlink pointing out, or a ``..`` climb, is
+        caught) and must stay inside the resolved `subdir`; otherwise this raises
+        ``ValueError``. Confining to the specific directory -- not merely the
+        workspace root -- keeps the agent from pointing a tool at a sibling such
+        as ``scope.json`` or ``.vault.db`` via ``../``. ``subdir`` is one of this
+        workspace's own directories (``inputs_dir``/``evidence_dir``/``loot_dir``).
+
+        A prefix check would be fooled by a sibling like ``<subdir>-secrets``;
+        ``is_relative_to`` on the resolved paths is not.
+        """
+        base = subdir.resolve()
+        candidate = (subdir / relpath).resolve()
+        if base != candidate and not candidate.is_relative_to(base):
+            msg = f"path escapes the workspace: {relpath!r}"
+            raise ValueError(msg)
+        return candidate
 
     def ensure(self) -> None:
         """Create the workspace tree if it does not already exist (idempotent)."""

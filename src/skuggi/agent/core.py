@@ -51,6 +51,7 @@ from skuggi.config.configs import (
     load_registry,
     load_scope,
 )
+from skuggi.engagement import datafiles
 from skuggi.engagement.engagement import (
     EngagementConfig,
     parse_command,
@@ -225,6 +226,25 @@ class AgentCore:
         ctx = open_vault(self.workspace.vault_path)
         return ctx, ctx.__enter__()
 
+    def _datafiles_block(self) -> str:
+        """The metadata-only inventory of tool-input/evidence/loot files.
+
+        Lets the agent reference a wordlist or evidence file by path without ever
+        seeing its contents. Empty in agent-only mode (no workspace).
+        """
+        if self.workspace is None:
+            return ""
+        ws = self.workspace
+        files = datafiles.list_datafiles(
+            [
+                (ws.inputs_dir, "input"),
+                (ws.evidence_dir, "evidence"),
+                (ws.loot_dir, "loot"),
+            ],
+            ws.root,
+        )
+        return datafiles.render_datafiles(files)
+
     def _redaction_policy(self) -> RedactionPolicy:
         """The redaction policy for this session, allow-listing in-scope identifiers.
 
@@ -286,6 +306,7 @@ class AgentCore:
             history_messages=self.settings.history_messages,
             history_chars=self.settings.history_chars,
             preferences=self.prefs.render_block(),
+            data_files=self._datafiles_block(),
             prompts=prompt_set(self.mode),
         )
 
