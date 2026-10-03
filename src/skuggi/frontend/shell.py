@@ -50,8 +50,15 @@ from skuggi.common.logs import get_logger, setup_logging
 from skuggi.frontend.banner import render_startup_banner
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from skuggi.agent.core import AgentCore
     from skuggi.engagement.engagement import EngagementConfig
+
+# Exported into every child shell the wrapper launches; its presence marks "we
+# are already inside a skuggi shell" so a bare `skuggi` run here never boots a
+# second daemon (see ``nested_launch_note``).
+ACTIVE_ENV = "SKUGGI_ACTIVE"
 
 SHIELD = palette.SHIELD
 
@@ -68,12 +75,19 @@ function /skuggi {{
   "$_skuggi_client" "$@"
   [[ $? -eq 42 ]] && exit 0
 }}
-# Disable filename globbing for /skuggi args so an unquoted natural-language
-# query (e.g. `/skuggi ask who are you?`) is not mangled by zsh's nomatch error.
+# A bare `skuggi` (no slash) means the same thing inside the wrapped shell:
+# reach the warm daemon. Without this it would resolve through $PATH to the
+# console script and boot a nested harness. Delegates to /skuggi so the
+# exit/42 handling is shared. `command skuggi` still reaches the real launcher.
+function skuggi {{ /skuggi "$@"; }}
+# Disable filename globbing for /skuggi (and bare skuggi) args so an unquoted
+# natural-language query (`skuggi ask who are you?`) is not mangled by zsh's
+# nomatch error.
 alias '/skuggi'='noglob /skuggi'
+alias skuggi='noglob skuggi'
 function _skuggi_record {{
   case "$1" in
-    /skuggi*|skuggi-client*|"$_skuggi_client"*) ;;
+    /skuggi*|skuggi*|"$_skuggi_client"*) ;;
     *) "$_skuggi_client" --record "$1" 2>/dev/null &! ;;
   esac
 }}
@@ -86,7 +100,7 @@ function _skuggi_complete {{
   out="$("$_skuggi_client" --complete "${{(@)words[2,CURRENT-1]}}" 2>/dev/null)"
   compadd -- ${{(f)out}}
 }}
-compdef _skuggi_complete /skuggi
+compdef _skuggi_complete /skuggi skuggi
 """
 
 _BASH_HOOK = """\
@@ -98,12 +112,17 @@ function /skuggi {{
   "$_skuggi_client" "$@"
   [ $? -eq 42 ] && exit 0
 }}
+# A bare `skuggi` (no slash) means the same thing inside the wrapped shell:
+# reach the warm daemon, not boot a nested harness via the $PATH console
+# script. Delegates to /skuggi so exit/42 handling is shared. `command skuggi`
+# still reaches the real launcher.
+function skuggi {{ /skuggi "$@"; }}
 _skuggi_last=""
 function _skuggi_record {{
   local _n cmd
   read -r _n cmd <<< "$(HISTTIMEFORMAT= history 1)"
   case "$cmd" in
-    ""|/skuggi*|skuggi-client*|"$_skuggi_client"*|"$_skuggi_last") ;;
+    ""|/skuggi*|skuggi*|"$_skuggi_client"*|"$_skuggi_last") ;;
     *) "$_skuggi_client" --record "$cmd" 2>/dev/null & ;;
   esac
   _skuggi_last="$cmd"
@@ -116,7 +135,7 @@ _skuggi_complete() {{
   out="$("$_skuggi_client" --complete "${{prev[@]}}" 2>/dev/null)"
   COMPREPLY=( $(compgen -W "$out" -- "$cur") )
 }}
-complete -F _skuggi_complete /skuggi
+complete -F _skuggi_complete /skuggi skuggi
 """
 
 
@@ -158,7 +177,7 @@ def build_shell_invocation(
     place that is hardest to debug from inside a wrapped shell.
     """
     name = Path(shell_path).name
-    env = {"SKUGGI_ACTIVE": "1"}
+    env = {ACTIVE_ENV: "1"}
     quoted = shlex.quote(client if client is not None else client_path())
     if name == "zsh":
         (tmpdir / ".zshrc").write_text(
@@ -178,6 +197,24 @@ def build_shell_invocation(
 def supports_hook(shell_path: str) -> bool:
     """Whether `shell_path` gets the ``/skuggi`` hook (bash/zsh) or degrades."""
     return Path(shell_path).name in ("bash", "zsh")
+
+
+def nested_launch_note(env: Mapping[str, str]) -> str | None:
+    """A note when ``skuggi`` is launched inside an already-active shell, else None.
+
+    bash/zsh shadow the bare ``skuggi`` word with a function that reaches the warm
+    daemon, so this only fires when that hook is bypassed -- ``command skuggi``, a
+    script, or a degraded shell with no hook. In every such case booting a second
+    ``AgentCore`` + daemon + nested child shell is never what the operator wants;
+    the launcher prints this and exits instead.
+    """
+    if not env.get(ACTIVE_ENV):
+        return None
+    return (
+        "skuggi: already inside a skuggi shell -- use `skuggi <verb>` or "
+        "`/skuggi <verb>` to reach the running agent; a bare `skuggi` would "
+        "start a nested session."
+    )
 
 
 def shell_env_target(engagement: EngagementConfig | None) -> dict[str, str]:
@@ -214,6 +251,12 @@ def _session_summary(core: AgentCore) -> str:  # pragma: no cover -- live ledger
 
 def main() -> None:  # pragma: no cover -- launches a child shell + daemon
     """Console entry point: warm agent daemon + the operator's real shell."""
+    nested = nested_launch_note(os.environ)
+    if nested is not None:
+        # Never boot a second daemon from inside an active skuggi shell.
+        print(nested, file=sys.stderr)
+        return
+
     import signal
     import subprocess
     import tempfile

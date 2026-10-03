@@ -236,6 +236,18 @@ def test_attached_hints_use_the_bare_chat_grammar(daemon: Daemon) -> None:
     assert "/skuggi" not in out
 
 
+def test_attached_help_uses_the_bare_chat_grammar(daemon: Daemon) -> None:
+    # `help` in the chat loop must list the bare verbs the operator actually
+    # types there (`show config`), never the `/skuggi show config` shell grammar.
+    lines = iter(["help", "help show", None])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(lines), emitted.append, mode="loop")
+    out = "".join(str(e.get("chunk", "")) for e in emitted)
+    assert "/skuggi" not in out
+    assert "show <what>" in out  # the collapsed grouping-verb row, bare
+    assert "show status" in out  # a noun row from `help show`, bare
+
+
 def test_thread_new_list_switch(daemon: Daemon) -> None:
     # A turn checkpoints the current thread, so `list` has one to mark.
     _chunks(daemon, {"op": "input", "text": "ask hello"})

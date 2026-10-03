@@ -331,16 +331,18 @@ class Tui:
             if rows is None:
                 self.console.print(f"[red]no such command:[/red] {verb}")
                 return
-            table = Table(show_header=False, box=None, title=f"/{verb}")
+            table = Table(show_header=False, box=None, title=verbs.cmd(verb, "repl"))
             for invocation, summary in rows:
-                table.add_row(f"[cyan]/{invocation}[/cyan]", summary)
+                table.add_row(f"[cyan]{verbs.cmd(invocation, 'repl')}[/cyan]", summary)
             self.console.print(table)
             return
         for title, section_rows in verbs.help_sections():
             self.console.print(f"[bold]{title}[/bold]")
             table = Table(show_header=False, box=None, pad_edge=False)
             for invocation, summary in section_rows:
-                table.add_row(f"  [cyan]/{invocation}[/cyan]", summary)
+                table.add_row(
+                    f"  [cyan]{verbs.cmd(invocation, 'repl')}[/cyan]", summary
+                )
             self.console.print(table)
 
     # ----- grouping-verb routers ---------------------------------------------

@@ -65,6 +65,15 @@ from skuggi.tooling.doctor import (
 # The filters ``show tools`` accepts, for argument validation.
 _TOOL_FILTERS: frozenset[str] = frozenset({"all", "scoped", "installed", "missing"})
 
+# The help listing's intro line, per surface. The command grammar differs
+# (``/skuggi <verb>`` at the wrapped-shell prompt, a bare ``<verb>`` inside the
+# chat loop, ``/<verb>`` in the REPL), so the intro names the one that works here.
+_HELP_INTRO: dict[verbs.Surface, str] = {
+    "shell": "skuggi shell commands (/skuggi <verb> <rest>):",
+    "chat": "skuggi commands (type a verb):",
+    "repl": "skuggi commands (/<verb> <rest>):",
+}
+
 log = get_logger(__name__)
 
 
@@ -995,21 +1004,33 @@ class Daemon:
         )
 
     def _help_text(self, arg: str = "") -> str:
+        """Render help for this connection's surface (bare verbs in the chat loop).
+
+        Every invocation is formatted with ``verbs.cmd`` so the grammar matches
+        where the operator is reading it -- ``/skuggi <verb>`` at the wrapped-shell
+        prompt, a bare ``<verb>`` inside the chat loop -- just as every other
+        daemon hint does. The rendered command (whose width varies with the
+        surface prefix) is what gets column-padded.
+        """
+        surface = self._surface()
         verb = arg.strip().split(" ", 1)[0]
         if verb:
             rows = verbs.help_for(verb)
             if rows is None:
                 return f"no such command: {verb}\n"
             lines = [
-                f"/skuggi {verb}:",
-                *(f"  /skuggi {inv:<34} {summary}" for inv, summary in rows),
+                f"{verbs.cmd(verb, surface)}:",
+                *(
+                    f"  {verbs.cmd(inv, surface):<40} {summary}"
+                    for inv, summary in rows
+                ),
             ]
             return "\n".join(lines) + "\n"
-        lines = ["skuggi shell commands (/skuggi <verb> <rest>):"]
+        lines = [_HELP_INTRO[surface]]
         for title, section_rows in verbs.help_sections():
             lines.append(f"  {title}:")
             lines += [
-                f"    /skuggi {inv:<32} {summary}"
+                f"    {verbs.cmd(inv, surface):<38} {summary}"
                 for inv, summary in section_rows
                 if not inv.startswith("clear")
             ]

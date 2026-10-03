@@ -15,10 +15,12 @@ import pytest
 
 from skuggi.frontend import shell
 from skuggi.frontend.shell import (
+    ACTIVE_ENV,
     CLIENT_NAME,
     SHIELD,
     build_shell_invocation,
     client_path,
+    nested_launch_note,
     supports_hook,
 )
 
@@ -52,12 +54,28 @@ def test_zsh_hook_disables_globbing_for_skuggi_args(tmp_path: Path) -> None:
     assert "alias '/skuggi'='noglob /skuggi'" in zshrc
 
 
+def test_zsh_hook_intercepts_bare_skuggi(tmp_path: Path) -> None:
+    # A bare `skuggi` must reach the warm daemon too, not boot a nested harness.
+    build_shell_invocation("/bin/zsh", tmp_path, home=Path("/home/u"))
+    zshrc = (tmp_path / ".zshrc").read_text(encoding="utf-8")
+    assert "function skuggi {" in zshrc  # the bare name is a function, not a path
+    assert "alias skuggi='noglob skuggi'" in zshrc  # same nomatch guard as /skuggi
+    assert "compdef _skuggi_complete /skuggi skuggi" in zshrc  # completion for both
+
+
+def test_bash_hook_intercepts_bare_skuggi(tmp_path: Path) -> None:
+    build_shell_invocation("/bin/bash", tmp_path, home=Path("/home/u"))
+    body = (tmp_path / "rcfile").read_text(encoding="utf-8")
+    assert "function skuggi {" in body
+    assert "complete -F _skuggi_complete /skuggi skuggi" in body
+
+
 def test_zsh_hook_forwards_free_typed_commands_via_preexec(tmp_path: Path) -> None:
     build_shell_invocation("/bin/zsh", tmp_path, home=Path("/home/u"), client=CLIENT)
     zshrc = (tmp_path / ".zshrc").read_text(encoding="utf-8")
     assert "add-zsh-hook preexec _skuggi_record" in zshrc
     assert '"$_skuggi_client" --record' in zshrc
-    assert "/skuggi*|skuggi-client*" in zshrc  # re-entrancy guard
+    assert "/skuggi*|skuggi*" in zshrc  # re-entrancy guard (incl. bare `skuggi`)
     assert '"$_skuggi_client"*' in zshrc  # ... incl. the absolute form
     assert "2>/dev/null &!" in zshrc  # fail-open + backgrounded
 
@@ -71,7 +89,7 @@ def test_bash_hook_forwards_free_typed_commands_via_prompt_command(
     assert "_skuggi_record" in body
     assert "PROMPT_COMMAND=" in body
     assert '"$_skuggi_client" --record' in body
-    assert "/skuggi*|skuggi-client*" in body  # re-entrancy guard
+    assert "/skuggi*|skuggi*" in body  # re-entrancy guard (incl. bare `skuggi`)
     assert '"$_skuggi_client"*' in body  # ... incl. the absolute form
     assert "2>/dev/null &" in body  # fail-open + backgrounded
 
@@ -97,6 +115,15 @@ def test_supports_hook() -> None:
     assert supports_hook("/bin/zsh")
     assert supports_hook("/usr/local/bin/bash")
     assert not supports_hook("/usr/bin/fish")
+
+
+def test_nested_launch_note_fires_only_inside_an_active_shell() -> None:
+    # The guard that keeps `skuggi` (bypassing the shell function via `command
+    # skuggi`, a script, or a degraded shell) from booting a second daemon.
+    assert nested_launch_note({}) is None
+    note = nested_launch_note({ACTIVE_ENV: "1"})
+    assert note is not None
+    assert "already inside a skuggi shell" in note
 
 
 # --- the client path baked into the hook ------------------------------------
