@@ -20,7 +20,7 @@ import shutil
 import socket
 import subprocess
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -270,6 +270,7 @@ class Runner:
         *commands: str,
         findings: tuple[FindingDraft, ...] = (),
         timeout_s: float = 60.0,
+        setup: Callable[[AgentCore], None] | None = None,
     ) -> list[CommandRow]:
         core = engaged_core(
             self._tmp_path,
@@ -277,6 +278,11 @@ class Runner:
             command_timeout_s=timeout_s,
         )
         self.cores.append(core)
+        if setup is not None:
+            # Seed operator inputs (e.g. a wordlist) into the real workspace
+            # before the turn, so a tool's confined `-w`/`--wordlist` path
+            # resolves inside it -- the production data-file confinement path.
+            setup(core)
         replies = [WorkerResponse(command=c, summary=f"run {c}") for c in commands]
         # Findings ride the final response; the executor links them to the last
         # recorded command.
@@ -304,3 +310,69 @@ def require_tool(binary: str) -> None:
     """Skip a case whose tool is not installed on this host."""
     if shutil.which(binary) is None:
         pytest.skip(f"{binary} is not installed on this host")
+
+
+# --- the SSRF fixture (a vuln class the web+db target cannot express) --------
+
+SSRF_DIR = REPO_ROOT / "tests" / "e2e" / "fixtures" / "ssrf"
+SSRF_COMPOSE = SSRF_DIR / "docker-compose.yml"
+_DEFAULT_SSRF_PORT = 8084
+
+
+def _ssrf_compose(
+    *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    argv = ["docker", "compose", "-f", str(SSRF_COMPOSE), *args]
+    merged = {**os.environ, **env} if env else None
+    return subprocess.run(  # noqa: S603 -- docker is on PATH, shell=False
+        argv, capture_output=True, text=True, check=False, env=merged
+    )
+
+
+def _discover_ssrf_port() -> int:
+    if shutil.which("docker"):
+        proc = _ssrf_compose("port", "app", "8080")
+        tail = proc.stdout.strip().rsplit(":", 1)
+        if proc.returncode == 0 and len(tail) == 2 and tail[1].isdigit():
+            return int(tail[1])
+    return _DEFAULT_SSRF_PORT
+
+
+@pytest.fixture(scope="session")
+def ssrf() -> Iterator[Lab]:
+    """The running SSRF fixture, or a clean skip when it is down.
+
+    A default auto-allocated network + its own compose project, so it never
+    collides with the web+db fixture or the labs/ range. Brought up only under
+    ``SKUGGI_E2E_COMPOSE_UP`` (a stray ``down -v`` is harmless here -- it owns no
+    persistent volume -- but the gate stays opt-in regardless).
+    """
+    bring_up = os.environ.get("SKUGGI_E2E_COMPOSE_UP") == "1"
+    if bring_up:
+        if not shutil.which("docker"):
+            pytest.skip("SKUGGI_E2E_COMPOSE_UP set but docker is not installed")
+        up = _ssrf_compose("up", "-d", "--wait")
+        if up.returncode != 0:
+            pytest.skip(f"ssrf fixture did not come up: {up.stderr.strip()[:200]}")
+    target = Lab(host="127.0.0.1", port=_discover_ssrf_port())
+    if not _healthy(target.base_url):
+        if bring_up:
+            _ssrf_compose("down", "-v")
+        pytest.skip(
+            f"ssrf fixture is not reachable at {target.base_url} -- bring it up "
+            "with `docker compose -f tests/e2e/fixtures/ssrf/docker-compose.yml up -d`"
+        )
+    try:
+        yield target
+    finally:
+        if bring_up:
+            _ssrf_compose("down", "-v")
+
+
+@pytest.fixture
+def ssrf_engage(tmp_path: Path, ssrf: Lab) -> Iterator[Runner]:
+    """A :class:`Runner` bound to the running SSRF fixture; closes cores on teardown."""
+    runner = Runner(tmp_path)
+    yield runner
+    for core in runner.cores:
+        core.close()
