@@ -1,8 +1,9 @@
 """The thin ``skuggi-client`` the wrapped shell calls for ``/skuggi`` lines.
 
-It is deliberately tiny -- only ``json``, ``os``, ``socket``, ``sys`` -- so that
-starting it per ``/skuggi`` invocation is cheap; the warm agent lives in the
-daemon, not here. It reads ``$SKUGGI_SOCK`` (set by the shell wrapper), sends the
+It is deliberately lightweight -- the stdlib plus a couple of tiny skuggi helpers
+(logging, the shield glyph) -- so that starting it per ``/skuggi`` invocation is
+cheap; the warm agent lives in the daemon, not here. It reads ``$SKUGGI_SOCK``
+(set by the shell wrapper), sends the
 operator's input as one request, streams the reply to stdout, and exits ``42``
 when the daemon says to leave -- the shell's ``/skuggi`` function hook turns
 that into a shell ``exit``. ``Ctrl+C`` during a turn just returns to the prompt.
@@ -21,14 +22,25 @@ import os
 import socket
 import sys
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from typing import TextIO
 
 from skuggi.common.logs import get_logger, setup_logging
+from skuggi.common.palette import SHIELD
 
 log = get_logger(__name__)
 
 _EXIT_SHELL = 42
+# A dead or slow daemon must never block the operator's shell.
+_CONNECT_TIMEOUT_S = 2.0
+_RECV_BUFFER = 4096
+_SPINNER_FRAMES = "|/-\\"
+_SPINNER_INTERVAL_S = 0.12
+
+
+def _send(conn: socket.socket, obj: Mapping[str, object]) -> None:
+    """Send one newline-delimited JSON frame -- the daemon's wire format."""
+    conn.sendall((json.dumps(obj) + "\n").encode())
 
 
 class _Spinner:
@@ -51,10 +63,10 @@ class _Spinner:
             self._thread.start()
 
     def _spin(self) -> None:  # pragma: no cover -- needs a real terminal
-        frames = "|/-\\"
         i = 0
-        while not self._stop.wait(0.12):
-            sys.stderr.write(f"\r{frames[i % 4]} working...")
+        while not self._stop.wait(_SPINNER_INTERVAL_S):
+            frame = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
+            sys.stderr.write(f"\r{frame} working...")
             sys.stderr.flush()
             i += 1
 
@@ -85,7 +97,7 @@ def record_over(conn: socket.socket, text: str) -> None:
     sends one frame and returns. Split from ``record`` so it is testable over a
     plain socket pair.
     """
-    conn.sendall((json.dumps(build_record_message(text)) + "\n").encode())
+    _send(conn, build_record_message(text))
 
 
 def record(sock_path: str, text: str) -> int:  # pragma: no cover -- real socket
@@ -96,7 +108,7 @@ def record(sock_path: str, text: str) -> int:  # pragma: no cover -- real socket
     """
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-            conn.settimeout(2.0)
+            conn.settimeout(_CONNECT_TIMEOUT_S)
             conn.connect(sock_path)
             record_over(conn, text)
     except OSError as exc:
@@ -115,11 +127,9 @@ def complete(sock_path: str, words: list[str]) -> int:  # pragma: no cover -- so
     """
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-            conn.settimeout(2.0)
+            conn.settimeout(_CONNECT_TIMEOUT_S)
             conn.connect(sock_path)
-            conn.sendall(
-                (json.dumps({"op": "complete", "words": words}) + "\n").encode()
-            )
+            _send(conn, {"op": "complete", "words": words})
             for line in _iter_lines(conn):
                 try:
                     resp = json.loads(line)
@@ -143,7 +153,7 @@ def _iter_lines(conn: socket.socket) -> Iterator[bytes]:
     """
     buffer = b""
     while True:
-        data = conn.recv(4096)
+        data = conn.recv(_RECV_BUFFER)
         if not data:
             if buffer.strip():
                 yield buffer
@@ -160,7 +170,7 @@ def run_over(conn: socket.socket, text: str, out: TextIO) -> int:
     Returns ``42`` when the daemon signals the shell should exit, else ``0``.
     Split from ``run`` so it is testable over a plain socket pair.
     """
-    conn.sendall((json.dumps(build_message(text)) + "\n").encode())
+    _send(conn, build_message(text))
     spinner = _Spinner()
     spinner.maybe_start()
     exit_shell = False
@@ -199,9 +209,6 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
         return 1
 
 
-_SHIELD = "🐐"
-
-
 def _prompt_str(ctx: dict[str, object]) -> str:
     """Build the chat prompt from a daemon prompt-context frame.
 
@@ -211,8 +218,8 @@ def _prompt_str(ctx: dict[str, object]) -> str:
     eng = ctx.get("engagement")
     auto = "!" if ctx.get("autonomous") else ""
     if isinstance(eng, str) and eng:
-        return f"{_SHIELD} [{eng}]{auto} > "
-    return f"{_SHIELD}{auto} > "
+        return f"{SHIELD} [{eng}]{auto} > "
+    return f"{SHIELD}{auto} > "
 
 
 def _await_prompt(frames: Iterator[bytes]) -> dict[str, object] | None:
@@ -391,19 +398,19 @@ def _stream_turn(
             answer = ask(str(resp["ask"]))
             if answer is None:  # operator aborted the wizard
                 return True
-            conn.sendall((json.dumps(build_message(answer)) + "\n").encode())
+            _send(conn, build_message(answer))
             continue
         if "choose" in resp and conn is not None:
             selection = _choose_frame(resp["choose"])
             if selection is None:  # operator aborted the menu
                 return True
-            conn.sendall((json.dumps(build_message(selection)) + "\n").encode())
+            _send(conn, build_message(selection))
             continue
         if "multiselect" in resp and conn is not None:
             picks = _multiselect_frame(resp["multiselect"])
             if picks is None:  # operator aborted the checklist
                 return True
-            conn.sendall((json.dumps(build_message(json.dumps(picks))) + "\n").encode())
+            _send(conn, build_message(json.dumps(picks)))
             continue
         chunk = resp.get("chunk")
         if chunk:
@@ -444,7 +451,7 @@ def attach_over(
     one-shot ``/skuggi exit``, handled by the shell hook before it reaches here.
     Split from ``attach`` so it is testable over a plain socket pair.
     """
-    conn.sendall((json.dumps({"op": "attach"}) + "\n").encode())
+    _send(conn, {"op": "attach"})
     frames = _iter_lines(conn)
     session: object | None = None
     state: dict[str, bool] | None = None
@@ -457,7 +464,7 @@ def attach_over(
         line = _prompt_turn(session, state, prompt_in, _prompt_str(ctx), out)
         if line is None:  # EOF or blank submit -> leave
             break
-        conn.sendall((json.dumps(build_message(line)) + "\n").encode())
+        _send(conn, build_message(line))
         spinner = _Spinner()
         spinner.maybe_start()  # look busy until the daemon's first frame
         try:
@@ -510,9 +517,9 @@ def attach_once_over(
     the persistent chat loop). Split from ``attach_once`` so it is testable over
     a plain socket pair.
     """
-    conn.sendall((json.dumps({"op": "attach", "mode": "once"}) + "\n").encode())
+    _send(conn, {"op": "attach", "mode": "once"})
     frames = _iter_lines(conn)
-    conn.sendall((json.dumps(build_message(text)) + "\n").encode())
+    _send(conn, build_message(text))
     # These verbs never signal a shell exit; a True here means the operator
     # aborted (Ctrl-C), which returns to the shell just the same.
     _stream_turn(frames, out, conn=conn, ask=prompt_in)

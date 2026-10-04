@@ -387,7 +387,7 @@ def _findings_block(findings: Sequence[FindingBrief]) -> str:
     for f in findings:
         cmd = f" (cmd:{f.command_id})" if f.command_id is not None else ""
         if f.status == "rejected":
-            why = f" — {f.reason}" if f.reason else ""
+            why = f" -- {f.reason}" if f.reason else ""
             lines.append(f"[{f.id}] REJECTED {f.title}{why}{cmd} (do not re-assert)")
         else:
             tag = "" if f.status == "approved" else f" ({f.status})"

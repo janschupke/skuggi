@@ -336,5 +336,5 @@ def test_findings_block_feeds_rejection_reason_back() -> None:
     )
     block = render_request(ctx)
     assert "[1] HIGH: real SQLi" in block
-    assert "[2] REJECTED not exploitable — false positive, WAF blocks it" in block
+    assert "[2] REJECTED not exploitable -- false positive, WAF blocks it" in block
     assert "do not re-assert" in block
