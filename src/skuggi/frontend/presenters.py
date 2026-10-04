@@ -27,6 +27,7 @@ from skuggi.frontend.outcomes import (
     InstallOutcome,
     InstallUnknown,
     MemoryAdded,
+    MemoryAddedOverCap,
     MemoryAlreadyKnown,
     MemoryCleared,
     MemoryForgotten,
@@ -190,6 +191,14 @@ def present_memory(outcome: MemoryOutcome) -> Styled:  # noqa: PLR0911 -- one re
             return []
         case MemoryAdded(row):
             return [render.success(f"remembered [{row.id}] {row.text}")]
+        case MemoryAddedOverCap(row, count, maximum):
+            return [
+                render.success(f"remembered [{row.id}] {row.text}"),
+                render.warning(
+                    f"memory over capacity ({count}/{maximum}); "
+                    "forget some with `remove memory`"
+                ),
+            ]
         case MemoryAlreadyKnown():
             return [render.info("already remembered")]
         case MemoryForgotten():

@@ -131,11 +131,19 @@ rather than the working directory — a preference is about the operator, not th
 target, and not the directory you happened to start in). `AgentCore` renders it into every role's
 prompt (`GraphDeps.preferences` → an "Operator preferences" block in
 planner/worker/critic), so a rebuild of the graph is what makes an edit take
-effect. It fills two ways: the manual `memory` verb, and a post-turn automatic
-capture — after the stream drains, `AgentCore.maybe_capture_preferences` gates
-the message on a cheap heuristic (`looks_like_directive`) and, if it passes,
-asks the LLM (one-shot) to extract any durable directive, saving it and emitting
-a `remembered: …` status. `settings.memory_auto` switches the automatic path off.
+effect. It fills two ways: the manual `add memory` / `remove memory` verbs, and a
+post-turn automatic capture that is **gated like every other agent-proposed
+write**. The in-loop evaluator (`PreferenceBook.propose_capture`) runs after the
+stream drains — gated first on the cheap `looks_like_directive` heuristic, then on
+a one-shot LLM extraction — and *proposes* the durable directive without writing
+it. The front-end then runs the capture flow (`frontend/memoryflow.py`): in the
+chat loop / REPL it previews the directive and confirms through the shared
+`confirm_write` (capability `memory`) before `PreferenceBook.apply_capture`
+persists it; a one-shot `/skuggi ask`, having no loop to confirm against, only
+announces what it would remember and writes nothing. `settings.memory_auto`
+switches the proposing off, and `settings.memory_max` caps the store — at the cap
+the automatic path refuses and warns rather than evicting, so pruning is always
+the operator's explicit `remove memory`.
 
 **The diagnostic log** ([logs.py](../src/skuggi/common/logs.py), `logs/skuggi.log` in the
 data home) is a different thing again, and orthogonal to all of the above: the

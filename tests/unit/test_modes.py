@@ -48,6 +48,24 @@ def test_every_prompt_carries_the_skuggi_identity(mode: str) -> None:
 
 
 @pytest.mark.parametrize("mode", MODES)
+def test_every_prompt_explains_memory_read_and_write(mode: str) -> None:
+    """Without this the agent wrongly disclaims reading/writing its own memory."""
+    ps = prompt_set(mode)  # type: ignore[arg-type]
+    for prompt in (ps.planner, ps.worker, ps.critic):
+        assert "Operator preferences" in prompt  # it is TOLD it reads them
+        assert "global to this skuggi install" in prompt  # memory is installation-wide
+        assert "add note" in prompt  # target facts route to engagement notes instead
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_every_prompt_asks_for_structured_output(mode: str) -> None:
+    """The answer renders verbatim; a run-on paragraph reads badly."""
+    ps = prompt_set(mode)  # type: ignore[arg-type]
+    for prompt in (ps.planner, ps.worker, ps.critic):
+        assert "blank lines" in prompt
+
+
+@pytest.mark.parametrize("mode", MODES)
 def test_planner_prompts_carry_the_triage_clause(mode: str) -> None:
     """The planner must be told to triage answer-vs-plan (the latency fix)."""
     planner = prompt_set(mode).planner  # type: ignore[arg-type]

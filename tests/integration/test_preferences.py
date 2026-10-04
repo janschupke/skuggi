@@ -53,6 +53,16 @@ def test_forget_and_clear(tmp_path: Path) -> None:
         assert prefs.all() == []
 
 
+def test_count_tracks_the_stored_rows(tmp_path: Path) -> None:
+    with open_preferences(tmp_path / "p.db") as prefs:
+        assert prefs.count() == 0
+        prefs.add("one", source="manual")
+        prefs.add("two", source="auto")
+        assert prefs.count() == 2
+        prefs.forget(1)
+        assert prefs.count() == 1
+
+
 def test_reopening_sees_persisted_rows(tmp_path: Path) -> None:
     db = tmp_path / "nested" / "p.db"
     with open_preferences(db) as prefs:

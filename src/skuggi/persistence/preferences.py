@@ -148,6 +148,12 @@ class PreferenceStore:
             self._conn.commit()
             return cur.rowcount
 
+    def count(self) -> int:
+        """How many preferences are stored -- for the capacity cap."""
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) FROM preferences").fetchone()
+        return int(row[0]) if row else 0
+
     def all(self) -> list[PreferenceRow]:
         """Every preference, grouped by category then insertion order."""
         with self._lock:

@@ -37,6 +37,7 @@ from skuggi.frontend.outcomes import (
     InstallOutcome,
     InstallUnknown,
     MemoryAdded,
+    MemoryAddedOverCap,
     MemoryAlreadyKnown,
     MemoryCleared,
     MemoryForgotten,
@@ -219,7 +220,7 @@ def run_model(core: AgentCore, arg: str) -> ModelOutcome:
 # ----- memory ---------------------------------------------------------------
 
 
-def run_memory(core: AgentCore, arg: str) -> MemoryOutcome:
+def run_memory(core: AgentCore, arg: str) -> MemoryOutcome:  # noqa: PLR0911 -- one return per sub-command + the cap case
     """Show / add / forget / clear remembered operator preferences."""
     sub, _, rest = arg.partition(" ")
     sub, rest = sub.strip().lower(), rest.strip()
@@ -227,7 +228,12 @@ def run_memory(core: AgentCore, arg: str) -> MemoryOutcome:
         if not rest:
             return MemoryUsage("add <preference>")
         row = core.memory.add(rest)
-        return MemoryAdded(row) if row else MemoryAlreadyKnown()
+        if row is None:
+            return MemoryAlreadyKnown()
+        count, maximum = core.prefs.count(), core.settings.memory_max
+        if count > maximum:
+            return MemoryAddedOverCap(row, count, maximum)
+        return MemoryAdded(row)
     if sub == "forget":
         if not rest.isdigit():
             return MemoryUsage("forget <id>")

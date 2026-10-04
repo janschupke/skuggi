@@ -2,8 +2,8 @@
 
 A single in-process registry of "approve for the rest of this session" grants,
 keyed by a coarse capability class (``config``, ``install``, ``scope-edit``,
-``cmd-edit``). One :class:`~skuggi.agent.core.AgentCore` -- and therefore one
-``SessionGrants`` -- lives behind the warm daemon per session, so a grant is
+``cmd-edit``, ``memory``). One :class:`~skuggi.agent.core.AgentCore` -- and therefore
+one ``SessionGrants`` -- lives behind the warm daemon per session, so a grant is
 naturally scoped to the session and gone when the shell relaunches.
 
 The confirm step (``skuggi.frontend.confirm``) consults it before prompting and

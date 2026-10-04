@@ -371,6 +371,19 @@ def test_review_routes_to_the_core(
     assert "you rushed recon" in chunks(daemon, {"op": "input", "text": "review"})
 
 
+def test_one_shot_ask_announces_a_memory_but_writes_nothing(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A one-shot `ask` has no loop to confirm against: it announces, never writes."""
+    cand = ["Prefer ffuf over gobuster"]
+    monkeypatch.setattr(daemon.core.memory, "propose_capture", lambda _t: cand)
+    out = chunks(daemon, {"op": "input", "text": "ask always prefer ffuf"})
+    assert "suggests remembering" in out
+    assert "Prefer ffuf over gobuster" in out
+    assert "not written" in out
+    assert daemon.core.memory.entries() == [], "a one-shot ask must not write memory"
+
+
 def test_memory_add_list_and_forget(daemon: Daemon) -> None:
     assert "(no memories yet)" in chunks(daemon, {"op": "input", "text": "show memory"})
     added = chunks(

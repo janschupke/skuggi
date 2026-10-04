@@ -322,9 +322,16 @@ class Settings(BaseSettings):
     preferences_path: Path = Field(
         default_factory=lambda: home.data_home() / "preferences.db"
     )
-    # Whether the harness automatically captures standing directives it detects
-    # in your messages, post-turn. Manual `memory add` is unaffected by this.
+    # Whether the harness proposes standing directives it detects in your
+    # messages, post-turn (the in-loop evaluator). A proposal is always gated by
+    # a preview + approval before it is written; this only toggles the proposing.
+    # Manual `memory add` is unaffected by this.
     memory_auto: bool = True
+    # The capacity cap for harness memory. At the cap the automatic evaluator
+    # refuses new captures and warns rather than evicting anything -- the operator
+    # makes room with `remove memory`. A manual `memory add` still writes (explicit
+    # intent) but warns when over the cap. Never auto-deletes.
+    memory_max: int = 100
 
     codex_auth_path: Path = Path("~/.codex/auth.json")
     codex_responses_base: str = CODEX_RESPONSES_BASE

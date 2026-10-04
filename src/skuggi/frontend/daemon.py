@@ -34,6 +34,7 @@ from skuggi.frontend import (
     completion,
     control,
     dispatch,
+    memoryflow,
     outcomes,
     presenters,
     render,
@@ -213,6 +214,7 @@ class Daemon:
                     exit_session = bool(resp.get("exit"))
             if exit_session:
                 return
+            attach.capture_after_ask(self.core, self._lock, line, read_line, emit)
 
     def _dispatch(self, msg: dict[str, object]) -> Iterator[dict[str, object]]:
         if msg.get("op") == "exit":
@@ -274,6 +276,12 @@ class Daemon:
             elif ev.kind == "final":
                 final = ev.text
         yield (final or "(no answer)") + "\n"
+        # One-shot ask: announce what the evaluator would remember, never write (the
+        # chat loop, surface "chat", gates the write itself in run_attached).
+        if self._surface() != "chat":
+            yield from memoryflow.announce_capture(
+                self.core.memory.propose_capture(text), hint=self._cmd("add memory")
+            )
 
     def _control(self, verb: str, arg: str) -> Iterator[str]:
         handler = {

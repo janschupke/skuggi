@@ -162,14 +162,10 @@ class TurnRunner:
                     if ev.kind == "final":
                         final_text = ev.text
                     yield ev
-            # The turn is answered; now let the harness remember any standing
-            # directive it carried (best-effort, never raises).
-            for row in self._core.memory.maybe_capture(user_text):
-                yield TurnEvent(
-                    "status",
-                    f"remembered: {row.text} (forget {row.id} to undo)",
-                    node="memory",
-                )
+            # The turn is answered. Capturing any standing directive it carried is
+            # a GATED write: the front-end runs the memory-capture flow post-turn
+            # (preview + approval), because only it holds the operator round-trip.
+            # The turn loop itself never writes memory.
         except ConfigError as e:
             # A config/credential problem is already a full, actionable sentence
             # (e.g. "No OpenAI API key configured. Run /setup..."); show it as-is

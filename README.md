@@ -242,17 +242,22 @@ your standing instructions across threads and sessions.
 
 They fill two ways:
 
-- **Automatically.** After a turn whose message reads like a standing directive
-  (`always…`, `prefer…`, `from now on…`, `use X over Y`), the harness extracts
-  the durable preference and saves it, announcing `remembered: … (forget N to
-  undo)`. One-off requests and target-specific facts are ignored. Turn it off
-  with `config memory_auto false` (or `SKUGGI_MEMORY_AUTO=0`).
-- **Manually.** `memory add <text>` stores one; `memory` (or `memory list`)
-  shows them with ids; `memory forget <id>` drops one; `memory clear` empties
-  the store.
+- **Automatically, with your approval.** After a turn whose message reads like a
+  standing directive (`always…`, `prefer…`, `from now on…`, `use X over Y`), the
+  harness extracts the durable preference and *proposes* it. In the chat loop (or
+  `skuggi-repl`) it previews the directive and asks you to approve before writing;
+  a one-shot `/skuggi ask` only announces what it would remember and writes
+  nothing (there is no loop to confirm against). One-off requests and
+  target-specific facts are ignored. Turn the proposing off with `config
+  memory_auto false` (or `SKUGGI_MEMORY_AUTO=0`).
+- **Manually.** `add memory <text>` stores one; `show memory` lists them with
+  ids; `remove memory <id>` drops one; `remove memory all` empties the store.
 
 Memory is **global** across engagements — a preference is about the operator,
-not a target — and lives in `./data/preferences.db`, separate from the ledger.
+not a target — and lives in the data home's `preferences.db`, separate from the
+ledger. It is capped (`memory_max`, default 100): at the cap the automatic path
+refuses new captures and warns rather than evicting anything, so you prune it
+yourself with `remove memory`.
 
 ## engagement setup: the scope wizard
 

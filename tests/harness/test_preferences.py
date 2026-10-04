@@ -16,7 +16,6 @@ import pytest
 
 from skuggi.agent.core import AgentCore
 from skuggi.agent.protocol import MemoryExtraction
-from skuggi.persistence.preferences import PreferenceRow
 from tests.conftest import offline_settings, wire_offline_core
 from tests.fakes import StructuredChatModel
 
@@ -62,10 +61,10 @@ def test_a_remembered_preference_reaches_the_worker_prompt(core: AgentCore) -> N
     assert "Prefer ffuf over gobuster" in worker_prompt
 
 
-# --- automatic capture ------------------------------------------------------
+# --- automatic capture: the evaluator proposes, the gate writes --------------
 
 
-def test_capture_extracts_and_persists_a_directive(core: AgentCore) -> None:
+def test_propose_capture_extracts_without_persisting(core: AgentCore) -> None:
     core.llm = cast(
         Any,
         StructuredChatModel(
@@ -74,12 +73,33 @@ def test_capture_extracts_and_persists_a_directive(core: AgentCore) -> None:
     )
     before = core.graph
 
-    rows = core.memory.maybe_capture("always prefer ffuf over gobuster")
+    candidates = core.memory.propose_capture("always prefer ffuf over gobuster")
 
+    assert candidates == ["Prefer ffuf over gobuster"]
+    # Proposing never writes or rebuilds -- that is the gated apply's job.
+    assert core.memory.entries() == []
+    assert core.graph is before
+
+
+def test_apply_capture_persists_and_rebuilds(core: AgentCore) -> None:
+    before = core.graph
+    summary = core.memory.apply_capture(["Prefer ffuf over gobuster"])
+
+    assert "remembered" in summary
+    rows = core.memory.entries()
     assert [r.text for r in rows] == ["Prefer ffuf over gobuster"]
     assert rows[0].source == "auto"
-    assert [r.text for r in core.memory.entries()] == ["Prefer ffuf over gobuster"]
-    assert core.graph is not before, "a capture must rebuild the graph"
+    assert core.graph is not before, "an applied capture must rebuild the graph"
+
+
+def test_propose_capture_dedups_restated_candidates(core: AgentCore) -> None:
+    core.llm = cast(
+        Any,
+        StructuredChatModel(
+            obj=MemoryExtraction(directives=("Prefer ffuf", "prefer FFUF", ""))
+        ),
+    )
+    assert core.memory.propose_capture("always prefer ffuf") == ["Prefer ffuf"]
 
 
 def test_capture_gate_skips_ordinary_requests(core: AgentCore) -> None:
@@ -89,7 +109,7 @@ def test_capture_gate_skips_ordinary_requests(core: AgentCore) -> None:
             raise AssertionError(msg)
 
     core.llm = cast(Any, _NoLLM())
-    assert core.memory.maybe_capture("what is exposed on the host?") == []
+    assert core.memory.propose_capture("what is exposed on the host?") == []
     assert core.memory.entries() == []
 
 
@@ -102,22 +122,65 @@ def test_capture_respects_the_memory_auto_switch(core: AgentCore) -> None:
             raise AssertionError(msg)
 
     core.llm = cast(Any, _NoLLM())
-    assert core.memory.maybe_capture("always prefer ffuf") == []
+    assert core.memory.propose_capture("always prefer ffuf") == []
 
 
-def test_capture_empty_extraction_stores_nothing(core: AgentCore) -> None:
+def test_propose_capture_empty_extraction_yields_nothing(core: AgentCore) -> None:
     core.llm = cast(Any, StructuredChatModel(obj=MemoryExtraction(directives=())))
-    assert core.memory.maybe_capture("from now on, hmm, never mind") == []
+    assert core.memory.propose_capture("from now on, hmm, never mind") == []
     assert core.memory.entries() == []
 
 
-def test_turn_announces_a_captured_preference(
+def test_propose_capture_without_a_model_yields_nothing(core: AgentCore) -> None:
+    core.llm = None
+    assert core.memory.propose_capture("always prefer ffuf") == []
+
+
+def test_propose_capture_swallows_extraction_errors(
     core: AgentCore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    row = PreferenceRow(3, "general", "Keep answers terse", "auto", "2026-01-01")
-    monkeypatch.setattr(core.memory, "maybe_capture", lambda _text: [row])
-    events = list(core.turn("from now on keep answers terse"))
-    memory = [e for e in events if e.node == "memory"]
-    assert memory
-    assert "remembered: Keep answers terse" in memory[0].text
-    assert "forget 3" in memory[0].text
+    def boom(*_a: object, **_k: object) -> object:
+        msg = "provider blew up"
+        raise RuntimeError(msg)
+
+    core.llm = cast(Any, StructuredChatModel(obj=MemoryExtraction(directives=())))
+    monkeypatch.setattr("skuggi.agent.preferencebook.structured_invoke", boom)
+    # A failed extraction must not break the turn -- it captures nothing.
+    assert core.memory.propose_capture("always prefer ffuf") == []
+
+
+def test_apply_capture_reports_nothing_new_for_blank_candidates(
+    core: AgentCore,
+) -> None:
+    assert core.memory.apply_capture(["", "   "]) == "nothing new to remember"
+    assert core.memory.entries() == []
+
+
+def test_apply_capture_refuses_at_capacity_without_evicting(core: AgentCore) -> None:
+    core.settings = core.settings.model_copy(update={"memory_max": 2})
+    core.memory.add("Prefer ffuf over gobuster")  # one manual preference -> count 1
+
+    summary = core.memory.apply_capture(["Keep answers terse", "Write scripts in Go"])
+
+    # The cap is 2: the first fits (count 1 -> 2), the second is refused, not evicted.
+    texts = [r.text for r in core.memory.entries()]
+    assert "Keep answers terse" in texts
+    assert "Write scripts in Go" not in texts
+    assert "Prefer ffuf over gobuster" in texts, "nothing is evicted to make room"
+    assert "remembered" in summary
+    assert "capacity" in summary
+    assert "Write scripts in Go" in summary
+
+
+def test_turn_does_not_auto_write_memory(core: AgentCore) -> None:
+    """The turn loop never writes memory; the front-end gates the capture post-turn."""
+    core.llm = cast(
+        Any,
+        StructuredChatModel(
+            obj=MemoryExtraction(directives=("Prefer ffuf over gobuster",))
+        ),
+    )
+    events = list(core.turn("from now on prefer ffuf over gobuster"))
+
+    assert [e for e in events if e.node == "memory"] == []
+    assert core.memory.entries() == [], "a turn alone must not persist a preference"

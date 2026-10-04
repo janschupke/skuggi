@@ -23,6 +23,7 @@ from skuggi.frontend import (
     cmdflow,
     configflow,
     installflow,
+    memoryflow,
     menu,
     presenters,
     render,
@@ -180,6 +181,22 @@ class ReplFlows:
             propose=self._core.config.propose,
             apply=self._core.config.apply,
             grants=self._core.grants,
+        )
+
+    def capture_memory(self, user_text: str) -> None:
+        """Post-turn: propose remembering any standing directive, gated by confirm.
+
+        The REPL analog of ``attach.attach_memory_capture`` -- the in-loop evaluator
+        proposes, the operator approves, and only then is harness memory written.
+        """
+        candidates = self._core.memory.propose_capture(user_text)
+        memoryflow.run_memory_capture(
+            candidates,
+            choose=self.choose,
+            notify=self._notify,
+            apply=self._core.memory.apply_capture,
+            grants=self._core.grants,
+            interactive=True,
         )
 
     def set_scope(self, arg: str) -> None:

@@ -69,15 +69,15 @@ class DraftView:
         """Start a new pass, discarding anything buffered."""
         self.buffer = ""
 
-    def push_text(self, text: str) -> None:
+    def push_text(self, chunk: str) -> None:
         """Append one incremental token and re-render."""
-        self.buffer += text
-        self._live.update(Markdown(self.buffer))
+        self.buffer += chunk
+        self._live.update(Markdown(text.markdown_hardbreaks(self.buffer)))
 
     def show(self, final: str) -> None:
         """Render the authoritative draft, as judged by the critic."""
         self.buffer = final
-        self._live.update(Markdown(final))
+        self._live.update(Markdown(text.markdown_hardbreaks(final)))
 
 
 class Tui:
@@ -656,6 +656,7 @@ class Tui:
         The pane opens on a spinner so a slow planner/first token never looks
         hung; the first streamed token or final draft replaces it.
         """
+        completed = False
         with Live(
             Spinner("dots", "thinking..."), console=self.console, refresh_per_second=20
         ) as live:
@@ -670,9 +671,14 @@ class Tui:
                         view.push_text(ev.text)
                     elif ev.kind == "final":
                         view.show(ev.text)
+                completed = True
             except KeyboardInterrupt:
                 # Ctrl-C cancels the in-flight turn and returns to the prompt. The
                 # interrupt already unwound ``core.turn`` (its ``finally`` closed the
                 # timeline), so there is nothing to clean up here but the pane.
                 view.reset()
                 self.console.print("[dim]cancelled -- type exit to leave[/dim]")
+        # Post-turn, outside the Live pane so the confirm menu renders normally:
+        # the gated memory-capture flow (a no-op unless a directive was detected).
+        if completed:
+            self._flows.capture_memory(user_text)

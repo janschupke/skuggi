@@ -26,6 +26,7 @@ from skuggi.frontend import (
     configflow,
     dispatch,
     installflow,
+    memoryflow,
     scopeflow,
     setup,
     verbs,
@@ -368,6 +369,40 @@ def attach_scope(
             grants=core.grants,
         )
     emit({"end": True, "exit": False})
+
+
+def capture_after_ask(
+    core: AgentCore,
+    lock: threading.Lock,
+    line: str,
+    read_line: ReadLine,
+    emit: Emit,
+) -> None:
+    """If `line` was an ``ask``, gate remembering any directive it carried, post-turn.
+
+    The chat loop's post-turn hook: only an ``ask`` is an engagement turn worth
+    capturing from, and only the chat loop can do the confirm round-trip (a one-shot
+    announces instead). A no-op for any other line, or when nothing was proposed.
+    Emits no ``end`` frame -- the turn's own frames already closed the reply.
+    """
+    verb, rest = verbs.split_verb(line)
+    if verb != "ask" or not rest.strip():
+        return
+
+    def choose(prompt: str, options: list[str], default: str | None) -> str | None:
+        emit({"choose": {"prompt": prompt, "options": options, "default": default}})
+        return read_line()
+
+    with lock:
+        candidates = core.memory.propose_capture(rest)
+        memoryflow.run_memory_capture(
+            candidates,
+            choose=choose,
+            notify=lambda text: emit({"chunk": text + "\n"}),
+            apply=core.memory.apply_capture,
+            grants=core.grants,
+            interactive=True,
+        )
 
 
 # ----- doctor install missing ------------------------------------------------

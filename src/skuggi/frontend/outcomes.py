@@ -158,6 +158,15 @@ class MemoryAdded:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryAddedOverCap:
+    """A preference was remembered, but the store is now over its capacity cap."""
+
+    row: PreferenceRow
+    count: int
+    maximum: int
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryAlreadyKnown:
     """The preference text was already remembered."""
 
@@ -191,6 +200,7 @@ class MemoryList:
 MemoryOutcome = (
     MemoryUsage
     | MemoryAdded
+    | MemoryAddedOverCap
     | MemoryAlreadyKnown
     | MemoryForgotten
     | MemoryMissing

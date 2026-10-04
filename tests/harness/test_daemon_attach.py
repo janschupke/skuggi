@@ -34,6 +34,42 @@ def test_attach_routes_multiple_lines_over_one_session(daemon: Daemon) -> None:
     assert emitted[-1] == {"end": True, "exit": True}  # `exit` closed the session
 
 
+def test_attach_gates_a_post_turn_memory_capture(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After an ask, the chat loop previews the proposed memory and writes on yes."""
+    monkeypatch.setattr(
+        daemon.core.memory, "propose_capture", lambda _t: ["Prefer ffuf over gobuster"]
+    )
+    # read_line feeds the ask, then "approve" for the capture's choose frame, then EOF.
+    lines = iter(["ask always prefer ffuf", "approve", None])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(lines, None), emitted.append)
+
+    assert any("choose" in f for f in emitted), "the operator was asked to approve"
+    text = "".join(str(f.get("chunk", "")) for f in emitted)
+    assert "suggests remembering" in text
+    assert "remembered" in text
+    assert [r.text for r in daemon.core.memory.entries()] == [
+        "Prefer ffuf over gobuster"
+    ]
+
+
+def test_attach_memory_capture_declined_writes_nothing(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        daemon.core.memory, "propose_capture", lambda _t: ["Prefer ffuf over gobuster"]
+    )
+    lines = iter(["ask always prefer ffuf", "deny", None])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(lines, None), emitted.append)
+
+    text = "".join(str(f.get("chunk", "")) for f in emitted)
+    assert "not remembered" in text
+    assert daemon.core.memory.entries() == []
+
+
 def test_attach_stops_when_client_disconnects(daemon: Daemon) -> None:
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: None, emitted.append)  # immediate EOF

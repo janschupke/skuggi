@@ -113,6 +113,43 @@ def join_blocks(*blocks: str) -> str:
     return "\n\n".join(block for block in blocks if block)
 
 
+def markdown_hardbreaks(text: str) -> str:
+    """Make single newlines render as line breaks in Markdown, preserving blocks.
+
+    ``rich.markdown.Markdown`` (CommonMark) treats a lone newline as a *soft* break
+    and reflows it into a space, so an answer whose lines are separated by single
+    newlines collapses into one run-on paragraph. This appends the Markdown
+    hard-break marker (two trailing spaces) to a prose line that is immediately
+    followed by another non-blank line -- but NEVER inside a fenced code block
+    (where whitespace is literal), NEVER to a blank line (a real paragraph break),
+    and never to a line that already ends in two spaces or a backslash. Blank-line
+    paragraph breaks, lists and fenced code therefore render unchanged.
+    """
+    lines = text.split("\n")
+    out: list[str] = []
+    in_fence = False
+    last = len(lines) - 1
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        nxt = lines[i + 1] if i < last else ""
+        if (
+            not in_fence
+            and i < last
+            and line.strip()
+            and nxt.strip()
+            and not line.endswith("  ")
+            and not line.endswith("\\")
+        ):
+            out.append(line + "  ")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def slug(text: str) -> str:
     """A filesystem-safe slug for an output filename; ``"engagement"`` when empty.
 
