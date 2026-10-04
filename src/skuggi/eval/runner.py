@@ -1,10 +1,11 @@
 """Runs the deterministic eval dimensions and aggregates per-dimension results.
 
-Pure Python, no Braintrust, no network: scores ``compliance`` / ``methodology`` /
+Pure Python, no framework, no network: scores ``compliance`` / ``methodology`` /
 ``schema`` / ``result_compat`` against skuggi's own oracles. This is what the
 default test suite and ``skuggi-eval --tier det`` run, and what the CI gate is
-built on. The quality tier (a real provider + the Braintrust ``Eval`` benchmark)
-lives in :mod:`skuggi.eval.quality`, imported only when that tier is requested.
+built on. The quality tier (a real provider, scored by the same in-house
+:class:`~skuggi.eval.scorers.Score` helpers) lives in :mod:`skuggi.eval.quality`,
+imported only when that tier is requested.
 
 The per-case ``score_*`` helpers are exposed so the pytest tier can parametrize
 one named test per golden case while sharing the exact scoring logic.
@@ -141,9 +142,52 @@ def score_result_compat_case(
 
 
 def aggregate(dimension: str, scores: Sequence[Score]) -> DimensionResult:
-    """Mean of the case scores as one dimension result."""
+    """Mean of the case scores as one dimension result.
+
+    Case ``Score`` metadata is otherwise dropped on aggregation; the latency
+    attribution (``by_node``/``calls``/``repairs``) is summed across cases into
+    the dimension's ``metadata`` so the scorecard can report where the time went.
+    Dimensions that carry no such metadata aggregate to an empty mapping.
+    """
     mean = sum(s.score for s in scores) / len(scores) if scores else 0.0
-    return DimensionResult(dimension=dimension, score=mean, n_cases=len(scores))
+    return DimensionResult(
+        dimension=dimension,
+        score=mean,
+        n_cases=len(scores),
+        metadata=_aggregate_latency_metadata(scores),
+    )
+
+
+def _num(value: object) -> float:
+    """Coerce an untyped ``Score.metadata`` value to a float (0.0 if not numeric)."""
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _aggregate_latency_metadata(scores: Sequence[Score]) -> dict[str, object]:
+    """Sum any per-node latency attribution across a dimension's case scores."""
+    by_node: dict[str, float] = {}
+    calls = 0.0
+    repairs = 0.0
+    seconds = 0.0
+    found = False
+    for score in scores:
+        split = score.metadata.get("by_node")
+        if not isinstance(split, dict):
+            continue
+        found = True
+        for node, secs in split.items():
+            by_node[str(node)] = by_node.get(str(node), 0.0) + _num(secs)
+        calls += _num(score.metadata.get("calls"))
+        repairs += _num(score.metadata.get("repairs"))
+        seconds += _num(score.metadata.get("seconds"))
+    if not found:
+        return {}
+    return {
+        "by_node": by_node,
+        "calls": int(calls),
+        "repairs": int(repairs),
+        "seconds": seconds,
+    }
 
 
 def evaluate_deterministic(

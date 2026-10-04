@@ -14,12 +14,12 @@ can compare them. Nothing is uploaded and no third-party judge service is called
 from __future__ import annotations
 
 import tempfile
-import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
 from skuggi.agent.core import AgentCore
+from skuggi.agent.turn_runner import TurnLatency
 from skuggi.common.paths import ensure_dir
 from skuggi.config.config import Settings
 from skuggi.engagement.engagement import EngagementConfig
@@ -69,7 +69,7 @@ def _answer(  # pragma: no cover
 
 def _cost_latency(  # pragma: no cover
     settings: Settings, scope: EngagementConfig, prompt: str
-) -> tuple[float, float]:
+) -> tuple[float, TurnLatency | None]:
     # Imported lazily: langchain_core.callbacks pulls the tracer context (and
     # langsmith), which warns under Python 3.14 -- keep the module top clean so
     # the default suite can import this file at collection without erroring.
@@ -78,11 +78,12 @@ def _cost_latency(  # pragma: no cover
     core = build_live_core(settings, scope, Path(tempfile.mkdtemp()))
     try:
         with get_usage_metadata_callback() as cb:
-            start = time.perf_counter()
             list(core.turn(prompt))
-            elapsed = time.perf_counter() - start
         usage = cast("Mapping[str, Mapping[str, int]]", cb.usage_metadata)
-        return cost_of_usage(settings, usage).usd, elapsed
+        # The turn runner already timed every model call and summarised the turn
+        # (total wall-clock + per-node split + call/repair counts); reuse that one
+        # measurement rather than wrapping a second, coarser stopwatch out here.
+        return cost_of_usage(settings, usage).usd, core.turn_runner.last_latency
     finally:
         core.close()
 
@@ -126,6 +127,26 @@ def _run_budget(  # pragma: no cover
     return aggregate("budget", scores)
 
 
+def _score_latency(  # pragma: no cover
+    latency: TurnLatency | None, ceiling_s: float
+) -> Score:
+    """Score one latency case, carrying the per-node attribution into metadata.
+
+    The score is the turn's total wall-clock against the ceiling; the ``by_node``
+    split, call count and repair count ride alongside so the scorecard can report
+    *which* model call dominated -- the diagnosis the latency tier exists for.
+    """
+    if latency is None:  # a turn that errored before timing closed (defensive)
+        return latency_threshold(0.0, ceiling_s)
+    return latency_threshold(
+        latency.total_s,
+        ceiling_s,
+        by_node=latency.by_node,
+        calls=latency.calls,
+        repairs=latency.repairs,
+    )
+
+
 def _run_latency(  # pragma: no cover
     settings: Settings, scopes: dict[str, EngagementConfig], root: Path, *, suite: str
 ) -> DimensionResult:
@@ -135,7 +156,7 @@ def _run_latency(  # pragma: no cover
         if isinstance(c, LatencyCase) and suite in c.suites
     ]
     scores = [
-        latency_threshold(
+        _score_latency(
             _cost_latency(settings, scopes[c.scope_ref], c.prompt)[1], c.max_latency_s
         )
         for c in cases

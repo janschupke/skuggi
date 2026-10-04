@@ -47,6 +47,45 @@ def test_latency_threshold_grades() -> None:
     assert latency_threshold(90.0, 45.0).score == pytest.approx(0.5)
 
 
+def test_latency_threshold_carries_per_node_attribution() -> None:
+    # The breakdown rides in metadata without changing the score (the ceiling does).
+    score = latency_threshold(
+        90.0, 45.0, by_node={"planner": 30.0, "worker": 60.0}, calls=3, repairs=1
+    )
+    assert score.score == pytest.approx(0.5)
+    assert score.metadata["by_node"] == {"planner": 30.0, "worker": 60.0}
+    assert score.metadata["calls"] == 3
+    assert score.metadata["repairs"] == 1
+
+
+def test_aggregate_sums_latency_attribution_across_cases() -> None:
+    from skuggi.eval.runner import aggregate  # noqa: PLC0415
+
+    scores = [
+        latency_threshold(
+            20.0, 45.0, by_node={"planner": 8.0, "worker": 12.0}, calls=3, repairs=0
+        ),
+        latency_threshold(
+            30.0, 45.0, by_node={"worker": 20.0, "critic": 10.0}, calls=4, repairs=1
+        ),
+    ]
+    result = aggregate("latency", scores)
+    assert result.metadata["by_node"] == {
+        "planner": 8.0,
+        "worker": 32.0,
+        "critic": 10.0,
+    }
+    assert result.metadata["calls"] == 7
+    assert result.metadata["repairs"] == 1
+
+
+def test_aggregate_without_latency_metadata_is_empty() -> None:
+    from skuggi.eval.runner import aggregate  # noqa: PLC0415
+
+    result = aggregate("compliance", [Score(name="x", score=1.0)])
+    assert result.metadata == {}
+
+
 def test_result_compat_empty_is_zero() -> None:
     assert result_compat(checks={}).score == 0.0
     assert result_compat(checks={"a": True, "b": False}).score == pytest.approx(0.5)
@@ -145,6 +184,27 @@ def test_render_scorecard_pass_and_fail() -> None:
     )
     assert "Gate: **FAIL**" in failing
     assert "❌ fail" in failing
+
+
+def test_render_scorecard_includes_latency_breakdown() -> None:
+    latency = DimensionResult(
+        dimension="latency",
+        score=0.5,
+        n_cases=2,
+        metadata={
+            "by_node": {"worker": 40.0, "planner": 10.0},
+            "calls": 6,
+            "repairs": 1,
+            "seconds": 50.0,
+        },
+    )
+    out = render_scorecard({"latency": latency}, {}, provider="chatgpt")
+    assert "## Latency breakdown" in out
+    assert "worker" in out
+    # The slowest node is listed first, and the round-trip/repair counts show.
+    assert out.index("worker") < out.index("planner")
+    assert "6 model call(s)" in out
+    assert "1 repair retry" in out
 
 
 # --- cli --------------------------------------------------------------------

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_BASELINE = Path("evals/baseline.json")
@@ -24,11 +24,18 @@ _EPS = 1e-9
 
 @dataclass(frozen=True, slots=True)
 class DimensionResult:
-    """One dimension's aggregate for a run: its mean case score over ``n_cases``."""
+    """One dimension's aggregate for a run: its mean case score over ``n_cases``.
+
+    ``metadata`` is optional per-dimension diagnostics that survive aggregation --
+    for the latency dimension it carries the summed per-node time split, call and
+    repair counts, so the scorecard can report where the time went. Empty for
+    dimensions that attach none.
+    """
 
     dimension: str
     score: float
     n_cases: int
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 class BaselineError(RuntimeError):

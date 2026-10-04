@@ -50,6 +50,9 @@ def render_scorecard(  # noqa: PLR0913 -- a scorecard composes several optional 
         )
 
     body = ["# skuggi eval scorecard", "", meta, "", *rows]
+    latency = results.get("latency")
+    if latency is not None and latency.metadata.get("by_node"):
+        body += ["", *_latency_breakdown(latency)]
     if per_model:
         body += ["", *_matrix_table(per_model)]
     if divergences:
@@ -60,6 +63,38 @@ def render_scorecard(  # noqa: PLR0913 -- a scorecard composes several optional 
     if breaches:
         tail += [""] + [f"- {b}" for b in breaches]
     return "\n".join([*body, *tail]) + "\n"
+
+
+def _latency_breakdown(latency: DimensionResult) -> list[str]:
+    """Where the latency tier's time went: per-node seconds, slowest first.
+
+    The whole reason to run the latency dimension is to attribute a slow turn, so
+    the scorecard spells out the split (summed over the tier's cases) rather than
+    leaving only an aggregate pass/fail. ``calls``/``repairs`` expose the sequential
+    round-trip count -- and the repair retries that silently double it.
+    """
+    by_node = latency.metadata.get("by_node")
+    if not isinstance(by_node, dict):
+        return []
+    calls = latency.metadata.get("calls", 0)
+    repairs = latency.metadata.get("repairs", 0)
+    seconds = latency.metadata.get("seconds", 0.0)
+    rows = [
+        "## Latency breakdown",
+        "",
+        (
+            f"_{_fmt(seconds)}s across the tier's cases · {calls} model call(s)"
+            f" · {repairs} repair retry(ies)._"
+        ),
+        "",
+        "| Node | Seconds |",
+        "|---|---|",
+    ]
+    for node, secs in sorted(
+        by_node.items(), key=lambda kv: float(kv[1]), reverse=True
+    ):
+        rows.append(f"| {node} | {float(secs):.3f} |")
+    return rows
 
 
 def _matrix_table(per_model: Mapping[str, Mapping[str, DimensionResult]]) -> list[str]:

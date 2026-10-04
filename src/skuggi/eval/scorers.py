@@ -9,6 +9,7 @@ whether it is graded offline against a pure oracle or online against a live mode
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from skuggi.agent.protocol import Phase
@@ -105,16 +106,31 @@ def budget_threshold(cost_usd: float, ceiling_usd: float) -> Score:
     )
 
 
-def latency_threshold(seconds: float, ceiling_s: float) -> Score:
-    """Score a turn's wall-clock against a ceiling: ``1.0`` under it, graded above."""
+def latency_threshold(
+    seconds: float,
+    ceiling_s: float,
+    *,
+    by_node: Mapping[str, float] | None = None,
+    calls: int = 0,
+    repairs: int = 0,
+) -> Score:
+    """Score a turn's wall-clock against a ceiling: ``1.0`` under it, graded above.
+
+    ``by_node``/``calls``/``repairs`` are the latency *attribution* -- which model
+    calls spent the time, how many round-trips, and how many were JSON-repair
+    retries. They do not affect the score (the ceiling does); they ride in the
+    metadata so the scorecard can say *where* a slow turn's seconds went, which is
+    the whole point of running the latency dimension as a diagnosis.
+    """
     if ceiling_s <= 0.0:
         score = 1.0 if seconds <= 0.0 else 0.0
     elif seconds <= ceiling_s:
         score = 1.0
     else:
         score = _clamp(ceiling_s / seconds)
-    return Score(
-        name="latency_threshold",
-        score=score,
-        metadata={"seconds": seconds, "ceiling_s": ceiling_s},
-    )
+    metadata: dict[str, object] = {"seconds": seconds, "ceiling_s": ceiling_s}
+    if by_node is not None:
+        metadata["by_node"] = dict(by_node)
+        metadata["calls"] = calls
+        metadata["repairs"] = repairs
+    return Score(name="latency_threshold", score=score, metadata=metadata)
