@@ -133,6 +133,7 @@ class Tui:
             "cmd": self._cmd_cmd,
             "osint": self._cmd_osint,
             "research": self._cmd_research,
+            "forensics": self._cmd_forensics,
             "engagement": self._cmd_engagement,
             "login": self._flows.login,
             "doctor": self._cmd_doctor,
@@ -309,6 +310,9 @@ class Tui:
         if verb == "ask":
             self.turn(rest)
             return None
+        if verb in verbs.KNOWN and not verbs.is_available(verb, self.core.mode):
+            self._emit(presenters.present_unavailable(verb, self.core.mode))
+            return None
         if verb in verbs.KNOWN and not verbs.is_engagement(verb):
             self.core.note_interaction(verb, rest)  # control verb -> audit log
         handler = self._commands.get(verb)
@@ -329,7 +333,7 @@ class Tui:
                 table.add_row(f"[cyan]{verbs.cmd(invocation, 'repl')}[/cyan]", summary)
             self.console.print(table)
             return
-        for title, section_rows in verbs.help_sections():
+        for title, section_rows in verbs.help_sections(self.core.mode):
             self.console.print(f"[bold]{title}[/bold]")
             table = Table(show_header=False, box=None, pad_edge=False)
             for invocation, summary in section_rows:
@@ -614,6 +618,24 @@ class Tui:
             view = DraftView(live)
             try:
                 for ev in self.core.research_turn(request):
+                    if ev.kind == "status":
+                        self._status(ev.node, ev.text)
+                    elif ev.kind == "final":
+                        view.show(ev.text)
+            except KeyboardInterrupt:
+                view.reset()
+                self.console.print("[dim]cancelled -- type exit to leave[/dim]")
+
+    def _cmd_forensics(self, arg: str) -> None:
+        """Run the read-only forensics loop, streaming node status + the summary."""
+        with Live(
+            Spinner("dots", "examining evidence..."),
+            console=self.console,
+            refresh_per_second=20,
+        ) as live:
+            view = DraftView(live)
+            try:
+                for ev in self.core.forensics_turn(arg.strip()):
                     if ev.kind == "status":
                         self._status(ev.node, ev.text)
                     elif ev.kind == "final":

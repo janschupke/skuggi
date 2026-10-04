@@ -14,8 +14,10 @@ SQLite ledger.
 
 ### Source layout (`src/skuggi/`)
 
-- `agent/` — `core` (the hub), `graph`, `state`, `protocol`, `prompts`, `modes`,
-  `requests` (the shared request/`ask` seam), `executor`
+- `agent/` — `core` (the hub), `graph`, `state`, `protocol`, `prompts`, `modes`
+  (pentest/redteam/blueteam/**forensics**), `requests` (the shared request/`ask`
+  seam), `executor`, `vision` (the gated multimodal seam), `engagement_manager` +
+  `case_manager` (the two context planes)
 - `intel/` — shared core for both intelligence loops: `schema`, `http`,
   `scheduler` (DAG), `store`, `collectors/` (the `Collector` protocol + shared
   web-search/GitHub handlers)
@@ -25,10 +27,18 @@ SQLite ledger.
 - `research/` — the agentic public-source research loop (its own graph, built on
   `intel/`): `deps`, `state`, `prompts`, `scope`, `nodes`, `graph`, `runner`,
   `schema`, `report`, `collectors/` (CVE/Exploit-DB/versions + local tools)
+- `forensics/` — the strictly read-only, engagement-free forensics loop (its own
+  linear `collect→examine→respond` graph): `deps`, `state`, `prompts`, `scope`
+  (the read-only tool allow-list + evidence confinement), `collect`, `nodes`,
+  `graph`, `runner`, `report`, `schema`, and `analyzers/` (pure-Python
+  hash/strings/hex/entropy/magic/encoding/logparse/keyed-decrypt/OCR). Bound to a
+  *case* (not an engagement), recording to a separate case ledger. See the
+  `forensics` mode + the `case` verb.
 - `frontend/` — `tui`, `daemon`, `shell`, `client` + dispatch (`verbs`,
-  `commands`, `configflow`, `cmdflow`, `setup`, `wizard`, `menu`)
+  `commands`, `configflow`, `cmdflow`, `setup`, `wizard`, `menu`, `help`)
 - `config/` — `config` (typed `Settings`), `configs` (JSON loaders)
-- `engagement/` — `engagement` (scope boundary), `workspace`, `osint_guard`
+- `engagement/` — `engagement` (scope boundary), `workspace`, `osint_guard`,
+  `case` (the forensics case: metadata + probe + scaffold, no scope)
 - `persistence/` — `ledger`, `memory` (checkpointer), `preferences`,
   `vectorstore`, `transcript`, `reports`, `pdf`
 - `providers/` — `providers` (factory), `codex_chat`, `codex_login`
@@ -40,7 +50,7 @@ SQLite ledger.
 
 ## Rules
 
-- [Architecture](.ai/rules/architecture.md) — the 8-package layout, the DAG
+- [Architecture](.ai/rules/architecture.md) — the package layout, the DAG
   import graph, which imports must stay lazy, one-source-of-truth per concern
 - [Gates](.ai/rules/gates.md) — `make check` is the whole gate (ruff format
   --check · ruff · mypy strict · pytest 90% branch), same order as CI

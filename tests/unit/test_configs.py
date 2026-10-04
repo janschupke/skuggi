@@ -99,6 +99,13 @@ def test_example_registry_includes_the_new_tools() -> None:
     assert hydra is not None
     assert john.requires_target is False
     assert hydra.requires_target is True
+    # Read-only forensic utilities: recon tier, no target, positional-file confined.
+    for binary in ("file", "exiftool", "binwalk"):
+        spec = registry.spec_for(binary)
+        assert spec is not None
+        assert spec.method == "forensics"
+        assert spec.requires_target is False
+        assert spec.positional_file is True
 
 
 # --- command aliases --------------------------------------------------------

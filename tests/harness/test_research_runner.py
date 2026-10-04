@@ -145,11 +145,11 @@ def test_daemon_research_streams_status_and_summary(tmp_path: Path) -> None:
             {"respond": {"messages": [AIMessage(content="the profile")]}},
         ]
     )
-    out = "".join(Daemon(core)._research("wordpress"))
+    out = "".join(Daemon(core)._loop("research", "wordpress"))
     assert "(planner)" in out
     assert "the profile" in out
 
 
 def test_daemon_research_usage_without_a_request(tmp_path: Path) -> None:
     core = _engaged(tmp_path)
-    assert "usage" in "".join(Daemon(core)._research(""))
+    assert "usage" in "".join(Daemon(core)._loop("research", ""))

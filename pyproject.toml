@@ -70,6 +70,16 @@ documents = [
     "python-docx>=1.1",
     "openpyxl>=3.1",
 ]
+# The forensics mode's optional capabilities: local OCR (Pillow + pytesseract, which
+# needs a system `tesseract` binary -- surfaced by the doctor) and operator-key
+# decryption (`cryptography`). All imported lazily, so the core import graph never
+# pulls them; the analyzers/collectors degrade to a note when one is absent. See
+# skuggi.forensics.ocr / skuggi.forensics.analyzers.keyed_decrypt.
+forensics = [
+    "pillow>=10",
+    "pytesseract>=0.3.10",
+    "cryptography>=43",
+]
 # Browser-driven OSINT collectors (LinkedIn/ATS/social). Heavy -- Playwright
 # downloads a Chromium -- so it is opt-in; the collectors gate on availability and
 # the HTTP-only loop runs without it. After install: `playwright install chromium`.
@@ -362,4 +372,10 @@ ignore_missing_imports = true
 # available()-guarded paths, so a strict run without the extra still type-checks.
 [[tool.mypy.overrides]]
 module = ["playwright.*", "apify_client.*"]
+ignore_missing_imports = true
+
+# The forensics OCR extra: pytesseract ships no type stubs. Imported lazily inside
+# the forensics.analyzers.ocr guard, so a strict run without the extra type-checks.
+[[tool.mypy.overrides]]
+module = ["pytesseract.*"]
 ignore_missing_imports = true

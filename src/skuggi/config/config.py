@@ -399,6 +399,12 @@ class Settings(BaseSettings):
     )
     research_max_tasks: int = 10
     research_max_replans: int = 2
+    # The forensics loop: how many evidence files one run examines, and whether to
+    # call AI vision on images (OCR always runs; vision needs a vision-capable
+    # provider and is gated + marked speculative, so it is on by default but a
+    # no-op on claude-cli/ollama).
+    forensics_max_files: int = 100
+    forensics_vision: bool = True
     ollama_base_url: str = Field(
         OLLAMA_BASE_URL_DEFAULT, validation_alias="OLLAMA_BASE_URL"
     )

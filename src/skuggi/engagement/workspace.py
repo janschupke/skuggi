@@ -99,8 +99,19 @@ class WorkspaceLayout(BaseModel):
     inputs: str = "inputs"
     # Files pulled from a target (downloads, exfil, dropped documents). Parsed
     # read-only, never executed; parsed text is redacted before it reaches the
-    # model (see skuggi.persistence.documents).
+    # model (see skuggi.persistence.documents). In a forensics *case* this is also
+    # the input directory: the evidence under examination lives here.
     evidence: str = "evidence"
+    # The forensics loop's output: a Markdown case report plus one JSON artifact per
+    # evidence item under ``forensics/``. Written only in forensics mode, inside a
+    # *case* directory (see skuggi.engagement.case); a run with no case falls back to
+    # ``./forensics`` in the cwd. Part of the case tree, not the engagement tree.
+    forensics: str = "forensics"
+    # A forensics case's metadata (``case.json``) and its own SEPARATE ledger
+    # (``case.db``) -- kept out of any offensive engagement's ledger. Both live at
+    # the case root; a case has no ``scope.json`` and no offensive dirs.
+    case_file: str = "case.json"
+    case_ledger_file: str = "case.db"
 
     def dirs(self) -> tuple[str, ...]:
         """Every directory (relative to the workspace root) ``ensure`` creates."""
@@ -228,8 +239,23 @@ class Workspace:
 
     @property
     def evidence_dir(self) -> Path:
-        """Files pulled from a target (downloads, dropped documents)."""
+        """Files pulled from a target, or the evidence under examination in a case."""
         return self.root / self.layout.evidence
+
+    @property
+    def forensics_dir(self) -> Path:
+        """Where the forensics loop writes its case report + JSON artifacts."""
+        return self.root / self.layout.forensics
+
+    @property
+    def case_path(self) -> Path:
+        """A forensics case's metadata file (``case.json``)."""
+        return self.root / self.layout.case_file
+
+    @property
+    def case_ledger_path(self) -> Path:
+        """The case's SEPARATE ledger (``case.db``), never an engagement's ledger."""
+        return self.root / self.layout.case_ledger_file
 
     def _reserved_files(self) -> set[Path]:
         """Control files a tool must never be pointed at (scope, env, ledger, vault)."""
@@ -266,6 +292,25 @@ class Workspace:
             raise ValueError(msg)
         return candidate
 
+    def confine_evidence(self, relpath: str, *, cwd: Path) -> Path:
+        """Resolve a forensic tool's positional path and confine it to ``evidence/``.
+
+        A read-only forensic tool (``strings``/``file``/``exiftool``) takes the
+        artifact as a bare positional argument, which the tool resolves relative to
+        its working directory (`cwd`). This resolves it the same way and requires
+        the result to stay inside the case ``evidence/`` dir -- so the tool can only
+        ever READ evidence, never ``/etc/shadow``, the case ``case.db``, or a
+        sibling outside the case reached by a symlink or ``..``. Raises
+        ``ValueError`` on any escape. The forensics analogue of
+        ``confine_datafile``, but pinned to the one input directory.
+        """
+        base = self.evidence_dir.resolve()
+        candidate = (cwd / relpath).resolve()
+        if candidate != base and not candidate.is_relative_to(base):
+            msg = f"evidence path escapes the case evidence dir: {relpath!r}"
+            raise ValueError(msg)
+        return candidate
+
     def resolve_within(self, subdir: Path, relpath: str) -> Path:
         """Resolve `relpath` under `subdir`, refusing any escape from `subdir`.
 
@@ -292,4 +337,19 @@ class Workspace:
         """Create the workspace tree if it does not already exist (idempotent)."""
         ensure_dir(self.root)
         for rel in self.layout.dirs():
+            ensure_dir(self.root / rel)
+
+    def case_dirs(self) -> tuple[str, ...]:
+        """The directories a forensics *case* uses (no offensive recon/loot tree)."""
+        return (self.layout.evidence, self.layout.forensics, self.layout.reports)
+
+    def ensure_case(self) -> None:
+        """Create the forensics case tree (evidence/forensics/reports), idempotent.
+
+        A case is engagement-free: it deliberately does NOT create the offensive
+        recon/scripts/loot directories ``ensure`` makes, only the read-only
+        evidence input dir plus the forensics output and reports dirs.
+        """
+        ensure_dir(self.root)
+        for rel in self.case_dirs():
             ensure_dir(self.root / rel)

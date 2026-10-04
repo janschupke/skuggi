@@ -32,6 +32,9 @@ _METHOD_TIER: dict[str, RiskTier] = {
     "bruteforce": RiskTier.intrusive,
     "crack": RiskTier.intrusive,
     "exploit": RiskTier.destructive,
+    # Read-only forensic examination (strings/file/exiftool over local evidence):
+    # the lowest tier, like recon, because nothing touches a live target.
+    "forensics": RiskTier.recon,
 }
 
 # argv flag-heads (``--flag=value`` compares on the head) that RAISE the tier.

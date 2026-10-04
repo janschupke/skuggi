@@ -108,6 +108,12 @@ class ToolSpec(BaseModel):
     # (inputs/evidence/loot), so a wordlist reaches the tool by path while its
     # contents never enter the model's context. See ``engagement.check_command``.
     input_file_flags: tuple[str, ...] = ()
+    # A read-only forensic tool that takes the artifact under examination as a bare
+    # *positional* argument (``strings sample.bin``, ``file sample.bin``). The guard
+    # confines every positional path that resolves to an existing file to the case
+    # evidence dir -- so the tool can only ever READ evidence, never ``/etc/shadow``
+    # or a sibling outside the case. See ``engagement.check_command``.
+    positional_file: bool = False
     requires_target: bool = True
     install: dict[str, str] = Field(default_factory=dict)
     # Optional explicit risk tier. Unset -> derived from ``method`` by

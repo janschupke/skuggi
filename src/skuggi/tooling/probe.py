@@ -481,6 +481,15 @@ _RUNTIMES: tuple[RuntimeSpec, ...] = (
         r"([0-9][0-9.]*)",
         {"brew": "brew install --cask dotnet-sdk", "apt": "apt install dotnet-sdk-8.0"},
     ),
+    # The OCR engine behind the forensics image analyzer (the `forensics` extra's
+    # pytesseract shells out to it); reported so a missing binary is visible.
+    RuntimeSpec(
+        "tesseract",
+        "tesseract",
+        ("--version",),
+        r"tesseract (?:v)?([0-9][0-9.]*)",
+        {"brew": "brew install tesseract", "apt": "apt-get install -y tesseract-ocr"},
+    ),
 )
 
 

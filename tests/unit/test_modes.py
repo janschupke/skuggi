@@ -12,8 +12,24 @@ import pytest
 from skuggi.agent.modes import MODES, prompt_set
 
 
-def test_modes_are_exactly_the_three() -> None:
-    assert set(MODES) == {"pentest", "redteam", "blueteam"}
+def test_modes_are_the_four_known() -> None:
+    assert set(MODES) == {"pentest", "redteam", "blueteam", "forensics"}
+
+
+def test_forensics_worker_is_read_only_and_severity_based() -> None:
+    """Forensics replaces the offensive CVSS contract with a read-only, severity one."""
+    ps = prompt_set("forensics")
+    assert "READ-ONLY" in ps.worker
+    assert "severity" in ps.worker
+    assert "no CVSS vector is required" in ps.worker
+
+
+@pytest.mark.parametrize("role", ["planner", "worker", "critic"])
+def test_forensics_prompts_carry_the_evidentiary_discipline(role: str) -> None:
+    """Every forensics role must demand grounded, speculation-marked output."""
+    prompt = getattr(prompt_set("forensics"), role)
+    assert "READ-ONLY" in prompt or "read-only" in prompt
+    assert "SPECULATIVE" in prompt
 
 
 @pytest.mark.parametrize("mode", MODES)

@@ -15,10 +15,14 @@ SQLite ledger.
 ### Source layout (`src/skuggi/`)
 
 - `agent/` — `core` (the hub), `graph`, `state`, `protocol`, `prompts`, `modes`
+  (pentest/redteam/blueteam/forensics), `vision`, `engagement_manager` +
+  `case_manager`
+- `forensics/` — the read-only, engagement-free forensics loop (own graph +
+  `analyzers/`, a built-in read-only tool allow-list, a separate case ledger)
 - `frontend/` — `tui`, `daemon`, `shell`, `client` + dispatch (`verbs`,
-  `commands`, `configflow`, `cmdflow`, `setup`, `wizard`, `menu`)
+  `commands`, `configflow`, `cmdflow`, `setup`, `wizard`, `menu`, `help`)
 - `config/` — `config` (typed `Settings`), `configs` (JSON loaders)
-- `engagement/` — `engagement` (scope boundary), `workspace`
+- `engagement/` — `engagement` (scope boundary), `workspace`, `case`
 - `persistence/` — `ledger`, `memory` (checkpointer), `preferences`,
   `vectorstore`, `transcript`, `reports`, `pdf`
 - `providers/` — `providers` (factory), `codex_chat`, `codex_login`
@@ -30,7 +34,7 @@ SQLite ledger.
 
 ## Rules
 
-- [Architecture](.ai/rules/architecture.md) — the 8-package layout, the DAG
+- [Architecture](.ai/rules/architecture.md) — the package layout, the DAG
   import graph, which imports must stay lazy, one-source-of-truth per concern
 - [Gates](.ai/rules/gates.md) — `make check` is the whole gate (ruff format
   --check · ruff · mypy strict · pytest 90% branch), same order as CI

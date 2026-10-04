@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Iterator
+from functools import partial
 from typing import cast
 
 from skuggi.agent.core import AgentCore
@@ -41,6 +42,9 @@ from skuggi.frontend import (
     render,
     verbs,
     wizard,
+)
+from skuggi.frontend import (
+    help as help_mod,
 )
 from skuggi.install import reconcile
 from skuggi.tooling.commands import CommandAlias
@@ -61,10 +65,12 @@ from skuggi.tooling.doctor import (
 # Column width for the cheatsheet alias name, so the rendered commands line up.
 _NAME_COL = 16
 
-_HELP_INTRO: dict[verbs.Surface, str] = {
-    "shell": "skuggi shell commands (/skuggi <verb> <rest>):",
-    "chat": "skuggi commands (type a verb):",
-    "repl": "skuggi commands (/<verb> <rest>):",
+# The agentic-loop verbs the daemon streams identically: verb -> (core turn method,
+# usage hint shown on an empty argument -- forensics defaults in the runner).
+_LOOP_TURNS: dict[str, tuple[str, str]] = {
+    "osint": ("osint_turn", "usage: osint <request>\n"),
+    "research": ("research_turn", "usage: research <subject or instruction>\n"),
+    "forensics": ("forensics_turn", ""),
 }
 
 log = get_logger(__name__)
@@ -243,10 +249,14 @@ class Daemon:
         if not verb:
             yield {"end": True, "exit": False}
             return
-        if verb in verbs.KNOWN and not verbs.is_engagement(verb):
+        available = verb not in verbs.KNOWN or verbs.is_available(verb, self.core.mode)
+        if available and verb in verbs.KNOWN and not verbs.is_engagement(verb):
             self.core.note_interaction(verb, rest)  # control verb -> audit log
         if verb == "help":
             yield {"chunk": self._help_text(rest)}
+        elif not available:
+            lines = presenters.present_unavailable(verb, self.core.mode)
+            yield {"chunk": "".join(self._emit(lines))}
         elif verb == "ask":
             yield from self._agent(rest)
         elif verb in verbs.KNOWN:
@@ -297,25 +307,21 @@ class Daemon:
                 final = ev.text
         yield (final or "(no answer)") + "\n"
 
-    def _osint(self, text: str) -> Iterator[str]:
-        """Stream an autonomous OSINT run (a status per node, then the summary)."""
-        if not text:
-            yield "usage: osint <request>\n"
+    def _loop(self, verb: str, text: str) -> Iterator[str]:
+        """Stream one agentic loop (osint/research/forensics): node status + summary."""
+        turn_name, usage = _LOOP_TURNS[verb]
+        if usage and not text:
+            yield usage
             return
-        yield from self._stream_turn(self.core.osint_turn(text))
-
-    def _research(self, text: str) -> Iterator[str]:
-        """Stream a public-source research run (a status per node, then the summary)."""
-        if not text:
-            yield "usage: research <subject or instruction>\n"
-            return
-        yield from self._stream_turn(self.core.research_turn(text))
+        turn = getattr(self.core, turn_name)
+        yield from self._stream_turn(turn(text))
 
     def _control(self, verb: str, arg: str) -> Iterator[str]:
-        handler = {
+        handlers: dict[str, Callable[[str], Iterator[str]]] = {
             "cmd": self._cheat,
-            "osint": self._osint,
-            "research": self._research,
+            "osint": partial(self._loop, "osint"),
+            "research": partial(self._loop, "research"),
+            "forensics": partial(self._loop, "forensics"),
             "add": self._add,
             "show": self._show,
             "set": self._set,
@@ -332,7 +338,8 @@ class Daemon:
             "update": self._update,
             "reconcile": self._reconcile,
             "clear": self._clear,
-        }.get(verb)
+        }
+        handler = handlers.get(verb)
         if handler is None:  # pragma: no cover -- KNOWN guards this in _dispatch
             yield f"unknown verb: {verb!r}\n"
             return
@@ -663,34 +670,5 @@ class Daemon:
         yield from self._emit(presenters.present_findings_usage(self._surface()))
 
     def _help_text(self, arg: str = "") -> str:
-        """Render help for this connection's surface (bare verbs in the chat loop).
-
-        Every invocation is formatted with ``verbs.cmd`` so the grammar matches
-        where the operator is reading it -- ``/skuggi <verb>`` at the wrapped-shell
-        prompt, a bare ``<verb>`` inside the chat loop -- just as every other
-        daemon hint does. The rendered command (whose width varies with the
-        surface prefix) is what gets column-padded.
-        """
-        surface = self._surface()
-        verb = arg.strip().split(" ", 1)[0]
-        if verb:
-            rows = verbs.help_for(verb)
-            if rows is None:
-                return f"no such command: {verb}\n"
-            lines = [
-                f"{verbs.cmd(verb, surface)}:",
-                *(
-                    f"  {verbs.cmd(inv, surface):<40} {summary}"
-                    for inv, summary in rows
-                ),
-            ]
-            return "\n".join(lines) + "\n"
-        lines = [_HELP_INTRO[surface]]
-        for title, section_rows in verbs.help_sections():
-            lines.append(f"  {title}:")
-            lines += [
-                f"    {verbs.cmd(inv, surface):<38} {summary}"
-                for inv, summary in section_rows
-                if not inv.startswith("clear")
-            ]
-        return "\n".join(lines) + "\n"
+        """Render help for this surface (delegated to ``frontend.help``)."""
+        return help_mod.plain_help(self._surface(), self.core.mode, arg)

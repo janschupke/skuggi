@@ -241,6 +241,26 @@ def present_mode(mode: str) -> Styled:
     return [render.info(f"mode: {mode}")]
 
 
+def present_unavailable(verb: str, mode: str) -> Styled:
+    """Render a verb refused because it is not available in the current mode."""
+    return [render.warning(f"{verb!r} is not available in {mode} mode")]
+
+
+def present_case(summary: str | None) -> Styled:
+    """Render ``show case``: the adopted forensics case, or an empty state."""
+    if summary is None:
+        return [render.info("no forensics case loaded -- run `set case [<path>]`")]
+    return [render.plain(summary)]
+
+
+def present_case_adopted(name: str, root: str) -> Styled:
+    """Render a ``set case`` adoption: the case name and its root directory."""
+    return [
+        render.success(f"case adopted: {name}"),
+        render.info(root),
+    ]
+
+
 def present_grants(active: tuple[str, ...]) -> Styled:
     """Render ``show grants``: the capabilities approved for this session."""
     if not active:

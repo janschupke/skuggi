@@ -444,6 +444,45 @@
       "install": {
         "pip": "pip install penelope-shell-handler"
       }
+    },
+    {
+      "name": "file",
+      "binary": "file",
+      "method": "forensics",
+      "risk": "recon",
+      "requires_target": false,
+      "positional_file": true,
+      "version_args": ["--version"],
+      "install": {
+        "brew": "brew install file-formula",
+        "apt": "apt-get install -y file"
+      }
+    },
+    {
+      "name": "exiftool",
+      "binary": "exiftool",
+      "method": "forensics",
+      "risk": "recon",
+      "requires_target": false,
+      "positional_file": true,
+      "version_args": ["-ver"],
+      "install": {
+        "brew": "brew install exiftool",
+        "apt": "apt-get install -y libimage-exiftool-perl"
+      }
+    },
+    {
+      "name": "binwalk",
+      "binary": "binwalk",
+      "method": "forensics",
+      "risk": "recon",
+      "requires_target": false,
+      "positional_file": true,
+      "version_args": ["--help"],
+      "install": {
+        "brew": "brew install binwalk",
+        "apt": "apt-get install -y binwalk"
+      }
     }
   ]
 }

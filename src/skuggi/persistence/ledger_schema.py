@@ -149,6 +149,33 @@ CREATE TABLE IF NOT EXISTS audit (
     detail      TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL
 );
+-- Forensics chain-of-custody. Only the forensics mode writes these (the `mode`
+-- column on `sessions` is the discriminator); an offensive engagement ledger just
+-- carries them empty. `evidence` is the acquisition record -- one row per evidence
+-- artifact, pinned by its sha256; `procedure` is the ordered operation log -- one
+-- row per examination step, citing the evidence it touched.
+CREATE TABLE IF NOT EXISTS evidence (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
+    source_path TEXT NOT NULL,       -- path, relative to the case evidence dir
+    sha256      TEXT NOT NULL,       -- content hash at acquisition (integrity pin)
+    size        INTEGER NOT NULL,
+    media_type  TEXT NOT NULL DEFAULT '',
+    acquired_at TEXT NOT NULL,
+    note        TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS procedure (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id    TEXT NOT NULL REFERENCES sessions(session_id),
+    step          INTEGER NOT NULL,  -- 1-based order within the session
+    operation     TEXT NOT NULL,     -- e.g. 'hash', 'strings', 'exiftool'
+    actor         TEXT NOT NULL,     -- 'in-process' | 'tool'
+    argv          TEXT NOT NULL DEFAULT '',  -- the exact argv for a tool op, else ''
+    input_sha256  TEXT NOT NULL DEFAULT '',  -- -> evidence.sha256 it operated on
+    output_digest TEXT NOT NULL DEFAULT '',  -- sha256 of the captured output
+    created_at    TEXT NOT NULL,
+    note          TEXT NOT NULL DEFAULT ''
+);
 """
 
 # Columns added to `commands` after the initial release; each is applied to an
@@ -311,6 +338,36 @@ class AuditRow:
 
 
 @dataclass(frozen=True, slots=True)
+class EvidenceRow:
+    """One acquired evidence artifact, pinned by its content hash (forensics)."""
+
+    id: int
+    session_id: str
+    source_path: str
+    sha256: str
+    size: int
+    media_type: str
+    acquired_at: str
+    note: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProcedureRow:
+    """One examination step in the chain-of-custody procedure log (forensics)."""
+
+    id: int
+    session_id: str
+    step: int
+    operation: str
+    actor: str
+    argv: str
+    input_sha256: str
+    output_digest: str
+    created_at: str
+    note: str
+
+
+@dataclass(frozen=True, slots=True)
 class ThreadSummary:
     """A conversation thread, summarised for ``show threads`` (so it is actionable).
 
@@ -336,3 +393,5 @@ _FINDING_REF_COLS = tuple(f.name for f in fields(FindingRefRow))
 _TM_VERSION_COLS = tuple(f.name for f in fields(ThreatModelVersionRow))
 _EVENT_COLS = tuple(f.name for f in fields(EventRow))
 _AUDIT_COLS = tuple(f.name for f in fields(AuditRow))
+_EVIDENCE_COLS = tuple(f.name for f in fields(EvidenceRow))
+_PROCEDURE_COLS = tuple(f.name for f in fields(ProcedureRow))

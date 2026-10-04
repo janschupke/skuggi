@@ -38,9 +38,23 @@ reference: [docs/architecture.md](../../docs/architecture.md).
   *independent* and report-only (no ledger findings): it writes a structured
   briefing to the engagement's `research/` dir, or `./research` when none is
   loaded. Driven by `AgentCore.research_turn`.
+- **`forensics/`** — the read-only, engagement-free forensics loop: a linear
+  `collect→examine→respond` graph (collection is deterministic, so no planner). Its
+  `analyzers/` are pure-Python, subprocess-free evidence transforms (hashes,
+  strings, hexdump, entropy, magic, encoding, logparse, keyed-decrypt, OCR); `scope`
+  is the built-in read-only tool allow-list + evidence-dir confinement (there is NO
+  operator-editable scope). It is bound to a **case** (`engagement/case.py` +
+  `agent/case_manager.py`), not an engagement, and records the chain of custody
+  (evidence + procedure) and severity-only findings to the case's OWN ledger
+  (`case.db`), then writes a cited Markdown/PDF report. The examiner's findings are
+  grounded deterministically — an unresolved `evidence_ref` is forced speculative.
+  Driven by `AgentCore.forensics_turn`; the `forensics` verb is available only in
+  `forensics` mode. AI vision is the gated `agent/vision.py` seam (multimodal
+  providers only), always marked speculative.
 - **`config/`** `config.py` (typed `Settings`, no import-time singleton) +
   `configs.py` (JSON loaders). **`engagement/`** the scope boundary + workspace,
-  plus `osint_guard.py` (the OSINT subject/source guard).
+  plus `osint_guard.py` (the OSINT subject/source guard) and `case.py` (the
+  forensics case metadata/probe/scaffold).
 - **`persistence/`** ledger, checkpointer (`memory.py`), preferences, FAISS
   (`vectorstore.py`), transcript, reports/pdf. **`providers/`** the LLM factory
   and codex OAuth. **`tooling/`** registry, host probe, doctor.

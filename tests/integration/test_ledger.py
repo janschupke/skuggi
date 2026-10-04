@@ -303,3 +303,78 @@ def test_findings_are_born_draft_with_author_and_review_transitions(
         assert rejected.status == "rejected"
         assert rejected.review_reason == "duplicate of F-1"
         assert rejected.reviewed_at is not None
+
+
+def test_evidence_and_procedure_round_trip(tmp_path: Path) -> None:
+    """Forensics evidence + procedure rows persist and read back in order."""
+    with open_ledger(tmp_path / "case.db") as led:
+        led.start_session("c1", engagement_name="case:demo", mode="forensics")
+        eid = led.record_evidence(
+            session_id="c1",
+            source_path="evidence/a.bin",
+            sha256="abc123",
+            size=42,
+            media_type="application/octet-stream",
+            note="handed over",
+        )
+        led.record_procedure(
+            session_id="c1",
+            step=2,
+            operation="strings",
+            actor="tool",
+            argv="strings evidence/a.bin",
+            input_sha256="abc123",
+            output_digest="out1",
+        )
+        led.record_procedure(
+            session_id="c1",
+            step=1,
+            operation="hash",
+            actor="in-process",
+            input_sha256="abc123",
+        )
+    with open_ledger(tmp_path / "case.db") as led:
+        ev = led.evidence_for("c1")
+        assert [(e.id, e.source_path, e.sha256, e.size) for e in ev] == [
+            (eid, "evidence/a.bin", "abc123", 42)
+        ]
+        # ordered by step, so the in-process hash (step 1) precedes the tool op
+        procs = led.procedure_for("c1")
+        assert [(p.step, p.operation, p.actor) for p in procs] == [
+            (1, "hash", "in-process"),
+            (2, "strings", "tool"),
+        ]
+
+
+def test_forensics_ledger_does_not_see_engagement_rows(tmp_path: Path) -> None:
+    """A separate case ledger file never commingles with an engagement ledger."""
+    with open_ledger(tmp_path / "ledger.db") as eng:
+        eng.start_session("s1", engagement_name="e", mode="pentest")
+        eng.record_finding(session_id="s1", title="t", severity="high", description="d")
+    with open_ledger(tmp_path / "case.db") as case:
+        case.start_session("c1", engagement_name="case:demo", mode="forensics")
+        case.record_evidence(
+            session_id="c1", source_path="evidence/a", sha256="z", size=1
+        )
+        assert case.findings_for("c1") == []
+        assert len(case.evidence_for("c1")) == 1
+    with open_ledger(tmp_path / "ledger.db") as eng:
+        assert eng.evidence_for("s1") == []
+        assert len(eng.findings_for("s1")) == 1
+
+
+def test_severity_only_finding_needs_no_cvss(tmp_path: Path) -> None:
+    """A forensic finding carries a plain severity and no CVSS vector."""
+    with open_ledger(tmp_path / "case.db") as led:
+        led.start_session("c1", engagement_name="case:demo", mode="forensics")
+        fid = led.record_finding(
+            session_id="c1",
+            title="suspicious string at 0x20",
+            severity="medium",
+            description="embedded /bin/sh",
+            evidence="offset 0x20",
+        )
+        row = led.finding(fid)
+        assert row is not None
+        assert row.severity == "medium"
+        assert row.cvss_vector is None

@@ -113,18 +113,18 @@ def test_daemon_osint_streams_status_and_summary(tmp_path: Path) -> None:
             {"respond": {"messages": [AIMessage(content="the footprint")]}},
         ]
     )
-    out = "".join(Daemon(core)._osint("map acme.com"))
+    out = "".join(Daemon(core)._loop("osint", "map acme.com"))
     assert "(planner)" in out
     assert "the footprint" in out
 
 
 def test_daemon_osint_usage_without_a_request(tmp_path: Path) -> None:
     core = _core(tmp_path, with_osint=True)
-    assert "usage" in "".join(Daemon(core)._osint(""))
+    assert "usage" in "".join(Daemon(core)._loop("osint", ""))
 
 
 def test_daemon_osint_surfaces_the_no_scope_error(tmp_path: Path) -> None:
     core = _core(tmp_path, with_osint=False)
-    out = "".join(Daemon(core)._osint("map acme.com"))
+    out = "".join(Daemon(core)._loop("osint", "map acme.com"))
     assert "error" in out
     assert "no OSINT scope" in out

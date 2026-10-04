@@ -26,10 +26,12 @@ Deliberately *not* here, because they genuinely diverge by surface:
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
 from skuggi.agent.core import parse_toggle
+from skuggi.config.configs import ConfigError
 from skuggi.frontend import dispatch, presenters, presenters_journal, render, verbs
 from skuggi.frontend.outcomes import FindingRecorded
 
@@ -104,6 +106,21 @@ def set_engagement(core: AgentCore, rest: str, surface: verbs.Surface) -> render
     return presenters.present_set_engagement(
         dispatch.run_set_engagement(core, rest), surface
     )
+
+
+def show_case(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
+    """The adopted forensics case summary (engagement-free)."""
+    return presenters.present_case(core.describe_case())
+
+
+def set_case(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
+    """Adopt a forensics case root `rest` (cwd by default), scaffolding if absent."""
+    root = Path(rest.strip()) if rest.strip() else Path.cwd()
+    try:
+        case = core.set_case(root)
+    except ConfigError as exc:
+        return presenters.present_error(str(exc))
+    return presenters.present_case_adopted(case.name, str(root))
 
 
 def set_mode(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
@@ -279,10 +296,12 @@ SHOW_ACTIONS: dict[str, Action] = {
     "config": show_config,
     "findings": show_findings,
     "env": show_env,
+    "case": show_case,
 }
 
 SET_ACTIONS: dict[str, Action] = {
     "engagement": set_engagement,
+    "case": set_case,
     "mode": set_mode,
     "autonomous": set_autonomous,
     "thread": set_thread,

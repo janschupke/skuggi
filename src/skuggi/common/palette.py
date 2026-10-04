@@ -52,6 +52,7 @@ _METHOD = {
     "bruteforce": "dark_orange",
     "crack": "medium_purple",
     "exploit": "deep_pink3",
+    "forensics": "spring_green3",
 }
 _METHOD_DEFAULT = "white"
 

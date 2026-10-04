@@ -170,7 +170,9 @@ implicit `ask`. The two front-ends share one registry
 | `engagement [setup]` | Show the scope, or run the interactive setup wizard |
 | `config [show \| <key> <value> \| <request>]` | Show or change app settings |
 | `doctor [install <tool>]` | Probe host tools; install a missing one on request |
-| `mode <pentest\|redteam\|blueteam>` | Switch the prompt set (see below) |
+| `mode <pentest\|redteam\|blueteam\|forensics>` | Switch the prompt set (see below) |
+| `case [<path>]` | Adopt a forensics case directory (cwd by default), scaffolding if absent |
+| `forensics [<instruction>]` | Run the read-only forensic examination loop over the case evidence (forensics mode) |
 | `autonomous [on\|off]` | Toggle autonomous command execution |
 | `provider <openai\|chatgpt\|anthropic\|claude-cli\|ollama>` | Switch provider, recompile graph |
 | `model <name>` | Switch model on the current provider |
@@ -353,7 +355,26 @@ Blocked, proposed and executed commands are all persisted with timestamps.
 
 `/mode pentest|redteam|blueteam` swaps the planner/worker/critic prompt set
 ([src/skuggi/agent/prompts.py](src/skuggi/agent/prompts.py)); the graph and guard are
-identical across modes. Set the default with `SKUGGI_MODE`.
+identical across these three. Set the default with `SKUGGI_MODE`.
+
+`/mode forensics` is different: a strictly read-only, engagement-free discipline for
+examining local evidence. It binds to a **case** (a directory, adopted with
+`/set case <path>`) instead of an engagement, with its own separate ledger
+(`case.db`). Drop evidence into the case `evidence/` directory and run
+`/forensics` to examine it: the loop hashes each artifact, runs an in-process
+analyzer battery (strings, hexdump, entropy, magic-type, encoding/decoding, log
+parsing, and — with the `forensics` extra — OCR and AI vision over images), records
+a chain-of-custody procedure log, and writes a cited Markdown/PDF case report.
+Nothing is ever written to or executed from the evidence; the forensic tool surface
+is a built-in read-only allow-list and every positional path is confined to the
+case. Offensive verbs (`cmd`, `osint`) are unavailable in this mode, and every
+finding the examiner cannot tie to collected evidence is marked speculative.
+
+OCR and keyed decryption need the optional `forensics` extra (installed by
+`make install`); OCR also needs the system `tesseract` binary
+(`brew install tesseract` / `apt-get install -y tesseract-ocr`), which
+`skuggi-doctor` reports on. AI vision runs only on a vision-capable provider
+(`openai`/`anthropic`) and is skipped gracefully otherwise.
 
 ## Tools and `skuggi-doctor`
 

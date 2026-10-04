@@ -22,6 +22,7 @@ from pathlib import Path
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 
+from skuggi.agent.case_manager import CaseManager
 from skuggi.agent.commandbook import CommandBook
 from skuggi.agent.config_controller import ConfigController
 from skuggi.agent.engagement_manager import EngagementManager
@@ -43,6 +44,7 @@ from skuggi.config.config import (
     Provider,
     Settings,
 )
+from skuggi.engagement.case import CaseConfig, build_case, has_case
 from skuggi.engagement.engagement import (
     EngagementConfig,
     ThreatModel,
@@ -52,6 +54,8 @@ from skuggi.engagement.workspace import (
     Workspace,
     WorkspaceLayout,
 )
+from skuggi.forensics.deps import ForensicsDeps
+from skuggi.forensics.runner import ForensicsRunner
 from skuggi.install import configdiff, reconcile
 from skuggi.install import update as updater
 from skuggi.intel.collectors.base import CollectContext
@@ -140,6 +144,58 @@ class AgentCore:
         self.installer = InstallResearcher(self)
         self.osint_runner = OsintRunner(self)
         self.research_runner = ResearchRunner(self)
+        self.forensics_runner = ForensicsRunner(self)
+
+        # The forensics case plane: engagement-free, lazily opened by ``set case``
+        # (or a cwd probe in forensics mode). None until a case is adopted. Holds
+        # its OWN ledger + session, kept out of the engagement ledger.
+        self.case_mgr: CaseManager | None = None
+
+    # ----- forensics case plane (delegated to CaseManager) -------------------
+
+    @property
+    def case(self) -> CaseConfig | None:
+        """The adopted forensics case, or None when none is loaded."""
+        return self.case_mgr.case if self.case_mgr is not None else None
+
+    def describe_case(self) -> str | None:
+        """The adopted case summary, or None when no case is loaded."""
+        return self.case_mgr.describe() if self.case_mgr is not None else None
+
+    def adopt_case(self, root: Path) -> CaseConfig:
+        """Hot-switch to the forensics case rooted at `root` (must hold case.json).
+
+        Opens the case workspace + its separate ledger under a fresh forensics
+        session. Raises ``ConfigError`` when the case metadata is missing/invalid.
+        """
+        new = CaseManager.open(self, root)
+        if self.case_mgr is not None:
+            self.case_mgr.close()
+        self.case_mgr = new
+        return new.case
+
+    def create_case(self, raw: dict[str, object], *, root: Path) -> CaseConfig:
+        """Scaffold a case: write ``case.json`` + the case tree under `root`, adopt it.
+
+        Raises ``ConfigError`` if the metadata does not validate or the tree is
+        not writable (the front-end re-asks).
+        """
+        case = build_case(raw)
+        ws = Workspace.at(root.expanduser(), layout=self.layout)
+        ws.ensure_case()
+        ws.case_path.write_text(case.model_dump_json(indent=2), encoding="utf-8")
+        return self.adopt_case(root)
+
+    def set_case(self, root: Path) -> CaseConfig:
+        """Adopt the case at `root`, scaffolding a default one if none exists yet.
+
+        The ``set case [<path>]`` driver: an existing case is adopted as-is; an
+        empty directory is seeded with a minimal ``case.json`` named after it.
+        """
+        resolved = root.expanduser()
+        if has_case(resolved, self.layout):
+            return self.adopt_case(resolved)
+        return self.create_case({"name": resolved.name or "case"}, root=resolved)
 
     # ----- engagement plane (delegated to EngagementManager) -----------------
 
@@ -428,6 +484,8 @@ class AgentCore:
     def close(self) -> None:
         """Close the ledger, vault, preferences and checkpointer connections."""
         self.engagement_mgr.close()
+        if self.case_mgr is not None:
+            self.case_mgr.close()
         self._prefs_ctx.__exit__(None, None, None)
         self._saver_ctx.__exit__(None, None, None)
 
@@ -548,3 +606,29 @@ class AgentCore:
     def research_turn(self, request: str) -> Iterator[TurnEvent]:
         """Run one public-source research loop, yielding events (delegated)."""
         yield from self.research_runner.research_turn(request)
+
+    def forensics_deps(self) -> ForensicsDeps:
+        """Build the forensics loop's deps from the active case plane.
+
+        Built fresh per run (the runner calls this) so it always reflects the
+        currently-adopted case; the forensics graph is not cached in
+        ``rebuild_graph`` because the case changes independently of config.
+        """
+        cm = self.case_mgr
+        return ForensicsDeps(
+            llm=self.llm,
+            native_structured=self.settings.supports_structured_output(),
+            redaction_policy=cm.redaction_policy() if cm is not None else None,
+            workspace=cm.workspace if cm is not None else None,
+            ledger=cm.ledger if cm is not None else None,
+            session_id=cm.session_id if cm is not None else "",
+            case_name=cm.case.name if cm is not None else "",
+            provider=self.settings.provider,
+            output_root=cm.forensics_dir if cm is not None else None,
+            vision=self.settings.forensics_vision,
+            max_files=self.settings.forensics_max_files,
+        )
+
+    def forensics_turn(self, request: str) -> Iterator[TurnEvent]:
+        """Run one read-only forensics examination loop, yielding events (delegated)."""
+        yield from self.forensics_runner.forensics_turn(request)

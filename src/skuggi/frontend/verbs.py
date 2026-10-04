@@ -20,6 +20,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from skuggi.common.modes import Mode
+
 Category = Literal["engagement", "control"]
 
 # Help subheadings. Separate from ``category`` (which only routes the audit log)
@@ -83,7 +85,17 @@ class Verb:
     category: Category = "control"
     group: Group = "agent"
     nouns: tuple[Noun, ...] = field(default_factory=tuple)
+    # The operating modes this verb is available in. Empty = available in every
+    # mode (the default). A non-empty tuple is an allow-list: the verb is hidden
+    # from ``/help`` and refused at dispatch in any other mode. This is how the
+    # offensive verbs drop out of forensics mode and the forensics verb stays out
+    # of the offensive modes -- a UX gate; the hard tool boundary is the guard.
+    modes: tuple[Mode, ...] = ()
 
+
+# The three offensive/defensive engagement modes; forensics is excluded. Used to
+# scope the engagement-only verbs out of forensics mode.
+_OFFENSIVE: tuple[Mode, ...] = ("pentest", "redteam", "blueteam")
 
 # Ordered for the help listing: the everyday agent path first, controls after.
 VERBS: tuple[Verb, ...] = (
@@ -94,6 +106,7 @@ VERBS: tuple[Verb, ...] = (
         "<query|list|add|edit|rm|suggest>",
         category="engagement",
         group="agent",
+        modes=_OFFENSIVE,
     ),
     Verb(
         "show",
@@ -105,6 +118,7 @@ VERBS: tuple[Verb, ...] = (
             Noun("provider", "active provider + credential status"),
             Noun("model", "active model"),
             Noun("engagement", "scope summary"),
+            Noun("case", "forensics case summary"),
             Noun("env", "runtime command vars (target/lhost/lport/wordlist)"),
             Noun("db", "session ledger stats"),
             Noun("latency", "last turn's latency breakdown"),
@@ -132,9 +146,14 @@ VERBS: tuple[Verb, ...] = (
                 "adopt an engagement root (cwd by default), scaffolding if absent",
                 "[<path>]",
             ),
+            Noun(
+                "case",
+                "adopt a forensics case root (cwd by default), scaffolding if absent",
+                "[<path>]",
+            ),
             Noun("provider", "switch provider (interactive with no name)", "[<name>]"),
             Noun("model", "switch model (interactive with no name)", "[<name>]"),
-            Noun("mode", "operating mode", "<pentest|redteam|blueteam>"),
+            Noun("mode", "operating mode", "<pentest|redteam|blueteam|forensics>"),
             Noun("autonomous", "arm autonomous command execution", "[on|off]"),
             Noun(
                 "config",
@@ -177,6 +196,7 @@ VERBS: tuple[Verb, ...] = (
         "<request>",
         category="engagement",
         group="agent",
+        modes=_OFFENSIVE,
     ),
     Verb(
         "research",
@@ -184,6 +204,14 @@ VERBS: tuple[Verb, ...] = (
         "<subject or instruction>",
         category="control",
         group="agent",
+    ),
+    Verb(
+        "forensics",
+        "run the read-only forensic examination loop over the case evidence",
+        "<instruction>",
+        category="engagement",
+        group="agent",
+        modes=("forensics",),
     ),
     Verb(
         "engagement",
@@ -283,6 +311,19 @@ _GROUP_TITLES: dict[Group, str] = {
 _EXIT_ALIASES = frozenset({"exit", "quit"})
 
 
+def is_available(verb: str, mode: Mode) -> bool:
+    """Whether `verb` is available in `mode` (unknown verbs are treated as available).
+
+    A verb with no ``modes`` restriction is available everywhere; a restricted verb
+    is available only in the modes it lists. The front-ends call this to refuse a
+    mode-locked verb at dispatch and to hide it from ``/help``.
+    """
+    found = _BY_NAME.get(verb)
+    if found is None or not found.modes:
+        return True
+    return mode in found.modes
+
+
 def is_engagement(verb: str) -> bool:
     """Whether `verb` directs the engagement (vs. being harness control chatter)."""
     return verb in ENGAGEMENT
@@ -323,17 +364,23 @@ def _invocation(name: str, usage: str) -> str:
     return name + (f" {usage}" if usage else "")
 
 
-def help_sections() -> list[tuple[str, list[tuple[str, str]]]]:
+def help_sections(
+    mode: Mode | None = None,
+) -> list[tuple[str, list[tuple[str, str]]]]:
     """``(subheading, [(invocation, summary), …])`` groups, in display order.
 
     A grouping verb appears as one collapsed row (``show <what>``); its nouns are
     reached through ``help_for``. ``invocation`` carries no front-end prefix; the
     REPL renders ``/<invocation>``, the wrapped-shell help ``/skuggi <invocation>``.
+    When `mode` is given, verbs unavailable in that mode are omitted; ``None`` (the
+    default) lists every verb, which is what the drift test pins.
     """
     sections: list[tuple[str, list[tuple[str, str]]]] = []
     for group in _GROUP_ORDER:
         rows = [
-            (_invocation(v.name, v.usage), v.summary) for v in VERBS if v.group == group
+            (_invocation(v.name, v.usage), v.summary)
+            for v in VERBS
+            if v.group == group and (mode is None or is_available(v.name, mode))
         ]
         if rows:
             sections.append((_GROUP_TITLES[group], rows))
