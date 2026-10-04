@@ -47,7 +47,7 @@ def test_plain_verb_has_no_nouns() -> None:
 
 def test_only_agent_path_verbs_are_engagement() -> None:
     # Engagement-directed verbs are exempt from the control audit log.
-    assert {"ask", "cmd", "add"} == verbs.ENGAGEMENT
+    assert {"ask", "cmd", "add", "osint"} == verbs.ENGAGEMENT
 
 
 # --- help listing -----------------------------------------------------------

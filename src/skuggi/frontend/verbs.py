@@ -167,6 +167,13 @@ VERBS: tuple[Verb, ...] = (
         ),
     ),
     Verb(
+        "osint",
+        "run the autonomous OSINT reconnaissance loop",
+        "<request>",
+        category="engagement",
+        group="agent",
+    ),
+    Verb(
         "engagement",
         "run the setup wizard, or set the threat model",
         "<setup|threat-model>",

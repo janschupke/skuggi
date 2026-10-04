@@ -131,6 +131,7 @@ class Tui:
             "add": self._cmd_add,
             "remove": self._cmd_remove,
             "cmd": self._cmd_cmd,
+            "osint": self._cmd_osint,
             "engagement": self._cmd_engagement,
             "login": self._flows.login,
             "doctor": self._cmd_doctor,
@@ -570,6 +571,28 @@ class Tui:
 
     def _cmd_clear(self, _arg: str) -> None:
         self.console.clear()
+
+    def _cmd_osint(self, arg: str) -> None:
+        """Run an autonomous OSINT loop, streaming node status + the summary."""
+        request = arg.strip()
+        if not request:
+            self.console.print("usage: /osint <request>")
+            return
+        with Live(
+            Spinner("dots", "OSINT recon..."),
+            console=self.console,
+            refresh_per_second=20,
+        ) as live:
+            view = DraftView(live)
+            try:
+                for ev in self.core.osint_turn(request):
+                    if ev.kind == "status":
+                        self._status(ev.node, ev.text)
+                    elif ev.kind == "final":
+                        view.show(ev.text)
+            except KeyboardInterrupt:
+                view.reset()
+                self.console.print("[dim]cancelled -- type exit to leave[/dim]")
 
     # ----- agent turn --------------------------------------------------------
 

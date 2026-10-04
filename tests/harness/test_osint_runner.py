@@ -16,6 +16,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from skuggi.agent.core import AgentCore
+from skuggi.frontend.daemon import Daemon
 from tests.support import engaged_core
 
 _SCOPE_BASE: dict[str, object] = {
@@ -102,3 +103,28 @@ def test_core_rebuilds_both_graphs(tmp_path: Path) -> None:
     first = core.osint_graph
     core.rebuild_graph()
     assert core.osint_graph is not first  # a fresh compile
+
+
+def test_daemon_osint_streams_status_and_summary(tmp_path: Path) -> None:
+    core = _core(tmp_path, with_osint=True)
+    core.osint_graph = _FakeGraph(  # type: ignore[assignment]
+        [
+            {"planner": {"plan": []}},
+            {"respond": {"messages": [AIMessage(content="the footprint")]}},
+        ]
+    )
+    out = "".join(Daemon(core)._osint("map acme.com"))
+    assert "(planner)" in out
+    assert "the footprint" in out
+
+
+def test_daemon_osint_usage_without_a_request(tmp_path: Path) -> None:
+    core = _core(tmp_path, with_osint=True)
+    assert "usage" in "".join(Daemon(core)._osint(""))
+
+
+def test_daemon_osint_surfaces_the_no_scope_error(tmp_path: Path) -> None:
+    core = _core(tmp_path, with_osint=False)
+    out = "".join(Daemon(core)._osint("map acme.com"))
+    assert "error" in out
+    assert "no OSINT scope" in out

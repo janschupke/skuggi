@@ -285,9 +285,27 @@ class Daemon:
                 self.core.memory.propose_capture(text), hint=self._cmd("add memory")
             )
 
+    def _osint(self, text: str) -> Iterator[str]:
+        """Stream an autonomous OSINT run (a status per node, then the summary)."""
+        if not text:
+            yield "usage: osint <request>\n"
+            return
+        final = ""
+        for ev in self.core.osint_turn(text):
+            if ev.kind == "status" and ev.text:
+                if ev.node == "error":
+                    yield f"({ev.node}) {ev.text}\n"
+                else:
+                    summary = ev.text.splitlines()[0][: presenters.STATUS_LINE_CAP]
+                    yield f"({ev.node}) {summary}\n"
+            elif ev.kind == "final":
+                final = ev.text
+        yield (final or "(no answer)") + "\n"
+
     def _control(self, verb: str, arg: str) -> Iterator[str]:
         handler = {
             "cmd": self._cheat,
+            "osint": self._osint,
             "add": self._add,
             "show": self._show,
             "set": self._set,
