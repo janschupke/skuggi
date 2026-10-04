@@ -10,13 +10,23 @@ reference: [docs/architecture.md](../../docs/architecture.md).
   registry, ledger, checkpointer, compiled graph) and streams `TurnEvent`s; it
   holds no rendering. `graph.py` is the planner→retriever→worker↔executor→critic
   graph; `state.py` its channels; `protocol.py`/`prompts.py` the structured
-  exchange (see [protocol.md](protocol.md)).
+  exchange (see [protocol.md](protocol.md)). `requests.py` is the shared
+  request-assembly + structured-`ask` egress seam, reused by the OSINT graph so it
+  never imports the turn graph.
 - **`frontend/`** — the two renderers and dispatch. `tui.py` (Rich REPL),
   `daemon.py` + `shell.py` (wrapped-shell daemon), `client.py`. Dispatch is
   **verb-first** and every known verb comes from the one registry `verbs.py` —
   never hard-code a verb list in a front-end.
+- **`osint/`** — the agentic OSINT reconnaissance loop: a second compiled graph
+  (planner→collector↔scheduler→verifier→re-plan|respond) with its own `deps`,
+  `state`, `prompts`, `scheduler` (pure DAG logic), `nodes`, `graph`, `runner`,
+  `schema`, `store`, and a pluggable `collectors/` registry (HTTP + optional
+  Playwright/Apify). It reuses the request seam (`agent/requests.py`) and the
+  finding/report path, and imports *down* into `agent`/`engagement` — never the
+  reverse. Driven by `AgentCore.osint_turn`; scoped by `engagement/osint_guard.py`.
 - **`config/`** `config.py` (typed `Settings`, no import-time singleton) +
-  `configs.py` (JSON loaders). **`engagement/`** the scope boundary + workspace.
+  `configs.py` (JSON loaders). **`engagement/`** the scope boundary + workspace,
+  plus `osint_guard.py` (the OSINT subject/source guard).
 - **`persistence/`** ledger, checkpointer (`memory.py`), preferences, FAISS
   (`vectorstore.py`), transcript, reports/pdf. **`providers/`** the LLM factory
   and codex OAuth. **`tooling/`** registry, host probe, doctor.

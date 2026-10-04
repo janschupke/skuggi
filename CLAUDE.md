@@ -14,11 +14,14 @@ SQLite ledger.
 
 ### Source layout (`src/skuggi/`)
 
-- `agent/` — `core` (the hub), `graph`, `state`, `protocol`, `prompts`, `modes`
+- `agent/` — `core` (the hub), `graph`, `state`, `protocol`, `prompts`, `modes`,
+  `requests` (the shared request/`ask` seam), `executor`
+- `osint/` — the agentic OSINT loop (its own graph): `deps`, `state`, `prompts`,
+  `scheduler`, `nodes`, `graph`, `runner`, `schema`, `store`, `collectors/`
 - `frontend/` — `tui`, `daemon`, `shell`, `client` + dispatch (`verbs`,
   `commands`, `configflow`, `cmdflow`, `setup`, `wizard`, `menu`)
 - `config/` — `config` (typed `Settings`), `configs` (JSON loaders)
-- `engagement/` — `engagement` (scope boundary), `workspace`
+- `engagement/` — `engagement` (scope boundary), `workspace`, `osint_guard`
 - `persistence/` — `ledger`, `memory` (checkpointer), `preferences`,
   `vectorstore`, `transcript`, `reports`, `pdf`
 - `providers/` — `providers` (factory), `codex_chat`, `codex_login`
