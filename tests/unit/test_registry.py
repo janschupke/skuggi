@@ -23,13 +23,15 @@ from skuggi.tooling.doctor import (
 from skuggi.tooling.probe import (
     available_installers,
     install_tool,
+    install_with_plan,
     managed_bin,
     probe,
     probe_net_tools,
     probe_runtimes,
+    search_packages,
     select_install,
 )
-from skuggi.tooling.registry import ToolRegistry, ToolSpec, ToolStatus
+from skuggi.tooling.registry import InstallPlan, ToolRegistry, ToolSpec, ToolStatus
 
 
 class FakeRunner:
@@ -358,3 +360,156 @@ def test_doctor_table_sorts_by_method_and_shows_path() -> None:
     # palette method order: recon < scan < bruteforce
     assert rendered.index("curl") < rendered.index("nmap") < rendered.index("hydra")
     assert "/b/nmap" in rendered  # the binary-path column is present
+
+
+# --- casks and package search (install research, Phase 3a) -------------------
+
+BURP = ToolSpec(
+    name="burpsuite",
+    binary="burpsuite",
+    method="scan",
+    install={"brew": "brew install --cask burp-suite"},
+)
+
+
+class _ExitRunner:
+    """A runner with a configurable exit code and per-argv canned stdout."""
+
+    def __init__(
+        self, *, exit_code: int = 0, outputs: dict[str, str] | None = None
+    ) -> None:
+        self.exit_code = exit_code
+        self._outputs = outputs or {}
+        self.calls: list[list[str]] = []
+
+    def __call__(
+        self,
+        argv: Sequence[str],
+        *,
+        timeout: float,
+        cwd: Path,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        self.calls.append(list(argv))
+        now = datetime.now(UTC)
+        key = " ".join(argv)
+        stdout = next((v for k, v in self._outputs.items() if k in key), "")
+        return CommandResult(
+            command=key,
+            exit_code=self.exit_code,
+            stdout=stdout,
+            stderr="",
+            started_at=now,
+            finished_at=now,
+        )
+
+
+def test_cask_plan_is_recognised() -> None:
+    plan = select_install(BURP, source="host", system="Darwin")
+    assert plan is not None
+    assert plan.installer == "brew"
+    assert plan.is_cask
+
+
+def test_a_cask_install_that_exits_clean_is_a_success_despite_no_path_binary(
+    tmp_path: Path,
+) -> None:
+    """A clean exit is the only success signal a cask gives.
+
+    burpsuite/bloodhound install an .app bundle, never a PATH binary, so this must
+    not read as 'install failed'.
+    """
+    runner = _ExitRunner(exit_code=0)
+    status = install_tool(
+        BURP, source="host", managed_dir=tmp_path, system="Darwin", runner=runner
+    )
+    assert ["brew", "install", "--cask", "burp-suite"] in runner.calls
+    assert status.found
+    assert status.source == "cask"
+
+
+def test_a_cask_install_that_fails_is_not_claimed_as_installed(tmp_path: Path) -> None:
+    runner = _ExitRunner(exit_code=1)
+    status = install_tool(
+        BURP, source="host", managed_dir=tmp_path, system="Darwin", runner=runner
+    )
+    assert not status.found
+
+
+def test_search_packages_parses_brew_and_apt_and_tags_each_hit() -> None:
+    runner = _ExitRunner(
+        outputs={
+            "brew search --formula": "burp\nburpsuite-helper\n",
+            "brew search --cask": "==> Casks\nburp-suite\nburp-suite-professional\n",
+            "apt-cache search": "burpsuite - web proxy\nlibburp - unrelated\n",
+        }
+    )
+    hits = search_packages("burp", installers=frozenset({"brew", "apt"}), runner=runner)
+    pairs = {(h.installer, h.name) for h in hits}
+    assert ("brew", "burp") in pairs
+    assert ("brew-cask", "burp-suite") in pairs
+    assert ("apt", "burpsuite") in pairs
+    # Section headers never become hits.
+    assert all(h.name != "==> Casks" for h in hits)
+    # apt summaries are carried through.
+    assert any(h.name == "burpsuite" and "web proxy" in h.summary for h in hits)
+
+
+def test_search_packages_only_queries_present_installers() -> None:
+    runner = _ExitRunner(outputs={"brew search --formula": "nmap\n"})
+    search_packages("nmap", installers=frozenset({"brew"}), runner=runner)
+    assert not any("apt-cache" in " ".join(c) for c in runner.calls)
+
+
+def test_search_packages_rejects_a_query_that_could_be_a_flag_or_injection() -> None:
+    runner = _ExitRunner(outputs={"brew": "x\n"})
+    for bad in ("-x", "; rm -rf /", "a b", "$(whoami)", ""):
+        assert search_packages(bad, installers=frozenset({"brew"}), runner=runner) == []
+    assert runner.calls == []  # nothing was ever searched
+
+
+def test_search_packages_is_best_effort_on_a_failing_search() -> None:
+    runner = _ExitRunner(exit_code=2, outputs={"brew": "nmap\n"})
+    assert search_packages("nmap", installers=frozenset({"brew"}), runner=runner) == []
+
+
+# --- install_with_plan: running a researched (ad-hoc) plan -------------------
+
+
+def test_install_with_plan_reports_cask_success(tmp_path: Path) -> None:
+    plan = InstallPlan(
+        argv=("brew", "install", "--cask", "burp-suite"),
+        target="host",
+        installer="brew-cask",
+    )
+    outcome = install_with_plan(
+        plan, "burpsuite", managed_dir=tmp_path, runner=_ExitRunner(exit_code=0)
+    )
+    assert outcome.installed
+    assert outcome.source == "cask"
+
+
+def test_install_with_plan_reports_failure_on_a_nonzero_exit(tmp_path: Path) -> None:
+    plan = InstallPlan(
+        argv=("brew", "install", "nmap"), target="host", installer="brew"
+    )
+    outcome = install_with_plan(
+        plan, "nmap", managed_dir=tmp_path, runner=_ExitRunner(exit_code=1)
+    )
+    assert not outcome.installed
+    assert outcome.source == "failed"
+
+
+def test_install_with_plan_resolves_a_host_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("skuggi.tooling.probe.shutil.which", lambda _b: "/usr/bin/nmap")
+    plan = InstallPlan(
+        argv=("brew", "install", "nmap"), target="host", installer="brew"
+    )
+    outcome = install_with_plan(
+        plan, "nmap", managed_dir=tmp_path, runner=_ExitRunner(exit_code=0)
+    )
+    assert outcome.installed
+    assert outcome.source == "host"
+    assert outcome.path == Path("/usr/bin/nmap")

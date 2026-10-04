@@ -41,7 +41,7 @@ def test_revoke_all_clears_and_counts() -> None:
 def test_confirm_yes_applies_without_granting() -> None:
     grants = SessionGrants()
     assert confirm_write(
-        "install", grants=grants, choose=_choose("yes"), notify=lambda _m: None
+        "install", grants=grants, choose=_choose("approve"), notify=lambda _m: None
     )
     assert not grants.granted("install")
 
@@ -49,7 +49,7 @@ def test_confirm_yes_applies_without_granting() -> None:
 def test_confirm_no_and_abort_decline() -> None:
     grants = SessionGrants()
     assert not confirm_write(
-        "install", grants=grants, choose=_choose("no"), notify=lambda _m: None
+        "install", grants=grants, choose=_choose("deny"), notify=lambda _m: None
     )
     assert not confirm_write(
         "install", grants=grants, choose=_choose(None), notify=lambda _m: None
@@ -72,7 +72,7 @@ def test_confirm_auto_applies_under_a_grant_and_announces() -> None:
 
     def choose(*_a: object) -> str | None:
         calls.append(1)
-        return "no"
+        return "deny"
 
     assert confirm_write("install", grants=grants, choose=choose, notify=notes.append)
     assert calls == []  # a standing grant must not prompt

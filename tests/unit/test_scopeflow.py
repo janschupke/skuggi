@@ -34,7 +34,7 @@ def test_nothing_proposed_is_reported() -> None:
     app = _Apply()
     run_scope_request(
         "x",
-        choose=_choose("yes"),
+        choose=_choose("approve"),
         notify=notes.append,
         propose=lambda _r: [],
         preview=lambda _e: _ROWS,
@@ -55,7 +55,7 @@ def test_invalid_edit_is_reported_not_applied() -> None:
 
     run_scope_request(
         "x",
-        choose=_choose("yes"),
+        choose=_choose("approve"),
         notify=notes.append,
         propose=lambda _r: [_EDIT],
         preview=boom,
@@ -70,7 +70,7 @@ def test_declining_does_not_apply() -> None:
     app = _Apply()
     run_scope_request(
         "x",
-        choose=_choose("no"),
+        choose=_choose("deny"),
         notify=lambda _m: None,
         propose=lambda _r: [_EDIT],
         preview=lambda _e: _ROWS,
@@ -85,7 +85,7 @@ def test_confirming_applies_and_shows_the_diff() -> None:
     app = _Apply()
     run_scope_request(
         "x",
-        choose=_choose("yes"),
+        choose=_choose("approve"),
         notify=notes.append,
         propose=lambda _r: [_EDIT],
         preview=lambda _e: _ROWS,

@@ -14,6 +14,7 @@ import pytest
 
 from skuggi.common import home
 from skuggi.config.config import Settings
+from skuggi.install import init as init_mod
 from skuggi.install.init import SCOPE_TEMPLATE, SEEDED, initialise
 from skuggi.install.update import checkout_root
 
@@ -173,3 +174,45 @@ def test_checkout_root_finds_this_repo() -> None:
     assert root is not None
     assert (root / "pyproject.toml").is_file()
     assert (root / "src" / "skuggi" / "install" / "init.py").is_file()
+
+
+# --- main(): the console entry point's argv handling -------------------------
+# `main` seeds the real homes via `initialise()` with the migration default, so
+# every case stubs `initialise` (and `setup_logging`): the subject here is the
+# argv notice, not the seeding, which the cases above already cover in isolation.
+
+
+def _stub_init_env(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    seen: list[str] = []
+    monkeypatch.setattr("skuggi.install.init.setup_logging", lambda: None)
+    monkeypatch.setattr(
+        "skuggi.install.init.initialise", lambda: ["config home: /tmp/x"]
+    )
+    return seen
+
+
+def test_main_with_no_args_is_quiet_and_seeds(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+
+    _stub_init_env(monkeypatch)
+    monkeypatch.setattr("sys.argv", ["skuggi-init"])
+    assert init_mod.main() == 0
+    captured = capsys.readouterr()
+    assert "config home: /tmp/x" in captured.out
+    assert "ignoring unexpected" not in captured.err
+
+
+def test_main_notifies_usage_when_params_are_provided(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+
+    _stub_init_env(monkeypatch)
+    monkeypatch.setattr("sys.argv", ["skuggi-init", "foo", "--bar"])
+    assert init_mod.main() == 0
+    captured = capsys.readouterr()
+    # The notice names the offending args and points at the usage, on stderr.
+    assert "ignoring unexpected argument(s): foo --bar" in captured.err
+    assert "usage: skuggi-init" in captured.err
+    # Seeding still runs -- a tacked-on flag must not deny the operator their homes.
+    assert "config home: /tmp/x" in captured.out

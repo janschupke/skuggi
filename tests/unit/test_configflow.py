@@ -31,7 +31,7 @@ def test_applies_each_proposal_on_yes() -> None:
     rec = _Recorder()
     run_config_request(
         "make it faster",
-        choose=_choose("yes"),
+        choose=_choose("approve"),
         notify=lambda _m: None,
         propose=lambda _r: [("retrieve_k", "8"), ("max_tool_rounds", "2")],
         apply=rec.apply,
@@ -44,7 +44,7 @@ def test_declines_on_no() -> None:
     rec = _Recorder()
     run_config_request(
         "x",
-        choose=_choose("no"),
+        choose=_choose("deny"),
         notify=lambda _m: None,
         propose=lambda _r: [("mode", "blueteam")],
         apply=rec.apply,
@@ -57,7 +57,7 @@ def test_reports_when_nothing_proposed() -> None:
     notes: list[str] = []
     run_config_request(
         "x",
-        choose=_choose("yes"),
+        choose=_choose("approve"),
         notify=notes.append,
         propose=lambda _r: [],
         apply=_Recorder().apply,
@@ -87,7 +87,7 @@ def test_session_grant_suppresses_the_second_prompt() -> None:
 
     def counting_choose(_p: str, options: list[str], _d: str | None) -> str | None:
         prompts.append(1)
-        return "yes (rest of session)"
+        return "approve for session"
 
     for _ in range(2):
         run_config_request(

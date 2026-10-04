@@ -7,10 +7,19 @@ response helpers from ``tests/harness/conftest.py``.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from skuggi.frontend import attach
 from skuggi.frontend.daemon import Daemon
-from skuggi.tooling.registry import InstallPlan
+from skuggi.tooling.registry import (
+    InstallOutcome,
+    InstallPlan,
+    ResearchResult,
+    ToolSpec,
+    ToolStatus,
+)
 from tests.harness.conftest import chunks
 
 
@@ -72,11 +81,45 @@ def test_attach_install_missing_prompts_and_can_cancel(
         installed.append(binary)
 
     monkeypatch.setattr(daemon.core.doctor, "install", _fake_install)
-    answers = iter(["doctor install missing", "no"])  # open the flow, decline
+    answers = iter(["doctor install missing", "deny"])  # open the flow, decline
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
     assert any("choose" in f for f in emitted)  # the confirm menu reached the client
     assert installed == []  # declined -> no system write
+
+
+def test_attach_install_missing_emits_a_pending_frame_while_installing(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Approving a batch emits a `pending` frame per tool.
+
+    That is what lets the client spin through the otherwise-silent blocking install.
+    """
+    plan = InstallPlan(
+        argv=("brew", "install", "nmap"), target="host", installer="brew"
+    )
+    monkeypatch.setattr(
+        daemon.core.doctor, "propose_installs", lambda: [("nmap", plan)]
+    )
+
+    def _fake_install(binary: str) -> ToolStatus:
+        spec = ToolSpec(name=binary, binary=binary, method="scan")
+        return ToolStatus(
+            spec=spec,
+            found=True,
+            path=Path(f"/usr/bin/{binary}"),
+            version="1.0",
+            source="host",
+        )
+
+    monkeypatch.setattr(daemon.core.doctor, "install", _fake_install)
+    answers = iter(["doctor install missing", "approve"])  # open the flow, approve
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(answers, None), emitted.append)
+    pendings = [str(f["pending"]) for f in emitted if "pending" in f]
+    assert pendings == ["installing nmap (1 of 1)"]
+    text = "".join(str(f.get("chunk", "")) for f in emitted)
+    assert "installed nmap" in text
 
 
 def test_attach_cmd_editor_adds_an_alias(daemon: Daemon) -> None:
@@ -136,3 +179,49 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
     assert daemon.core.engagement.name == "acme"  # hot-loaded into the warm core
     assert daemon.core.engagement.allowed_methods == frozenset({"scan"})
     assert "loaded" in "".join(str(f.get("chunk", "")) for f in emitted)
+
+
+def test_attach_doctor_research_previews_confirms_and_installs(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`doctor research <tool>` round-trips a confirm and installs the approved plan.
+
+    A pending frame is emitted while the install runs.
+    """
+    plan = InstallPlan(
+        argv=("brew", "install", "--cask", "burp-suite"),
+        target="host",
+        installer="brew-cask",
+        rationale="best cask match",
+        source="searched:brew-cask",
+    )
+    monkeypatch.setattr(
+        daemon.core.installer,
+        "research",
+        lambda _tool: ResearchResult(plans=(plan,), advice=""),
+    )
+    installed: list[tuple[str, str]] = []
+
+    def _fake_install(got_plan: InstallPlan, binary: str) -> InstallOutcome:
+        installed.append((binary, " ".join(got_plan.argv)))
+        return InstallOutcome(binary=binary, installed=True, path=None, source="cask")
+
+    monkeypatch.setattr(daemon.core.installer, "install", _fake_install)
+    answers = iter(["doctor research burpsuite", "approve"])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(answers, None), emitted.append)
+
+    assert any("choose" in f for f in emitted)  # the confirm reached the client
+    assert any("pending" in f for f in emitted)  # progress shown while installing
+    assert installed == [("burpsuite", "brew install --cask burp-suite")]
+    text = "".join(str(f.get("chunk", "")) for f in emitted)
+    assert "installed burpsuite via cask" in text
+
+
+def test_attach_doctor_research_without_a_tool_is_not_routed_as_research(
+    daemon: Daemon,
+) -> None:
+    """`doctor research` with no tool falls through to normal dispatch, not the flow."""
+    assert attach.doctor_research_tool("doctor research") is None
+    assert attach.doctor_research_tool("doctor research nmap") == "nmap"
+    assert attach.doctor_research_tool("ask something") is None

@@ -420,6 +420,8 @@ def test_stream_turn_aborts_when_multiselect_cancelled(
         ["login"],
         ["set", "provider"],  # no value -> the guided picker
         ["set", "model"],
+        ["doctor", "install", "missing"],  # batch install confirm
+        ["doctor", "research", "burpsuite"],  # researched plan preview + confirm
     ],
 )
 def test_is_interactive_true(args: list[str]) -> None:
@@ -435,6 +437,8 @@ def test_is_interactive_true(args: list[str]) -> None:
         ["set", "provider", "openai"],  # a value -> one-shot
         ["set", "mode", "pentest"],
         ["set", "thread", "new"],
+        ["doctor", "install", "nmap"],  # naming the tool is the confirm -> one-shot
+        ["doctor", "research"],  # no tool named -> not a runnable research request
     ],
 )
 def test_is_interactive_false(args: list[str]) -> None:

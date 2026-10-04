@@ -31,6 +31,7 @@ second checkout can never clobber the first one's data.
 from __future__ import annotations
 
 import shutil
+import sys
 from importlib.resources import files
 from pathlib import Path
 
@@ -159,10 +160,31 @@ def initialise(
     return lines
 
 
+_USAGE = (
+    "usage: skuggi-init  (takes no arguments; it seeds and migrates the config "
+    "and data homes, idempotently)"
+)
+
+
 def main() -> int:
-    """Console entry point: initialise both homes and report what happened."""
+    """Console entry point: initialise both homes and report what happened.
+
+    ``skuggi-init`` takes no parameters. The command wrapper calls this with
+    whatever the operator typed on ``sys.argv``; an argument is therefore always a
+    mistake -- a flag expected to mean something, a stray path -- so it is called
+    out rather than silently dropped. The seeding still runs afterwards: an
+    operator who tacked on an argument still wants their homes in place, and the
+    whole thing is idempotent, so a notice is friendlier than a hard failure.
+    """
     setup_logging()
     get_logger(__name__).info("skuggi-init starting")
+    extra = sys.argv[1:]
+    if extra:
+        print(
+            f"skuggi-init: ignoring unexpected argument(s): {' '.join(extra)}",
+            file=sys.stderr,
+        )
+        print(_USAGE, file=sys.stderr)
     for line in initialise():
         print(line)
     return 0

@@ -24,7 +24,9 @@ from skuggi.common import execution
 from skuggi.common.execution import CommandResult
 from skuggi.common.paths import ensure_parent
 from skuggi.tooling.registry import (
+    InstallOutcome,
     InstallPlan,
+    PackageHit,
     RuntimeSpec,
     RuntimeStatus,
     ToolRegistry,
@@ -41,6 +43,15 @@ Runner = Callable[..., CommandResult]
 _VERSION_PROBE_TIMEOUT = 5.0
 _PROBE_WORKERS = 8
 _INSTALL_TIMEOUT = 600.0
+_SEARCH_TIMEOUT = 20.0
+_MAX_HITS_PER_INSTALLER = 25
+
+# A query safe to pass as a search term: name-like, no leading dash (so it can
+# never be read as a flag) and only characters a package name uses.
+_SEARCHABLE_QUERY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
+# A package token we are willing to return. Kept within what `safe_cmd_fragment`
+# accepts, so every hit can be rebuilt into an install argv without rejection.
+_SAFE_PKG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./=-]*$")
 
 
 def managed_bin(managed_dir: Path) -> Path:
@@ -210,25 +221,70 @@ def install_tool(
             spec=spec, found=False, path=None, version=None, source="unavailable"
         )
 
-    if plan.target == "managed":
-        _ensure_managed_venv(managed_dir, runner)
-        pip = managed_bin(managed_dir) / "pip"
-        # Replace a leading "pip"/"pip3" token with the venv's pip.
-        rest = (
-            plan.argv[1:] if plan.argv and plan.argv[0].startswith("pip") else plan.argv
-        )
-        argv: tuple[str, ...] = (str(pip), *rest)
-    else:
-        argv = plan.argv
-
-    runner(list(argv), timeout=_INSTALL_TIMEOUT, cwd=Path.cwd())
+    argv = _install_argv(plan, managed_dir, runner)
+    result = runner(list(argv), timeout=_INSTALL_TIMEOUT, cwd=Path.cwd())
     path, where = _resolve(spec, source=source, managed_dir=managed_dir)
+    if path is None and plan.is_cask and result.exit_code == 0:
+        # A Homebrew cask installs a GUI .app, not a PATH binary, so `_resolve`
+        # will never find it -- reporting that as "install failed" is the bug that
+        # made burpsuite/bloodhound look broken after a clean install. A clean exit
+        # is the only success signal a cask gives, so trust it.
+        return ToolStatus(spec=spec, found=True, path=None, version=None, source="cask")
     return ToolStatus(
         spec=spec,
         found=path is not None,
         path=path,
         version=_read_version(spec, path, runner),
         source=where,
+    )
+
+
+def _install_argv(
+    plan: InstallPlan, managed_dir: Path, runner: Runner
+) -> tuple[str, ...]:
+    """The argv to actually run for `plan`, bootstrapping the managed venv if needed.
+
+    A ``managed`` (pip) plan installs into skuggi's own venv: the venv is created on
+    first use and the leading ``pip``/``pip3`` token is rewritten to that venv's pip.
+    A host plan runs verbatim. Shared by :func:`install_tool` and
+    :func:`install_with_plan` so the pip-into-venv handling lives in one place.
+    """
+    if plan.target != "managed":
+        return plan.argv
+    _ensure_managed_venv(managed_dir, runner)
+    pip = managed_bin(managed_dir) / "pip"
+    rest = plan.argv[1:] if plan.argv and plan.argv[0].startswith("pip") else plan.argv
+    return (str(pip), *rest)
+
+
+def install_with_plan(
+    plan: InstallPlan,
+    binary: str,
+    *,
+    managed_dir: Path,
+    runner: Runner = execution.run,
+) -> InstallOutcome:
+    """Run a researched `plan` to install `binary`, then report the outcome.
+
+    Unlike :func:`install_tool`, there is no registry ``ToolSpec``: the plan was
+    produced by install research (searching the host's package managers), so the
+    tool is re-probed with a plain ``shutil.which(binary)``. The caller must have
+    gated this behind the operator's approval. A non-zero exit is a failure; a cask
+    that exits clean counts as installed even though its GUI app is not on PATH.
+    """
+    argv = _install_argv(plan, managed_dir, runner)
+    result = runner(list(argv), timeout=_INSTALL_TIMEOUT, cwd=Path.cwd())
+    if result.exit_code != 0:
+        return InstallOutcome(
+            binary=binary, installed=False, path=None, source="failed"
+        )
+    resolved = shutil.which(binary)
+    path = Path(resolved) if resolved is not None else None
+    if plan.is_cask:
+        return InstallOutcome(binary=binary, installed=True, path=path, source="cask")
+    source = "managed" if plan.target == "managed" else "host"
+    return InstallOutcome(
+        binary=binary, installed=path is not None, path=path, source=source
     )
 
 
@@ -261,6 +317,80 @@ def available_installers() -> frozenset[str]:
     if shutil.which("pip") or shutil.which("pip3") or shutil.which("python3"):
         found.add("pip")
     return frozenset(found)
+
+
+def _brew_search(query: str, *, cask: bool, runner: Runner) -> list[PackageHit]:
+    """Search Homebrew formulae (or casks) for `query`; [] on any error."""
+    kind = "--cask" if cask else "--formula"
+    result = runner(
+        ["brew", "search", kind, query], timeout=_SEARCH_TIMEOUT, cwd=Path.cwd()
+    )
+    if result.exit_code != 0:
+        return []
+    installer = "brew-cask" if cask else "brew"
+    hits: list[PackageHit] = []
+    for line in result.stdout.splitlines():
+        name = line.strip()
+        # Skip brew's section headers ("==> Formulae") and its "If you meant ..."
+        # tap suggestions; keep only bare, install-safe tokens.
+        if not name or name.startswith("==>") or not _SAFE_PKG.match(name):
+            continue
+        hits.append(PackageHit(installer=installer, name=name))
+        if len(hits) >= _MAX_HITS_PER_INSTALLER:
+            break
+    return hits
+
+
+def _apt_search(query: str, *, runner: Runner) -> list[PackageHit]:
+    """Search apt's package index for `query` (``name - description``); [] on error."""
+    result = runner(
+        ["apt-cache", "search", query], timeout=_SEARCH_TIMEOUT, cwd=Path.cwd()
+    )
+    if result.exit_code != 0:
+        return []
+    hits: list[PackageHit] = []
+    for line in result.stdout.splitlines():
+        name, _, summary = line.partition(" - ")
+        name = name.strip()
+        if not name or not _SAFE_PKG.match(name):
+            continue
+        hits.append(
+            PackageHit(installer="apt", name=name, summary=summary.strip()[:120])
+        )
+        if len(hits) >= _MAX_HITS_PER_INSTALLER:
+            break
+    return hits
+
+
+def search_packages(
+    query: str,
+    *,
+    installers: frozenset[str],
+    runner: Runner = execution.run,
+) -> list[PackageHit]:
+    """Search every available host package manager for `query`, read-only.
+
+    The deterministic grounding for install research: it SEARCHES, never installs,
+    so a caller can resolve a tool whose exact package name it does not know. Only
+    the installers the host actually has are queried (`available_installers`), and
+    each search is best-effort -- one that errors or times out contributes no hits
+    rather than failing the call. `query` is validated to a name-like token first,
+    so it can never be read as a flag or carry shell metacharacters. Searches run
+    concurrently, like the host probes.
+    """
+    query = query.strip()
+    if not _SEARCHABLE_QUERY.match(query):
+        return []
+    probes: list[Callable[[], list[PackageHit]]] = []
+    if "brew" in installers:
+        probes.append(lambda: _brew_search(query, cask=False, runner=runner))
+        probes.append(lambda: _brew_search(query, cask=True, runner=runner))
+    if "apt" in installers:
+        probes.append(lambda: _apt_search(query, runner=runner))
+    hits: list[PackageHit] = []
+    for batch in _map_concurrently(lambda probe_fn: probe_fn(), tuple(probes)):
+        hits.extend(batch)
+    return hits
 
 
 # The interpreters and build tools an operator relies on to run scripts and

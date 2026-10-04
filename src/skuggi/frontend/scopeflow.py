@@ -52,7 +52,9 @@ def run_scope_request(  # noqa: PLR0913 -- keyword-only collaborators + the requ
     notify("proposed scope changes:")
     for field, old, new in rows:
         notify(f"  {field}: {old} -> {new}")
-    if not confirm_write("scope-edit", grants=grants, choose=choose, notify=notify):
+    if not confirm_write(
+        "scope-edit", grants=grants, choose=choose, notify=notify, agentic=True
+    ):
         notify("scope unchanged")
         return
     notify(apply(edits))

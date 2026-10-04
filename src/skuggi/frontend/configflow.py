@@ -46,7 +46,9 @@ def run_config_request(  # noqa: PLR0913 -- keyword-only collaborators + the req
     notify("proposed changes:")
     for key, value in proposals:
         notify(f"  {key} = {value}")
-    if not confirm_write("config", grants=grants, choose=choose, notify=notify):
+    if not confirm_write(
+        "config", grants=grants, choose=choose, notify=notify, agentic=True
+    ):
         notify("config unchanged")
         return
     for key, value in proposals:

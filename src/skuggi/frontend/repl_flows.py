@@ -207,6 +207,19 @@ class ReplFlows:
             propose=self._core.doctor.propose_installs,
             install=self._core.doctor.install,
             grants=self._core.grants,
+            pending=lambda label: self._console.status(label, spinner="dots"),
+        )
+
+    def research_install(self, tool: str) -> None:
+        """Research how to install `tool`, then confirm and install (gated)."""
+        installflow.run_install_research(
+            tool,
+            choose=self.choose,
+            notify=self._notify,
+            research=self._core.installer.research,
+            install=self._core.installer.install,
+            grants=self._core.grants,
+            pending=lambda label: self._console.status(label, spinner="dots"),
         )
 
     # ----- cmd registry ------------------------------------------------------

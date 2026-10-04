@@ -20,29 +20,38 @@ if TYPE_CHECKING:
 Choose = Callable[[str, list[str], str | None], str | None]
 Notify = Callable[[str], None]
 
-SESSION = "yes (rest of session)"
+SESSION = "approve for session"
 
 
-def confirm_write(
+def confirm_write(  # noqa: PLR0913 -- the capability + keyword-only collaborators and options
     capability: str,
     *,
     grants: SessionGrants,
     choose: Choose,
     notify: Notify,
     prompt: str = "Apply these changes?",
+    agentic: bool = False,
 ) -> bool:
     """Return whether to apply the previewed write, using the session grant.
 
+    This is the gated-write confirm, distinct from a plain ``yes``/``no`` question
+    (`menu.confirm`): the operator is authorising an action, so the three-way menu
+    reads ``approve`` / ``approve for session`` / ``deny`` -- apply once, apply and
+    grant for the rest of the session, or decline (the default, and what a ``None``
+    abort maps to). `agentic` marks a write the *model* proposed (the natural-language
+    config/scope/cmd edits, install research): it adds a line making clear the
+    operator is approving an agent decision, not a deterministic harness action.
+
     A standing grant for `capability` auto-applies, but announces itself so the
-    operator always sees a write happen. Otherwise a three-way menu: apply once,
-    apply and grant for the rest of the session, or abort (the default, and what a
-    ``None`` abort maps to).
+    operator always sees a write happen.
     """
     if grants.granted(capability):
         notify(f"(session grant for {capability} active — applying without asking)")
         return True
-    choice = choose(prompt, ["yes", SESSION, "no"], "no")
+    if agentic:
+        notify("↳ the agent proposes this — approve to apply, deny to reject")
+    choice = choose(prompt, ["approve", SESSION, "deny"], "deny")
     if choice == SESSION:
         grants.grant(capability)
         return True
-    return choice == "yes"
+    return choice == "approve"

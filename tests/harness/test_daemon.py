@@ -339,8 +339,8 @@ def test_attach_config_request_confirms_and_applies(
         daemon.core.config, "propose", lambda _request: [("mode", "blueteam")]
     )
     # The confirm is a menu now: the daemon emits a {"choose"} frame and the
-    # client sends back the selected option ("yes").
-    answers = iter(["set config switch to blue team", "yes"])
+    # client sends back the selected option ("approve" for an agentic gated write).
+    answers = iter(["set config switch to blue team", "approve"])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
     assert [f["choose"] for f in emitted if "choose" in f]  # asked to confirm

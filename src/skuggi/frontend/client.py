@@ -52,7 +52,8 @@ class _Spinner:
     unaffected.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, label: str = "working...") -> None:
+        self._label = label
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -66,7 +67,7 @@ class _Spinner:
         i = 0
         while not self._stop.wait(_SPINNER_INTERVAL_S):
             frame = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
-            sys.stderr.write(f"\r{frame} working...")
+            sys.stderr.write(f"\r\x1b[K{frame} {self._label}")
             sys.stderr.flush()
             i += 1
 
@@ -335,8 +336,11 @@ def _is_interactive(args: list[str]) -> bool:
     if args[0] in _INTERACTIVE_VERBS:
         return True
     # `doctor install missing` confirms a batch install; `doctor install <tool>`
-    # stays one-shot (naming the tool is the confirm).
+    # stays one-shot (naming the tool is the confirm). `doctor research <tool>`
+    # previews a researched plan and confirms it, so it needs the round-trip too.
     if args[0] == "doctor" and args[1:3] == ["install", "missing"]:
+        return True
+    if args[0] == "doctor" and len(args) >= 3 and args[1] == "research":  # noqa: PLR2004 -- verb + noun + tool
         return True
     return len(args) == 2 and args[0] == "set" and args[1] in {"provider", "model"}  # noqa: PLR2004 -- verb + noun, no value
 
@@ -368,6 +372,35 @@ def _multiselect_frame(spec: object) -> list[str] | None:  # pragma: no cover
     return menu.multiselect(prompt, options, preselected=preselected)
 
 
+def _dispatch_interactive(
+    resp: Mapping[str, object],
+    conn: socket.socket | None,
+    ask: Callable[[str], str | None] | None,
+) -> str | None:
+    """Handle an interactive frame (wizard ``ask``, ``choose``, ``multiselect``).
+
+    Returns ``"leave"`` if the operator aborted (end the turn), ``"handled"`` if the
+    frame was an interactive prompt and its answer was sent, or ``None`` if `resp`
+    is not an interactive frame and the caller should process it normally. Split out
+    of `_stream_turn` so that loop stays within its branch budget.
+    """
+    if conn is None:
+        return None
+    if "ask" in resp and ask is not None:
+        reply = ask(str(resp["ask"]))
+    elif "choose" in resp:
+        reply = _choose_frame(resp["choose"])
+    elif "multiselect" in resp:
+        picks = _multiselect_frame(resp["multiselect"])
+        reply = None if picks is None else json.dumps(picks)
+    else:
+        return None
+    if reply is None:  # operator aborted the prompt
+        return "leave"
+    _send(conn, build_message(reply))
+    return "handled"
+
+
 def _stream_turn(
     frames: Iterator[bytes],
     out: TextIO,
@@ -386,39 +419,42 @@ def _stream_turn(
     connection closed mid-turn). Shared by the attach loop, which reads many
     replies off one long-lived frame stream.
     """
-    for line in frames:
-        if spinner is not None:
-            spinner.stop()  # first frame arrived; stop the spinner (idempotent)
-        try:
-            resp = json.loads(line)
-        except json.JSONDecodeError:
-            log.warning("dropping malformed daemon frame: %r", line)
-            continue
-        if "ask" in resp and conn is not None and ask is not None:
-            answer = ask(str(resp["ask"]))
-            if answer is None:  # operator aborted the wizard
+    # A `pending` frame (e.g. an install about to block) starts its own labelled
+    # spinner; the *next* frame -- the result line -- stops it, same as the turn
+    # spinner above. Tracked locally, and cleared in `finally`, so a mid-turn
+    # Ctrl-C (which returns up through here) still erases the spinner's line.
+    pending_spin: _Spinner | None = None
+    try:
+        for line in frames:
+            if spinner is not None:
+                spinner.stop()  # first frame arrived; stop the spinner (idempotent)
+            if pending_spin is not None:
+                pending_spin.stop()
+                pending_spin = None
+            try:
+                resp = json.loads(line)
+            except json.JSONDecodeError:
+                log.warning("dropping malformed daemon frame: %r", line)
+                continue
+            if "pending" in resp:
+                pending_spin = _Spinner(str(resp["pending"]))
+                pending_spin.maybe_start()
+                continue
+            interactive = _dispatch_interactive(resp, conn, ask)
+            if interactive == "leave":
                 return True
-            _send(conn, build_message(answer))
-            continue
-        if "choose" in resp and conn is not None:
-            selection = _choose_frame(resp["choose"])
-            if selection is None:  # operator aborted the menu
-                return True
-            _send(conn, build_message(selection))
-            continue
-        if "multiselect" in resp and conn is not None:
-            picks = _multiselect_frame(resp["multiselect"])
-            if picks is None:  # operator aborted the checklist
-                return True
-            _send(conn, build_message(json.dumps(picks)))
-            continue
-        chunk = resp.get("chunk")
-        if chunk:
-            out.write(chunk)
-            out.flush()
-        if resp.get("end"):
-            return bool(resp.get("exit"))
-    return False
+            if interactive == "handled":
+                continue
+            chunk = resp.get("chunk")
+            if chunk:
+                out.write(chunk)
+                out.flush()
+            if resp.get("end"):
+                return bool(resp.get("exit"))
+        return False
+    finally:
+        if pending_spin is not None:
+            pending_spin.stop()
 
 
 class _Reconnect:

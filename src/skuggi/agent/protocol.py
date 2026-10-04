@@ -371,6 +371,36 @@ class CmdProposal(BaseModel):
     label: str = ""
 
 
+class InstallCandidate(BaseModel):
+    """One package the model picked to install a requested tool.
+
+    Validator-free (like ``CmdProposal``): the harness re-validates every field --
+    allow-listing the installer, checking the package against the search results it
+    was shown (grounding), and rebuilding the argv itself -- so a stray or malicious
+    value can never become an executed command. ``package`` must be copied verbatim
+    from the search results, never invented.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    installer: str = ""  # "brew" | "brew-cask" | "apt" | "pip"
+    package: str = ""
+    rationale: str = ""
+
+
+class InstallResearch(BaseModel):
+    """The install researcher's strict output: grounded candidates, or advice.
+
+    Empty ``candidates`` with non-empty ``advice`` means "nothing in the search
+    results installs this tool -- here is what to do instead" (e.g. a manual step).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    candidates: tuple[InstallCandidate, ...] = ()
+    advice: str = ""
+
+
 class MemoryExtraction(BaseModel):
     """The automatic-memory extractor's strict output: durable directives only."""
 

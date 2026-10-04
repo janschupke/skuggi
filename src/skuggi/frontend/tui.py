@@ -404,6 +404,13 @@ class Tui:
         )
 
     def _cmd_doctor(self, arg: str) -> None:
+        research_target = dispatch.doctor_research_target(arg)
+        if research_target is not None:
+            if research_target:
+                self._flows.research_install(research_target)
+            else:
+                self.console.print("usage: doctor research <tool>")
+            return
         target = dispatch.doctor_install_target(arg)
         if target == "missing":
             self._flows.install_missing()
@@ -419,10 +426,12 @@ class Tui:
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""
-        self.console.print(f"[dim]installing {binary}...[/dim]")
-        match dispatch.run_install(self.core, binary):
+        with self.console.status(f"installing {binary}…", spinner="dots"):
+            outcome = dispatch.run_install(self.core, binary)
+        match outcome:
             case outcomes.InstallUnknown(name):
                 self.console.print(f"[red]unknown tool:[/red] {name!r}")
+                self.console.print(f"[dim]try: doctor research {name}[/dim]")
             case outcomes.Installed(name, version, source):
                 self.console.print(
                     f"[green]installed[/green] {name} ({version or '?'}) via {source}"
@@ -431,6 +440,7 @@ class Tui:
                 self.console.print(
                     f"[red]install failed or unavailable[/red] for {name}"
                 )
+                self.console.print(f"[dim]try: doctor research {name}[/dim]")
 
     def _cmd_cmd(self, arg: str) -> None:  # noqa: PLR0911 -- one return per cmd sub-command
         """Search the cheatsheet, resolve an exact alias, or edit the registry."""

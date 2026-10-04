@@ -108,7 +108,7 @@ def test_suggest_nothing_proposed() -> None:
     save = _Saver()
     run_cmd_suggest(
         "x",
-        choose=_choose_const("yes"),
+        choose=_choose_const("approve"),
         notify=notes.append,
         propose=lambda _r: CmdProposal(),  # empty name/argv
         preview=lambda _p: "unused",
@@ -129,7 +129,7 @@ def test_suggest_invalid_proposal_is_reported() -> None:
 
     run_cmd_suggest(
         "x",
-        choose=_choose_const("yes"),
+        choose=_choose_const("approve"),
         notify=notes.append,
         propose=lambda _r: _PROPOSAL,
         preview=boom,
@@ -144,7 +144,7 @@ def test_suggest_declined_does_not_save() -> None:
     save = _Saver()
     run_cmd_suggest(
         "x",
-        choose=_choose_const("no"),
+        choose=_choose_const("deny"),
         notify=lambda _m: None,
         propose=lambda _r: _PROPOSAL,
         preview=lambda _p: "nmap -F ${target}",
@@ -159,7 +159,7 @@ def test_suggest_confirmed_saves_and_previews() -> None:
     save = _Saver()
     run_cmd_suggest(
         "x",
-        choose=_choose_const("yes"),
+        choose=_choose_const("approve"),
         notify=notes.append,
         propose=lambda _r: _PROPOSAL,
         preview=lambda _p: "nmap -F ${target}",

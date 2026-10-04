@@ -200,6 +200,12 @@ class Daemon:
             if attach.is_install_missing(line):
                 attach.attach_install_missing(self.core, self._lock, read_line, emit)
                 continue
+            research_tool = attach.doctor_research_tool(line)
+            if research_tool is not None:
+                attach.attach_doctor_research(
+                    self.core, self._lock, research_tool, read_line, emit
+                )
+                continue
             exit_session = False
             for resp in self.handle_request({"op": "input", "text": line}):
                 emit(resp)

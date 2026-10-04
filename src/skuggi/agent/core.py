@@ -27,6 +27,7 @@ from skuggi.agent.config_controller import ConfigController
 from skuggi.agent.engagement_manager import EngagementManager
 from skuggi.agent.grants import SessionGrants
 from skuggi.agent.graph import GraphDeps, build_graph
+from skuggi.agent.install_researcher import InstallResearcher
 from skuggi.agent.journal import Journal
 from skuggi.agent.modes import MODES, Mode, prompt_set
 from skuggi.agent.preferencebook import PreferenceBook
@@ -117,6 +118,7 @@ class AgentCore:
         self.config = ConfigController(self)
         self.scope = ScopeController(self)
         self.reconciler = ReconcileController(self)
+        self.installer = InstallResearcher(self)
 
     # ----- engagement plane (delegated to EngagementManager) -----------------
 

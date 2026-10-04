@@ -395,6 +395,18 @@ def doctor_install_target(arg: str) -> str | None:
     return parts[1] if len(parts) > 1 else ""
 
 
+def doctor_research_target(arg: str) -> str | None:
+    """The tool for a ``doctor research <tool>`` form, else ``None``.
+
+    ``research`` escalates to install research (search the host's package managers,
+    propose a grounded install). ``""`` means ``research`` with no tool named.
+    """
+    parts = arg.split()
+    if not parts or parts[0] != "research":
+        return None
+    return parts[1] if len(parts) > 1 else ""
+
+
 def run_install(core: AgentCore, binary: str) -> InstallOutcome:
     """Install one recognized tool. Issuing the command is itself the confirm."""
     status = core.doctor.install(binary)

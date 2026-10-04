@@ -204,7 +204,7 @@ VERBS: tuple[Verb, ...] = (
     Verb(
         "doctor",
         "probe host tools / runtimes / net tools",
-        "[install <tool>|install missing]",
+        "[install <tool>|install missing|research <tool>]",
         group="system",
     ),
     Verb(

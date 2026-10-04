@@ -173,11 +173,72 @@ class ToolStatus(NamedTuple):
 
 @dataclass(frozen=True, slots=True)
 class InstallPlan:
-    """A selected, not-yet-run install command."""
+    """A selected, not-yet-run install command.
+
+    `rationale`/`source` are set only for a *researched* plan (an unregistered tool
+    resolved by searching the host's package managers): they carry why this command
+    was chosen and where the name came from, so the operator sees it before the
+    approve gate. They stay ``None`` for a plan taken straight from the registry.
+    """
 
     argv: tuple[str, ...]
     target: str  # "host" | "managed"
     installer: str  # "brew" | "apt" | "pip"
+    rationale: str | None = None
+    source: str | None = None
+
+    @property
+    def is_cask(self) -> bool:
+        """Whether this installs a Homebrew *cask* (a GUI app, not a PATH binary).
+
+        A cask (``brew install --cask burp-suite``) drops an ``.app`` bundle, so the
+        installed tool never appears on ``PATH`` -- the post-install binary probe
+        cannot see it, and a clean exit is the only success signal. Callers use this
+        to avoid reporting a succeeded cask install as a failure. Detected from the
+        argv so it holds for a registry plan (``installer="brew"``) and a researched
+        one (``installer="brew-cask"``) alike.
+        """
+        return "--cask" in self.argv
+
+
+class ResearchResult(NamedTuple):
+    """What install research produced for a tool: grounded plans and/or advice.
+
+    ``plans`` are validated, ready-to-preview install commands (empty if nothing in
+    the host's package managers matched); ``advice`` is a one-line fallback for when
+    there is no installable candidate (e.g. a manual download step).
+    """
+
+    plans: tuple[InstallPlan, ...] = ()
+    advice: str = ""
+
+
+class InstallOutcome(NamedTuple):
+    """The result of running a researched (ad-hoc) install plan for a binary.
+
+    Unlike :class:`ToolStatus`, there is no registry ``ToolSpec`` behind it: the
+    tool was resolved by searching, not from the registry, so this carries just the
+    requested binary and whether it is now installed.
+    """
+
+    binary: str
+    installed: bool
+    path: Path | None
+    source: str  # "host" | "cask" | "managed" | "failed"
+
+
+class PackageHit(NamedTuple):
+    """One candidate package found by searching a host package manager.
+
+    The deterministic grounding for install research: an installer the host has,
+    the exact package token it returned, and its one-line description. A researched
+    install command is only ever built from a token that appears here, so the model
+    can never invent a package name a real search never produced.
+    """
+
+    installer: str  # "brew" | "brew-cask" | "apt"
+    name: str
+    summary: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import json
 import zoneinfo
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from skuggi.agent import protocol
@@ -30,6 +31,7 @@ from skuggi.frontend import (
     verbs,
     wizard,
 )
+from skuggi.frontend.confirm import Choose, Notify
 from skuggi.frontend.prompter import Prompter
 
 if TYPE_CHECKING:
@@ -377,22 +379,75 @@ def is_install_missing(line: str) -> bool:
     return verb == "doctor" and dispatch.doctor_install_target(rest) == "missing"
 
 
-def attach_install_missing(
-    core: AgentCore, lock: threading.Lock, read_line: ReadLine, emit: Emit
-) -> None:
-    """Install the missing scoped tools over the attach connection."""
+def doctor_research_tool(line: str) -> str | None:
+    """The tool for a ``doctor research <tool>`` line, else ``None`` (not that verb)."""
+    verb, rest = verbs.split_verb(line)
+    if verb != "doctor":
+        return None
+    target = dispatch.doctor_research_target(rest)
+    return target or None  # "" (no tool named) is not a runnable research request
+
+
+def _install_frames(read_line: ReadLine, emit: Emit) -> tuple[Choose, Notify]:
+    """The ``choose``/``notify`` closures shared by the install flows over the socket.
+
+    ``choose`` round-trips a menu to the client; ``notify`` emits one output line.
+    """
 
     def choose(prompt: str, options: list[str], default: str | None) -> str | None:
         emit({"choose": {"prompt": prompt, "options": options, "default": default}})
         return read_line()
 
+    return choose, lambda text: emit({"chunk": text + "\n"})
+
+
+def _pending_frames(emit: Emit) -> installflow.Pending:
+    @contextmanager
+    def pending(label: str) -> Iterator[None]:
+        # Tell the client to spin with `label` while this install blocks; the result
+        # `chunk` frame that follows stops that spinner on the client side.
+        emit({"pending": label})
+        yield
+
+    return pending
+
+
+def attach_install_missing(
+    core: AgentCore, lock: threading.Lock, read_line: ReadLine, emit: Emit
+) -> None:
+    """Install the missing scoped tools over the attach connection."""
+    choose, notify = _install_frames(read_line, emit)
     core.note_interaction("doctor", "install missing")
     with lock:
         installflow.run_install_missing(
             choose=choose,
-            notify=lambda text: emit({"chunk": text + "\n"}),
+            notify=notify,
             propose=core.doctor.propose_installs,
             install=core.doctor.install,
             grants=core.grants,
+            pending=_pending_frames(emit),
+        )
+    emit({"end": True, "exit": False})
+
+
+def attach_doctor_research(
+    core: AgentCore,
+    lock: threading.Lock,
+    tool: str,
+    read_line: ReadLine,
+    emit: Emit,
+) -> None:
+    """Research how to install `tool`, then confirm and install, over the socket."""
+    choose, notify = _install_frames(read_line, emit)
+    core.note_interaction("doctor", f"research {tool}")
+    with lock:
+        installflow.run_install_research(
+            tool,
+            choose=choose,
+            notify=notify,
+            research=core.installer.research,
+            install=core.installer.install,
+            grants=core.grants,
+            pending=_pending_frames(emit),
         )
     emit({"end": True, "exit": False})

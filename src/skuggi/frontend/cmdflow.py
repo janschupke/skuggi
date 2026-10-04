@@ -140,7 +140,9 @@ def run_cmd_suggest(  # noqa: PLR0913 -- keyword-only collaborators + the reques
         return
     notify(f"proposed alias '{proposal.name}':")
     notify(f"  {rendered}")
-    if not confirm_write("cmd-edit", grants=grants, choose=choose, notify=notify):
+    if not confirm_write(
+        "cmd-edit", grants=grants, choose=choose, notify=notify, agentic=True
+    ):
         notify("cmd unchanged")
         return
     notify(apply(proposal))
