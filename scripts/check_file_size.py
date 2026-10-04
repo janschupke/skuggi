@@ -7,20 +7,25 @@ module has a ceiling, past which it should be split along a real seam -- never a
 arbitrary part-1/part-2 cut. It runs inside ``make check`` and CI alongside
 ruff/mypy, and as a pre-commit hook.
 
-The cap catches bloat; it does not force cosmetic splits. Nothing sits near it: the
-former hub ``agent/core.py`` was decomposed into a facade over collaborators
-(``provider_kernel``, ``engagement_manager``, ``turn_runner``,
-``reconcile_controller``), and the two largest files (``frontend/tui.py``,
-``persistence/ledger.py``) are each a cohesive single class comfortably under it.
+The cap catches bloat; it does not force cosmetic splits. The 700-line ceiling is
+set to the honest floor of ``frontend/daemon.py`` -- a cohesive verb-dispatch class
+whose only candidate seam (its attach-session router) would be a cosmetic cut, so
+it stays whole as the tallest file. Everything else sits well under: the former hub
+``agent/core.py`` is a facade over four collaborators (``provider_kernel``,
+``engagement_manager``, ``turn_runner``, ``reconcile_controller``);
+``persistence/ledger.py`` shed its data definitions to ``ledger_schema``;
+``agent/graph.py`` shed the executor sub-system; ``engagement/engagement.py`` split
+into ``scope`` + ``guard``; ``persistence/visualize.py`` split its view-model
+builder from the writer; and ``frontend/tui.py`` shed its interactive flows to
+``repl_flows``.
 
 If a file needs to grow past the cap, that is the signal to find a genuine seam --
-the way ``dispatch.py`` became ``outcomes``/``presenters``, ``daemon.py`` shed
-``daemon_server``/``attach``, and ``core.py`` became a facade over four
-collaborators -- not to raise the cap.
+the way ``dispatch.py`` became ``outcomes``/``presenters`` and ``daemon.py`` shed
+``daemon_server``/``attach`` -- not to raise the cap or make an arbitrary cut.
 
 Usage:
     python scripts/check_file_size.py            # gate the tree
-    python scripts/check_file_size.py --max 800  # try a tighter cap
+    python scripts/check_file_size.py --max 600  # try a tighter cap
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ from pathlib import Path
 # The numbered practice labs hold deliberately-messy vulnerable app code and are
 # excluded from every gate, this one included.
 ROOTS = ("src/skuggi", "tests", "labs/_lib", "scripts")
-MAX_LINES = 900
+MAX_LINES = 700
 
 
 def _line_count(path: Path) -> int:
