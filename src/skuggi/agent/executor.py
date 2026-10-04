@@ -29,11 +29,13 @@ from skuggi.security.policy import RedactionPolicy
 from skuggi.security.redaction import redact
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
     from skuggi.agent.graph import GraphDeps
+    from skuggi.agent.protocol import FindingDraft
     from skuggi.agent.state import AgentState, ExecutorUpdate
+    from skuggi.engagement.engagement import EngagementConfig
 
 log = get_logger(__name__)
 
@@ -241,27 +243,28 @@ def _run_or_propose(
     return cid, brief, True
 
 
-def _record_findings(
-    deps: GraphDeps, resp: WorkerResponse, command_id: int | None
+def record_finding_drafts(
+    ledger: Ledger,
+    findings: Sequence[FindingDraft],
+    *,
+    session_id: str,
+    engagement: EngagementConfig | None,
+    command_id: int | None,
 ) -> None:
-    """Record each of the worker's findings, linked to the command it cites."""
-    if deps.ledger is None or not deps.session_id or not resp.findings:
+    """Persist a batch of ``FindingDraft``s to the ledger (the shared recorder).
+
+    The single write path for agent findings, whatever produced them: the turn
+    worker (linked to the command it cited) and the OSINT verifier (no command).
+    CVSS environmental metrics, the threat-model version and the primary taxonomy
+    are derived from the engagement exactly once, so the two callers cannot drift.
+    """
+    if not findings:
         return
-    link = (
-        command_id
-        if command_id is not None
-        else deps.ledger.latest_command_id(deps.session_id)
-    )
-    threat_model = deps.engagement.threat_model if deps.engagement else None
+    threat_model = engagement.threat_model if engagement else None
     env_metrics = threat_model.cvss_environmental_metrics() if threat_model else {}
-    tm_version = deps.ledger.current_threat_model_version() or None
-    primary = (
-        "attack"
-        if deps.engagement and deps.engagement.methodology == "attack"
-        else "wstg"
-    )
-    for finding in resp.findings:
-        vector = finding.cvss_vector or None
+    tm_version = ledger.current_threat_model_version() or None
+    primary = "attack" if engagement and engagement.methodology == "attack" else "wstg"
+    for finding in findings:
         refs = [
             FindingRefInput(
                 ref.framework, ref.ref_id, is_primary=ref.framework == primary
@@ -269,14 +272,14 @@ def _record_findings(
             for ref in finding.refs
         ]
         try:
-            deps.ledger.record_finding(
-                session_id=deps.session_id,
+            ledger.record_finding(
+                session_id=session_id,
                 title=finding.title,
                 severity=finding.severity,
                 description=finding.description,
                 evidence=finding.evidence,
-                command_id=link,
-                cvss_vector=vector,
+                command_id=command_id,
+                cvss_vector=finding.cvss_vector or None,
                 env_metrics=env_metrics,
                 tm_version=tm_version,
                 refs=refs,
@@ -290,3 +293,23 @@ def _record_findings(
                 "evidence loss: failed to record finding %r", finding.title
             )
             raise
+
+
+def _record_findings(
+    deps: GraphDeps, resp: WorkerResponse, command_id: int | None
+) -> None:
+    """Record each of the worker's findings, linked to the command it cites."""
+    if deps.ledger is None or not deps.session_id or not resp.findings:
+        return
+    link = (
+        command_id
+        if command_id is not None
+        else deps.ledger.latest_command_id(deps.session_id)
+    )
+    record_finding_drafts(
+        deps.ledger,
+        resp.findings,
+        session_id=deps.session_id,
+        engagement=deps.engagement,
+        command_id=link,
+    )

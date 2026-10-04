@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from skuggi.agent.protocol import FindingDraft
 from skuggi.engagement.scope import OsintSource
 
 
@@ -78,3 +79,21 @@ class OsintResult(BaseModel):
     subject: str
     items: tuple[OsintItem, ...] = ()
     note: str = ""
+
+
+class OsintVerdict(BaseModel):
+    """The verifier's strict output: coverage judgement + findings + a summary.
+
+    ``done`` ends the loop; otherwise ``gaps`` (objectives/sources still to cover)
+    feed the next planner pass, bounded by the replan cap. ``findings`` are the
+    security-relevant items the verifier promotes -- reused ``FindingDraft``s that
+    flow through the existing ledger/report path. ``summary`` is the operator-facing
+    answer the loop renders.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    done: bool = False
+    gaps: tuple[str, ...] = ()
+    summary: str = ""
+    findings: tuple[FindingDraft, ...] = ()

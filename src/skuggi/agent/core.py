@@ -53,10 +53,20 @@ from skuggi.engagement.workspace import (
 )
 from skuggi.install import configdiff, reconcile
 from skuggi.install import update as updater
+from skuggi.osint.collectors import default_collectors
+from skuggi.osint.collectors.apify import make_apify_run
+from skuggi.osint.collectors.base import CollectContext
+from skuggi.osint.collectors.base import default_fetch as osint_fetch
+from skuggi.osint.collectors.browser import default_driver_factory
+from skuggi.osint.deps import OsintDeps
+from skuggi.osint.graph import build_osint_graph
+from skuggi.osint.runner import OsintRunner
+from skuggi.osint.state import OsintState
 from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence import memory, preferences
 from skuggi.persistence.vectorstore import Store
 from skuggi.security.policy import RedactionPolicy
+from skuggi.security.redaction import redact
 from skuggi.security.vault import SecretVault
 from skuggi.tooling.commands import CommandRegistry
 from skuggi.tooling.registry import ToolRegistry
@@ -119,6 +129,7 @@ class AgentCore:
         self.scope = ScopeController(self)
         self.reconciler = ReconcileController(self)
         self.installer = InstallResearcher(self)
+        self.osint_runner = OsintRunner(self)
 
     # ----- engagement plane (delegated to EngagementManager) -----------------
 
@@ -287,16 +298,60 @@ class AgentCore:
     def _build(self) -> CompiledStateGraph[AgentState]:
         return build_graph(self._deps(), self.saver)
 
-    def rebuild_graph(self) -> None:
-        """Recompile the graph so ``GraphDeps`` picks up changed state.
+    def _osint_secrets(self) -> dict[str, str]:
+        """The OSINT collector credentials present in settings (empty when unset)."""
+        out: dict[str, str] = {}
+        for name in ("shodan_api_key", "apify_token", "osint_search_api_key"):
+            value = getattr(self.settings, name)
+            if value is not None:
+                out[name] = value.get_secret_value()
+        return out
 
-        The compiled graph snapshots config/scope/threat-model/preferences into
-        ``GraphDeps`` at build time, so any change to those must be followed by a
+    def _osint_collect_context(self) -> CollectContext:
+        """The injected collection context (fetch/driver/apify/secrets/redactor)."""
+        policy = self.redaction_policy()
+        vault = self.vault
+        secrets = self._osint_secrets()
+        return CollectContext(
+            fetch=osint_fetch,
+            clean=lambda text: redact(text, policy, vault),
+            secrets=secrets,
+            driver_factory=default_driver_factory(),
+            apify_run=make_apify_run(secrets.get("apify_token", "")),
+            source_config=self.settings.osint_source_config,
+        )
+
+    def _osint_deps(self) -> OsintDeps:
+        return OsintDeps(
+            llm=self.llm,
+            native_structured=self.settings.supports_structured_output(),
+            redaction_policy=self.redaction_policy(),
+            engagement=self.engagement,
+            osint=self.engagement.osint if self.engagement else None,
+            collectors=default_collectors(),
+            collect_context=self._osint_collect_context(),
+            workspace=self.workspace,
+            ledger=self.ledger,
+            session_id=self.session_id,
+            max_tasks=self.settings.osint_max_tasks,
+            max_replans=self.settings.osint_max_replans,
+        )
+
+    def _build_osint(self) -> CompiledStateGraph[OsintState]:
+        return build_osint_graph(self._osint_deps(), self.saver)
+
+    def rebuild_graph(self) -> None:
+        """Recompile both graphs so their deps pick up changed state.
+
+        The compiled graphs snapshot config/scope/threat-model/preferences into
+        their deps at build time, so any change to those must be followed by a
         rebuild. This is the one public seam for that: the core calls it itself
         after a session control, and a sub-component (e.g. the preference book)
-        calls it after mutating state the deps capture.
+        calls it after mutating state the deps capture. Both the conversational
+        turn graph and the OSINT loop are rebuilt together.
         """
         self.graph = self._build()
+        self.osint_graph = self._build_osint()
 
     def close(self) -> None:
         """Close the ledger, vault, preferences and checkpointer connections."""
@@ -413,3 +468,7 @@ class AgentCore:
     def turn(self, user_text: str) -> Iterator[TurnEvent]:
         """Run one agent turn, yielding events as the graph streams (delegated)."""
         yield from self.turn_runner.turn(user_text)
+
+    def osint_turn(self, request: str) -> Iterator[TurnEvent]:
+        """Run one autonomous OSINT loop, yielding events (delegated)."""
+        yield from self.osint_runner.osint_turn(request)

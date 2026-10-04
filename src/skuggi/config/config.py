@@ -367,6 +367,11 @@ class Settings(BaseSettings):
     osint_source_config: dict[str, dict[str, str]] = Field(
         default_factory=lambda: {"websearch": {"backend": "duckduckgo"}}
     )
+    # Bounds on the OSINT loop: the most tasks a single run collects, and how many
+    # times the verifier may re-plan to close coverage gaps. They size the OSINT
+    # graph's recursion limit (see skuggi.osint.graph.osint_recursion_limit).
+    osint_max_tasks: int = 12
+    osint_max_replans: int = 2
     ollama_base_url: str = Field(
         OLLAMA_BASE_URL_DEFAULT, validation_alias="OLLAMA_BASE_URL"
     )
