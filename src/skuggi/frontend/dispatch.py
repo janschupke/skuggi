@@ -32,6 +32,9 @@ from skuggi.frontend.outcomes import (
     EngagementAdopted,
     EngagementScaffolded,
     FindingRecorded,
+    Indexed,
+    IngestOutcome,
+    IngestUsage,
     Installed,
     InstallFailed,
     InstallOutcome,
@@ -69,6 +72,10 @@ from skuggi.frontend.outcomes import (
     ReplayList,
     ReplayOutcome,
     ReplayTranscript,
+    ReportNoteAdded,
+    ReportNoteUsage,
+    ReportOutcome,
+    ReportWritten,
     Scaffolded,
     ScaffoldError,
     ScaffoldExists,
@@ -77,8 +84,10 @@ from skuggi.frontend.outcomes import (
     SessionStats,
     SetEngagementError,
     SetEngagementOutcome,
+    VisualizeWritten,
 )
 from skuggi.install import reconcile
+from skuggi.persistence import reports, visualize
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
@@ -462,6 +471,30 @@ def _reconcile_row(core: AgentCore, status: reconcile.FileStatus) -> ReconcileRo
         return ReconcileRow(status, 0, 0, 0)
     d = core.reconcile_structured_diff(status.name)
     return ReconcileRow(status, len(d.added), len(d.removed), len(d.changed))
+
+
+def run_report(core: AgentCore, arg: str) -> ReportOutcome:
+    """Add a changelog note, or write a report (``report [note <text> | pdf]``)."""
+    first, _, rest = arg.strip().partition(" ")
+    if first.lower() == "note":
+        if not rest.strip():
+            return ReportNoteUsage()
+        return ReportNoteAdded(core.journal.add_report_note(rest))
+    result = core.journal.write_report(pdf=first.lower() == "pdf")
+    return ReportWritten(tuple(reports.report_written_lines(result)))
+
+
+def run_visualize(core: AgentCore) -> VisualizeWritten:
+    """Write the engagement visualization and report the output lines."""
+    path = core.journal.write_visualization()
+    return VisualizeWritten(tuple(visualize.visualization_written_lines(path)))
+
+
+def run_ingest(core: AgentCore, arg: str) -> IngestOutcome:
+    """Index a file or directory into the retrieval store (``ingest <path>``)."""
+    if not arg:
+        return IngestUsage()
+    return Indexed(core.ingest(Path(arg)))
 
 
 def run_reconcile(core: AgentCore, arg: str) -> ReconcileOutcome:  # noqa: PLR0911

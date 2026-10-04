@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
 from skuggi.agent.core import parse_toggle
-from skuggi.frontend import dispatch, presenters, verbs
+from skuggi.frontend import dispatch, presenters, presenters_journal, verbs
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
@@ -171,6 +171,21 @@ def resolve_cmd(core: AgentCore, name: str, surface: verbs.Surface) -> render.St
 def reconcile(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
     """Reconcile the installed config against the packaged templates."""
     return presenters.present_reconcile(dispatch.run_reconcile(core, rest), surface)
+
+
+def report(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
+    """Add a changelog note, or write an engagement report."""
+    return presenters_journal.present_report(dispatch.run_report(core, rest), surface)
+
+
+def visualize(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
+    """Write the engagement visualization."""
+    return presenters_journal.present_visualize(dispatch.run_visualize(core))
+
+
+def ingest(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
+    """Index a file or directory of docs into the retrieval store."""
+    return presenters_journal.present_ingest(dispatch.run_ingest(core, rest), surface)
 
 
 # ----- shared noun tables ----------------------------------------------------

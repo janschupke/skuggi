@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Iterator
-from pathlib import Path
 from typing import cast
 
 from skuggi.agent.core import AgentCore
@@ -42,7 +41,6 @@ from skuggi.frontend import (
     wizard,
 )
 from skuggi.install import reconcile
-from skuggi.persistence import reports, visualize
 from skuggi.tooling.commands import CommandAlias
 from skuggi.tooling.commands import render as render_alias
 from skuggi.tooling.doctor import (
@@ -291,14 +289,14 @@ class Daemon:
             "set": self._set,
             "remove": self._remove,
             "findings": self._findings,
-            "report": self._report,
-            "visualize": self._visualize,
+            "report": self._styled(control.report),
+            "visualize": self._styled(control.visualize),
             "replay": self._replay,
             "review": self._review,
             "engagement": self._engagement,
             "doctor": self._doctor,
             "login": self._login,
-            "ingest": self._ingest,
+            "ingest": self._styled(control.ingest),
             "update": self._update,
             "reconcile": self._reconcile,
             "clear": self._clear,
@@ -420,25 +418,6 @@ class Daemon:
             yield f"removed alias '{name}'\n"
         else:
             yield f"unknown alias {name!r}\n"
-
-    def _report(self, arg: str) -> Iterator[str]:
-        first, _, rest = arg.strip().partition(" ")
-        if first.lower() == "note":
-            if not rest.strip():
-                yield from self._emit(
-                    presenters.usage("report note <text>", self._surface())
-                )
-                return
-            yield f"changelog: {self.core.journal.add_report_note(rest)}\n"
-            return
-        result = self.core.journal.write_report(pdf=first.lower() == "pdf")
-        for line in reports.report_written_lines(result):
-            yield f"{line}\n"
-
-    def _visualize(self, _arg: str) -> Iterator[str]:
-        path = self.core.journal.write_visualization()
-        for line in visualize.visualization_written_lines(path):
-            yield f"{line}\n"
 
     def _replay(self, arg: str) -> Iterator[str]:
         match dispatch.run_replay(self.core, arg, current_id=self.core.session_id):
@@ -586,14 +565,6 @@ class Daemon:
     def _trace(self, _arg: str) -> Iterator[str]:
         yield from self._emit(
             presenters.present_trace(self.core.state().get("commands") or [])
-        )
-
-    def _ingest(self, arg: str) -> Iterator[str]:
-        if not arg:
-            yield from self._emit(presenters.usage("ingest <path>", self._surface()))
-            return
-        yield from self._emit(
-            [render.info(f"indexed {self.core.ingest(Path(arg))} chunk(s)")]
         )
 
     def _update(self, _arg: str) -> Iterator[str]:

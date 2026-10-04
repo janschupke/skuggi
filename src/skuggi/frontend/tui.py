@@ -9,7 +9,6 @@ only renders. The wrapped-shell daemon is the other front-end over the same core
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 from typing import cast
 
 from langgraph.graph.state import CompiledStateGraph
@@ -43,7 +42,6 @@ from skuggi.frontend import (
 )
 from skuggi.frontend.repl_flows import ReplFlows
 from skuggi.install import reconcile
-from skuggi.persistence import reports, visualize
 from skuggi.persistence.ledger import Ledger
 from skuggi.tooling.commands import CommandAlias
 from skuggi.tooling.commands import render as render_alias
@@ -136,12 +134,12 @@ class Tui:
             "login": self._flows.login,
             "doctor": self._cmd_doctor,
             "findings": self._cmd_findings,
-            "report": self._cmd_report,
-            "visualize": self._cmd_visualize,
+            "report": self._styled(control.report),
+            "visualize": self._styled(control.visualize),
             "replay": self._cmd_replay,
             "review": self._cmd_review,
             "clear": self._cmd_clear,
-            "ingest": self._cmd_ingest,
+            "ingest": self._styled(control.ingest),
             "update": self._cmd_update,
             "reconcile": self._cmd_reconcile,
         }
@@ -593,24 +591,6 @@ class Tui:
             return
         self._emit(presenters.present_findings_usage("repl"))
 
-    def _cmd_report(self, arg: str) -> None:
-        first, _, rest = arg.strip().partition(" ")
-        if first.lower() == "note":
-            if not rest.strip():
-                self._emit(presenters.usage("report note <text>", "repl"))
-                return
-            path = self.core.journal.add_report_note(rest)
-            self.console.print(f"[green]changelog: {path}[/green]")
-            return
-        result = self.core.journal.write_report(pdf=first.lower() == "pdf")
-        for line in reports.report_written_lines(result):
-            self.console.print(f"[green]{line}[/green]")
-
-    def _cmd_visualize(self, _arg: str) -> None:
-        path = self.core.journal.write_visualization()
-        for line in visualize.visualization_written_lines(path):
-            self.console.print(f"[green]{line}[/green]")
-
     def _cmd_replay(self, arg: str) -> None:
         """Reconstruct & view a session transcript (``list`` enumerates them)."""
         match dispatch.run_replay(self.core, arg, current_id=self.session_id):
@@ -641,12 +621,6 @@ class Tui:
 
     def _cmd_clear(self, _arg: str) -> None:
         self.console.clear()
-
-    def _cmd_ingest(self, arg: str) -> None:
-        if not arg:
-            self._emit(presenters.usage("ingest <path>", "repl"))
-            return
-        self._emit([render.info(f"indexed {self.core.ingest(Path(arg))} chunk(s)")])
 
     # ----- agent turn --------------------------------------------------------
 

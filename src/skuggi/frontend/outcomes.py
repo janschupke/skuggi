@@ -284,6 +284,50 @@ InstallOutcome = InstallUnknown | Installed | InstallFailed
 
 
 @dataclass(frozen=True, slots=True)
+class ReportNoteUsage:
+    """``report note`` with no text -- the front-end shows the usage line."""
+
+
+@dataclass(frozen=True, slots=True)
+class ReportNoteAdded:
+    """A changelog note was appended at `path`."""
+
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class ReportWritten:
+    """A report was written; `lines` are the human ``wrote …`` lines."""
+
+    lines: tuple[str, ...]
+
+
+ReportOutcome = ReportNoteUsage | ReportNoteAdded | ReportWritten
+
+
+@dataclass(frozen=True, slots=True)
+class VisualizeWritten:
+    """A visualization was written; `lines` are the human ``wrote …`` lines."""
+
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class IngestUsage:
+    """``ingest`` with no path -- the front-end shows the usage line."""
+
+
+@dataclass(frozen=True, slots=True)
+class Indexed:
+    """`count` chunks were indexed from the given path."""
+
+    count: int
+
+
+IngestOutcome = IngestUsage | Indexed
+
+
+@dataclass(frozen=True, slots=True)
 class ReplayEmpty:
     """``replay list`` with no sessions recorded yet."""
 
