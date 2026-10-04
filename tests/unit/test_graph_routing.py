@@ -11,14 +11,12 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from skuggi.agent.executor import _record_findings
 from skuggi.agent.graph import (
     GraphDeps,
-    last_user_text,
     needs_pipeline,
-    prior_turns,
-    render_history,
     route_after_critic,
     route_after_plan,
 )
 from skuggi.agent.protocol import FindingDraft, FindingRefDraft, WorkerResponse
+from skuggi.agent.requests import last_user_text, prior_turns, render_history
 from skuggi.agent.state import AgentState
 from skuggi.engagement.engagement import EngagementConfig, ThreatModel
 from skuggi.persistence.ledger import open_ledger

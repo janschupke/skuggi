@@ -23,19 +23,14 @@ exactly one rendered answer in the conversation rather than one per pass.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import (
-    AIMessage,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-)
+from langchain_core.messages import AIMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -53,8 +48,9 @@ from skuggi.agent.protocol import (
     methodology_phases,
     render_request,
     render_response,
-    structured_invoke,
 )
+from skuggi.agent.requests import ask as _ask
+from skuggi.agent.requests import last_user_text, prior_turns, render_history
 from skuggi.agent.state import (
     AgentState,
     ContextUpdate,
@@ -72,7 +68,6 @@ from skuggi.engagement.workspace import Workspace
 from skuggi.persistence.ledger import Ledger
 from skuggi.persistence.vectorstore import Store, format_hits
 from skuggi.security.policy import RedactionPolicy
-from skuggi.security.tripwire import scrub
 from skuggi.security.vault import SecretVault
 from skuggi.tooling.registry import ToolRegistry
 
@@ -139,50 +134,6 @@ class GraphDeps:
 
 
 # --- prompt assembly --------------------------------------------------------
-
-
-def last_user_text(messages: Sequence[BaseMessage]) -> str:
-    """The most recent user message, as plain text."""
-    for message in reversed(messages):
-        if isinstance(message, HumanMessage):
-            return message.text
-    return ""
-
-
-def prior_turns(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
-    """Completed conversation turns, excluding the request being answered.
-
-    The graph is invoked with the new user message already appended, so the
-    trailing human turn(s) are dropped. Only human and assistant messages are
-    kept, so nothing but the conversation can reach a prompt.
-    """
-    kept: list[BaseMessage] = [
-        m for m in messages if isinstance(m, (HumanMessage, AIMessage))
-    ]
-    while kept and isinstance(kept[-1], HumanMessage):
-        kept.pop()
-    return kept
-
-
-def render_history(
-    messages: Sequence[BaseMessage], *, max_messages: int, max_chars: int
-) -> str:
-    """Render recent turns as text, bounded by both message count and size.
-
-    Both bounds are needed: a turn count alone is unbounded in size (one pasted
-    stack trace fills the context), and a character budget alone would slice a
-    message mid-sentence. Whole messages are dropped from the oldest end.
-    """
-    if max_messages <= 0 or max_chars <= 0:
-        return ""
-    window = list(messages)[-max_messages:]
-    lines = [
-        f"{'user' if isinstance(m, HumanMessage) else 'assistant'}: {m.text}"
-        for m in window
-    ]
-    while len(lines) > 1 and sum(len(line) + 1 for line in lines) > max_chars:
-        lines.pop(0)
-    return "\n".join(lines)
 
 
 def engagement_brief(engagement: EngagementConfig) -> EngagementBrief:
@@ -401,20 +352,18 @@ def build_graph(
     def ask[T: (PlannerResponse, WorkerResponse, CriticResponse)](
         system: str, ctx: RequestContext, schema: type[T]
     ) -> T:
-        # The egress net: every model-bound request is assembled here, so this
-        # is the one place to re-scan the whole block. Ingress redaction already
-        # masked the free-text fields; ``scrub`` masks-and-logs anything that
-        # only a detector sees in the assembled context (defence in depth), so a
-        # detector gap degrades to an over-mask, never a disclosure.
-        prompt: list[BaseMessage] = [
-            SystemMessage(content=system),
-            HumanMessage(content=scrub(render_request(ctx), policy)),
-        ]
-        llm = deps.llm
-        if llm is None:  # defensive: core.turn builds the model before streaming
-            msg = "no model provider configured; run /setup"
-            raise RuntimeError(msg)
-        return structured_invoke(llm, schema, prompt, native=deps.native_structured)
+        # Delegates to the shared egress seam (``requests.ask``): it scrubs the
+        # rendered request -- the one place the whole block is re-scanned -- and
+        # obtains the validated schema. This closure only binds the turn graph's
+        # plumbing (llm/policy/native) and renders the turn's RequestContext.
+        return _ask(
+            deps.llm,
+            system,
+            render_request(ctx),
+            schema,
+            policy=policy,
+            native=deps.native_structured,
+        )
 
     def plan_node(state: AgentState) -> PlanUpdate:
         ctx = context(state, prior_critique=state.get("critique") or "")
