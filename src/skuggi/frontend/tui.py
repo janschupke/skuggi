@@ -163,6 +163,7 @@ class Tui:
             "model": self._set_model,
             "config": self._flows.set_config,
             "scope": self._flows.set_scope,
+            "listener": self._flows.set_listener,
         }
         self._add_nouns: dict[str, Callable[[str], None]] = {
             "note": self._styled(control.add_record_for("note")),

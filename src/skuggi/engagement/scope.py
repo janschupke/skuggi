@@ -158,10 +158,6 @@ class EngagementConfig(BaseModel):
     # The engagement posture. Advisory only: it calibrates what the agent
     # proposes (see skuggi.prompts), never what the guard allows.
     stance: Stance = "cautious"
-    # The host the cheatsheet's ``${target}`` defaults to, exported into the
-    # wrapped shell. Optional: when blank it is derived from a sole allowed host
-    # or sole target network (see ``primary_target``).
-    primary_target: str | None = None
     # Framework awareness. ``methodology`` is the driving framework (prescriptive);
     # ``taxonomies`` are the per-finding classification schemes enabled for this
     # engagement (descriptive, never forced); ``threat_model`` enables CVSS
@@ -206,17 +202,17 @@ class EngagementConfig(BaseModel):
         return ZoneInfo(self.timezone)
 
     def resolve_target(self) -> str | None:
-        """The ``${target}`` default for this engagement, or None if ambiguous.
+        """The scope-derived default for the runtime ``target`` var, or None.
 
-        Precedence: the explicit ``primary_target`` field, else the sole allowed
-        host, else the sole target network. With several hosts/networks (or none)
-        there is no safe default and the operator sets ``target`` themselves.
+        The *first* scoped target: the lexicographically-first allowed host,
+        else the first target network, else None (an empty scope). This is only
+        the default -- a manually-set ``target`` in the engagement env overrides
+        it (see skuggi.engagement.runtime_env and ``core.effective_target``).
+        ``sorted`` makes "first" deterministic over the unordered host set.
         """
-        if self.primary_target:
-            return self.primary_target
-        if len(self.allowed_hosts) == 1:
-            return next(iter(self.allowed_hosts))
-        if len(self.target_networks) == 1:
+        if self.allowed_hosts:
+            return min(self.allowed_hosts)
+        if self.target_networks:
             return str(self.target_networks[0])
         return None
 

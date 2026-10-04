@@ -21,12 +21,14 @@ from typing import TYPE_CHECKING
 from skuggi.agent import protocol
 from skuggi.common import palette
 from skuggi.common.logs import get_logger
+from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.engagement.scope import OSINT_SOURCES
 from skuggi.frontend import (
     cmdflow,
     configflow,
     dispatch,
     installflow,
+    listenerflow,
     memoryflow,
     scopeflow,
     setup,
@@ -35,6 +37,7 @@ from skuggi.frontend import (
 )
 from skuggi.frontend.confirm import Choose, Notify
 from skuggi.frontend.prompter import Prompter
+from skuggi.tooling import probe
 
 if TYPE_CHECKING:
     import threading
@@ -213,13 +216,18 @@ def attach_cmd_editor(
 
 
 def is_set_interactive(line: str) -> bool:
-    """Whether `line` is ``set provider``/``set model`` with no value (a picker).
+    """Whether `line` is a no-value ``set`` noun that prompts (provider/model/listener).
 
     Only the no-value forms prompt; ``set provider openai`` stays a one-shot.
+    ``set listener`` always prompts (pick an interface, enter a port).
     """
     verb, rest = verbs.split_verb(line)
     parts = rest.split()
-    return verb == "set" and len(parts) == 1 and parts[0] in {"provider", "model"}
+    return (
+        verb == "set"
+        and len(parts) == 1
+        and parts[0] in {"provider", "model", "listener"}
+    )
 
 
 def attach_set(
@@ -248,9 +256,40 @@ def attach_set(
     with lock:
         if noun == "provider":
             setup.run_setup(core, ask, choose, notify)
-        else:
+        elif noun == "model":
             setup.run_model_select(core, core.provider, ask, choose, notify)
+        else:
+            _attach_listener(core, ask, choose, notify)
     emit({"end": True, "exit": False})
+
+
+def _attach_listener(
+    core: AgentCore,
+    ask: Callable[[str], str | None],
+    choose: Choose,
+    notify: Notify,
+) -> None:
+    """Run the ``set listener`` picker over the attach loop's prompt closures."""
+    if core.engagement is None:
+        notify("no engagement loaded")
+        return
+
+    def apply(lhost: str, lport: str | None) -> None:
+        env = EngagementEnv.model_validate(
+            {**core.env.model_dump(), "lhost": lhost, "lport": lport}
+        )
+        core.apply_env(env)
+        notify(
+            f"listener set to {lhost}:{lport}" if lport else f"listener set to {lhost}"
+        )
+
+    listenerflow.run_set_listener(
+        interfaces=probe.local_interfaces(),
+        choose=choose,
+        ask=ask,
+        notify=notify,
+        apply=apply,
+    )
 
 
 # ----- natural-language config escalation ------------------------------------

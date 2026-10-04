@@ -11,6 +11,7 @@ sub-component: it reads session scalars (``session_id``/``mode``) and mutates
 
 from __future__ import annotations
 
+import json
 import uuid
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -24,12 +25,15 @@ from skuggi.config.configs import (
     ConfigError,
     InvalidScopeError,
     load_commands,
+    load_env,
     load_layout,
     load_registry,
     load_scope,
+    write_env,
 )
 from skuggi.engagement import datafiles
 from skuggi.engagement.engagement import EngagementConfig, ThreatModel
+from skuggi.engagement.runtime_env import EngagementEnv, write_runtime_env
 from skuggi.engagement.workspace import (
     Workspace,
     WorkspaceLayout,
@@ -56,6 +60,7 @@ class EngagementManager:
         self.layout = self._load_layout()
         self.workspace = self._open_workspace()
         self.engagement = self._load_scope()
+        self.env = self._load_env()
         self.registry = self._load_registry()
         self.commands = self._load_commands()
         self._ledger_ctx = ledger_mod.open_ledger(self._ledger_path())
@@ -125,6 +130,72 @@ class EngagementManager:
             log.warning("no engagement loaded: %s", exc)
             self._core.warnings.append(f"no engagement loaded: {exc}")
             return None
+
+    def _load_env(self) -> EngagementEnv:
+        """Load the engagement's runtime vars, seeding a legacy ``primary_target``.
+
+        Empty when agent-only. When ``env.json`` does not yet exist, a legacy
+        ``primary_target`` still in ``scope.json`` (the field moved out of scope)
+        is carried into the env ``target`` once -- best-effort, in memory; the
+        first ``set target``/``listener``/``wordlist`` persists ``env.json``.
+        """
+        if self.workspace is None:
+            return EngagementEnv()
+        path = self.workspace.env_path
+        if not path.is_file():
+            return self._seed_env_from_legacy_scope() or EngagementEnv()
+        try:
+            return load_env(path)
+        except ConfigError as exc:
+            log.warning("no engagement env loaded: %s", exc)
+            self._core.warnings.append(f"no engagement env loaded: {exc}")
+            return EngagementEnv()
+
+    def _seed_env_from_legacy_scope(self) -> EngagementEnv | None:
+        """An ``EngagementEnv`` carrying a legacy scope ``primary_target``, or None."""
+        if self.workspace is None:  # pragma: no cover -- guarded by the caller
+            return None
+        try:
+            raw = json.loads(self.workspace.scope_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        legacy = raw.get("primary_target") if isinstance(raw, dict) else None
+        return EngagementEnv(target=str(legacy)) if legacy else None
+
+    def effective_target(self) -> str | None:
+        """The current target: the manual env value, else the scope default."""
+        default = (
+            self.engagement.resolve_target() if self.engagement is not None else None
+        )
+        return self.env.effective_target(default)
+
+    def apply_env(self, env: EngagementEnv) -> None:
+        """Persist the engagement's runtime vars in place and refresh the shell file.
+
+        Edited in place -- no new session. ``env.json`` survives a restart; the
+        shell-sourced runtime file is rewritten so a live shell sees the change,
+        and the graph is rebuilt so the redaction allow-list tracks the target.
+        """
+        self.env = env
+        if self.workspace is not None:
+            write_env(self.workspace.env_path, env)
+        self.refresh_runtime_env()
+        self._core.rebuild_graph()
+
+    def refresh_runtime_env(self) -> None:
+        """Rewrite the shell-sourced runtime env file, if a session path is set.
+
+        The path is set only inside the ``skuggi`` shell (by ``shell.main``);
+        ``None`` in the REPL / tests / agent-only, where no wrapped shell sources
+        it. So mutating env vars is a no-op on the file outside a live shell.
+        """
+        path = self._core.runtime_env_path
+        if path is None:
+            return
+        default = (
+            self.engagement.resolve_target() if self.engagement is not None else None
+        )
+        write_runtime_env(path, self.env, default)
 
     def _load_registry(self) -> ToolRegistry:
         try:
@@ -209,8 +280,10 @@ class EngagementManager:
         """The redaction policy for this session, allow-listing in-scope identifiers.
 
         The agent has to reason about its own targets, so the engagement's name,
-        hosts, networks and resolved primary target pass through un-redacted;
-        everything else a detector flags is scrubbed.
+        hosts, networks and the current (effective) target pass through
+        un-redacted; everything else a detector flags is scrubbed. The effective
+        target covers a manually-set ``target`` env var, so an operator-chosen
+        host is never scrubbed out of reports/model context.
         """
         if self.engagement is None:
             return RedactionPolicy()
@@ -219,7 +292,7 @@ class EngagementManager:
             *self.engagement.allowed_hosts,
             *(str(net) for net in self.engagement.target_networks),
         }
-        target = self.engagement.resolve_target()
+        target = self.effective_target()
         if target:
             allow.add(target)
         return RedactionPolicy.from_scope(allow=allow)
@@ -321,6 +394,7 @@ class EngagementManager:
             msg = f"could not open workspace at {str(root)!r}"
             raise ConfigError(msg)
         self.engagement = load_scope(self.workspace.scope_path)
+        self.env = self._load_env()
 
         self._ledger_ctx.__exit__(None, None, None)
         self._ledger_ctx = ledger_mod.open_ledger(self._ledger_path())
@@ -337,6 +411,7 @@ class EngagementManager:
         )
         self._ensure_threat_model_version()
 
+        self.refresh_runtime_env()  # the new engagement's vars reach a live shell
         self._core.rebuild_graph()
         return self.engagement
 

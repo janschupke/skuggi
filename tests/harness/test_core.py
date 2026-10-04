@@ -20,6 +20,7 @@ from skuggi.agent.protocol import ConfigEdit, ConfigProposal
 from skuggi.common.execution import CommandResult
 from skuggi.config.config import config_path
 from skuggi.config.configs import ConfigError, load_commands
+from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.frontend import dispatch
 from skuggi.install import update as update_mod
 from skuggi.tooling import probe as probe_mod
@@ -215,14 +216,14 @@ _ALIASES = CommandRegistry(
 
 
 def _pin_target(core: AgentCore, target: str) -> None:
-    """Pin the engagement's resolved ``${target}`` to one explicit host.
+    """Pin the current ``${target}`` to one explicit host via the engagement env.
 
-    Only ``primary_target`` is set (a plain string field) so ``model_copy`` does
-    not need to re-validate the network objects, which it would not do anyway.
-    The fixture scope already allows ``localhost`` and the 10/8 + 192.168/16 nets.
+    The target is a runtime env var now (separate from scope), so a manual value
+    overrides the scope-derived default. The fixture scope allows ``localhost``
+    and the 10/8 + 192.168/16 nets.
     """
     assert core.engagement is not None
-    core.engagement = core.engagement.model_copy(update={"primary_target": target})
+    core.apply_env(EngagementEnv(target=target))
 
 
 def test_plan_cmd_placeholder_target_records_proposed(core: AgentCore) -> None:

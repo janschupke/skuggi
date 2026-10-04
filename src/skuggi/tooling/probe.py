@@ -559,3 +559,76 @@ def probe_runtimes(runner: Runner = execution.run) -> list[RuntimeStatus]:
 def probe_net_tools(runner: Runner = execution.run) -> list[RuntimeStatus]:
     """Resolve and version every standard Unix net tool, concurrently."""
     return _probe_capabilities(_NET_TOOLS, runner)
+
+
+# ----- local interface enumeration (for `set listener` lhost) ----------------
+
+_IFACE_TIMEOUT_S = 5.0
+# ``ip -o -4 addr show`` fields before the address: ``<idx>: <name> inet``.
+_IP_INET_FIELDS = 4
+# An ifconfig block header line: ``en0: flags=...`` / ``eth0: ...``.
+_IFCONFIG_HEADER = re.compile(r"^(\w[\w.@:-]*):")
+# Interfaces a reverse-shell listener most likely binds to -- the VPN/tunnel the
+# operator is on -- so they are the default pick in the `set listener` menu.
+_VPN_PREFIXES = ("utun", "tun", "tap", "wg")
+
+
+def _iface_tool_output(runner: Runner, argv: list[str]) -> str:
+    """Run an interface-listing tool, returning its stdout or '' when unavailable.
+
+    A missing binary is a spawn-error exit code (not an exception), so an absent
+    ``ip`` on macOS simply falls through to ``ifconfig``.
+    """
+    try:
+        result = runner(argv, timeout=_IFACE_TIMEOUT_S, cwd=Path.cwd())
+    except OSError:
+        return ""
+    return result.stdout if result.exit_code == 0 else ""
+
+
+def _interfaces_via_ip(runner: Runner) -> list[tuple[str, str]]:
+    """Parse ``ip -o -4 addr show`` (Linux): a ``<idx>: <name> inet <ip>/<n>`` line."""
+    out = _iface_tool_output(runner, ["ip", "-o", "-4", "addr", "show"])
+    pairs: list[tuple[str, str]] = []
+    for line in out.splitlines():
+        parts = line.split()
+        # idx, name, "inet", "addr/prefix", ...
+        if len(parts) >= _IP_INET_FIELDS and parts[2] == "inet":
+            pairs.append((parts[1], parts[3].split("/")[0]))
+    return pairs
+
+
+def _interfaces_via_ifconfig(runner: Runner) -> list[tuple[str, str]]:
+    """Parse ``ifconfig`` (macOS/BSD + legacy Linux): track the block's ifname."""
+    out = _iface_tool_output(runner, ["ifconfig"])
+    pairs: list[tuple[str, str]] = []
+    current = ""
+    for line in out.splitlines():
+        if line and not line[0].isspace():
+            match = _IFCONFIG_HEADER.match(line)
+            current = match.group(1) if match else ""
+        elif current:
+            stripped = line.strip()
+            if stripped.startswith("inet "):
+                # macOS: ``inet 10.0.0.1 …``; legacy Linux: ``inet addr:10.0.0.1``.
+                addr = stripped.split()[1].removeprefix("addr:")
+                pairs.append((current, addr))
+    return pairs
+
+
+def local_interfaces(runner: Runner = execution.run) -> list[tuple[str, str]]:
+    """The machine's IPv4 ``(interface, address)`` pairs, for the listener picker.
+
+    Prefers ``ip`` (Linux), falling back to ``ifconfig`` (macOS/BSD). Stdlib-only,
+    no extra dependency; a parse failure or a host with neither tool yields an
+    empty list, and the caller then asks the operator for the host directly.
+    """
+    return _interfaces_via_ip(runner) or _interfaces_via_ifconfig(runner)
+
+
+def preferred_interface_index(interfaces: list[tuple[str, str]]) -> int:
+    """The index to default-select: the first VPN/tunnel interface, else the first."""
+    for index, (name, _ip) in enumerate(interfaces):
+        if name.startswith(_VPN_PREFIXES):
+            return index
+    return 0

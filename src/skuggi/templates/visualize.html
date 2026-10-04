@@ -469,7 +469,7 @@
         if (DATA.scope_describe) card.append(el("pre", { class: "out", text: DATA.scope_describe }));
         const fields = [
           ["timezone", eng.timezone], ["authorized", (eng.authorized_start || "") + " → " + (eng.authorized_end || "")],
-          ["autonomous", String(eng.autonomous)], ["stance", eng.stance], ["primary target", eng.primary_target || "—"],
+          ["autonomous", String(eng.autonomous)], ["stance", eng.stance], ["current target", DATA.current_target || "—"],
           ["target networks", (eng.target_networks || []).join(", ") || "—"],
           ["allowed hosts", (eng.allowed_hosts || []).join(", ") || "—"],
           ["allowed tools", (eng.allowed_tools || []).join(", ") || "—"],

@@ -379,6 +379,7 @@ class Daemon:
                 "model": self._set_model,
                 "config": self._config,
                 "scope": self._scope,
+                "listener": self._listener,
             },
         )
 
@@ -526,6 +527,14 @@ class Daemon:
         # interactive confirm (diff -> approve); one-shot cannot round-trip.
         yield (
             f"editing scope is interactive -- run {self._cmd('set scope ' + arg)} "
+            f"in the chat loop\n"
+        )
+
+    def _listener(self, _arg: str) -> Iterator[str]:
+        # The listener picker is interactive (choose an interface, enter a port),
+        # so a one-shot cannot round-trip; it runs in the chat loop via attach_set.
+        yield (
+            f"setting a listener is interactive -- run {self._cmd('set listener')} "
             f"in the chat loop\n"
         )
 

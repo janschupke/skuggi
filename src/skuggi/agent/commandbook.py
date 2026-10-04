@@ -67,10 +67,11 @@ class CommandBook:
         an out-of-scope one ``blocked``.
 
         The displayed/recorded command keeps ``${target}`` literal, so the scope
-        check is run against a *clean* parse of the base argv plus the
-        engagement's resolved target. When no single target resolves, the target
-        rule is skipped (tool/method/time are still enforced) and the note says
-        so -- the operator must confirm the host is in scope themselves.
+        check is run against a *clean* parse of the base argv plus the current
+        (effective) target. When the parse finds no concrete host to check --
+        no literal argv host, and the effective target is absent or not a
+        classifiable target token (a bare ``localhost``) -- the target rule is
+        skipped (tool/method/time are still enforced) and the note says so.
         """
         core = self._core
         alias = core.commands.alias_for(name)
@@ -94,14 +95,16 @@ class CommandBook:
                 command_id=None,
                 note="no engagement loaded -- scope not checked; review before running",
             )
-        resolved = core.engagement.resolve_target()
+        resolved = core.effective_target()
         check_argv = [*alias.argv, *([resolved] if resolved else [])]
         parsed = parse_command(raw_command(check_argv), core.registry)
-        if resolved is None:
-            # No single ${target} to substitute, so don't *demand* one -- but
-            # still scope-check any literal host in the alias's own argv (and
-            # keep the unresolved/target-file denials). Only the requirement is
-            # relaxed, not the checks.
+        # Demand a target only when the parse found a concrete host (a literal
+        # argv host, or an effective target the parser classifies). Otherwise
+        # don't *demand* one -- but still scope-check any literal argv host and
+        # keep the unresolved/target-file denials. Only the requirement is
+        # relaxed, not the checks.
+        target_checked = bool(parsed.targets)
+        if not target_checked:
             parsed = replace(parsed, requires_target=False)
         verdict = check_command(
             parsed, core.engagement, now=datetime.now(core.engagement.tzinfo())
@@ -119,8 +122,9 @@ class CommandBook:
         )
         if not verdict.allowed:
             note = verdict.reason
-        elif resolved is not None:
-            note = f"in scope (target {resolved})"
+        elif target_checked:
+            shown = resolved if resolved is not None else ", ".join(parsed.targets)
+            note = f"in scope (target {shown})"
         else:
             note = (
                 "tool/method/time in scope -- set 'target' to an in-scope host "

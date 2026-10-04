@@ -45,7 +45,7 @@ class RedactionPolicy:
     ) -> RedactionPolicy:
         """A policy whose allow set is seeded from engagement scope values.
 
-        Empty and whitespace-only entries are dropped so an unset ``primary_target``
+        Empty and whitespace-only entries are dropped so an unset target
         cannot smuggle a blank string into the allow set (where it would match
         and suppress nothing, but still be noise).
         """

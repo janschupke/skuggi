@@ -77,6 +77,7 @@ def write_visualization(  # noqa: PLR0913 -- keyword-only data sources, like col
     loot_text: str = "",
     log_text: str = "",
     engagement_name: str | None = None,
+    current_target: str | None = None,
     secrets: frozenset[str] = frozenset(),
 ) -> Path:
     """Render the engagement dashboard and write a timestamped ``.html`` file.
@@ -91,6 +92,7 @@ def write_visualization(  # noqa: PLR0913 -- keyword-only data sources, like col
         notes_text=notes_text,
         loot_text=loot_text,
         log_text=log_text,
+        current_target=current_target,
         secrets=secrets,
     )
     name = engagement_name or (engagement.name if engagement else None)
@@ -123,11 +125,13 @@ def main(argv: list[str] | None = None) -> int:
     from skuggi.config.config import Settings
     from skuggi.config.configs import (
         ConfigError,
+        load_env,
         load_layout,
         load_registry,
         load_scope,
     )
     from skuggi.engagement.journal import read_entries
+    from skuggi.engagement.runtime_env import EngagementEnv
     from skuggi.engagement.workspace import Workspace
     from skuggi.persistence.ledger import open_ledger
     from skuggi.tooling.registry import ToolRegistry
@@ -166,6 +170,11 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError:
         scope = None
     try:
+        env = load_env(workspace.env_path)
+    except ConfigError:
+        env = EngagementEnv()
+    current_target = env.effective_target(scope.resolve_target() if scope else None)
+    try:
         registry = load_registry(settings.registry_path)
     except ConfigError:
         registry = ToolRegistry()
@@ -192,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
             loot_text=read_entries(workspace.loot_file),
             log_text=log_text,
             engagement_name=scope.name if scope is not None else workspace.root.name,
+            current_target=current_target,
             secrets=secrets,
         )
     print(f"visualization written: {path}")

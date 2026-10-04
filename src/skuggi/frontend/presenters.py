@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
 from skuggi.common import palette
+from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.frontend import render, verbs
 from skuggi.frontend.outcomes import (
     AddedLoot,
@@ -272,6 +273,43 @@ def present_thread(action: str, value: str) -> Styled:
     if action == "new":
         return [render.info(f"new thread: {value}")]
     return [render.info(f"switched to thread: {value}")]
+
+
+def present_env(env: EngagementEnv, scope_default: str | None) -> Styled:
+    """Render ``show env``: the runtime vars and where the target comes from.
+
+    The target falls back to the scope-derived first host when unset; the row
+    labels its source (manual / scope default / unset) so the operator sees why
+    a command's ``${target}`` resolves the way it does. lhost/lport/wordlist are
+    shown as set or ``(unset)``.
+    """
+    if env.target:
+        source = "manual"
+    elif scope_default:
+        source = "scope default"
+    else:
+        source = "unset"
+    target = env.target or scope_default or "(unset)"
+    rows = (
+        ("target", target, f" [{source}]"),
+        ("lhost", env.lhost or "(unset)", ""),
+        ("lport", env.lport or "(unset)", ""),
+        ("wordlist", env.wordlist or "(unset)", ""),
+    )
+    return [
+        render.heading("runtime vars:"),
+        *(
+            render.info(f"  {name + ':':<10}{value}{extra}")
+            for name, value, extra in rows
+        ),
+    ]
+
+
+def present_env_update(name: str, value: str | None) -> Styled:
+    """Render a runtime-var change (``set target``/``listener``/``wordlist``)."""
+    if value:
+        return [render.success(f"{name} set to {value}")]
+    return [render.plain(f"{name} cleared")]
 
 
 def present_error(message: str) -> Styled:

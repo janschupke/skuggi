@@ -193,4 +193,5 @@ class Journal:
             loot_text=self.loot(),
             log_text=log_text,
             engagement_name=core.engagement.name if core.engagement else None,
+            current_target=core.effective_target(),
         )

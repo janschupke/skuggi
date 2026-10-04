@@ -335,29 +335,31 @@ def test_stance_loads_from_scope_and_shows_in_describe() -> None:
     assert "stance: aggressive" in eng.describe()
 
 
-# --- primary target resolution (cheatsheet ${target} default) ---------------
-
-
-def test_resolve_target_prefers_the_explicit_field() -> None:
-    eng = _engagement(primary_target="10.1.2.3")
-    assert eng.resolve_target() == "10.1.2.3"
+# --- scope-derived target default (the runtime ${target} default) -----------
 
 
 def test_resolve_target_falls_back_to_a_sole_host() -> None:
-    # The default helper has exactly one allowed host and no explicit target.
+    # The default helper has exactly one allowed host.
     assert _engagement().resolve_target() == "scanme.example.com"
 
 
-def test_resolve_target_uses_a_sole_network_when_no_host() -> None:
+def test_resolve_target_uses_the_network_when_no_host() -> None:
     eng = _engagement(allowed_hosts=frozenset(), target_networks=("192.0.2.0/24",))
     assert eng.resolve_target() == "192.0.2.0/24"
 
 
-def test_resolve_target_is_none_when_ambiguous() -> None:
+def test_resolve_target_is_the_first_host_when_several() -> None:
+    # No longer ambiguous-None: the first (lexicographic) scoped host is the
+    # default; a manual env ``target`` overrides it (see runtime_env).
     eng = _engagement(
-        allowed_hosts=frozenset({"a.example.com", "b.example.com"}),
+        allowed_hosts=frozenset({"b.example.com", "a.example.com"}),
         target_networks=("10.0.0.0/8", "192.168.0.0/16"),
     )
+    assert eng.resolve_target() == "a.example.com"
+
+
+def test_resolve_target_is_none_for_an_empty_scope() -> None:
+    eng = _engagement(allowed_hosts=frozenset(), target_networks=())
     assert eng.resolve_target() is None
 
 

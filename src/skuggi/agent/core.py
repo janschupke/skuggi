@@ -47,6 +47,7 @@ from skuggi.engagement.engagement import (
     EngagementConfig,
     ThreatModel,
 )
+from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.engagement.workspace import (
     Workspace,
     WorkspaceLayout,
@@ -93,6 +94,9 @@ class AgentCore:
         self.thread_id = str(uuid.uuid4())
         self.session_id = str(uuid.uuid4())
         self.warnings: list[str] = []
+        # Where the shell-sourced runtime env file lives; set by ``shell.main``
+        # for a live ``skuggi`` shell, left None in the REPL / tests / agent-only.
+        self.runtime_env_path: Path | None = None
 
         # The model plane (provider/credentials/llm/store). No engagement dep, so
         # it builds first; _load_chat_model runs before the first graph build.
@@ -217,6 +221,23 @@ class AgentCore:
     def apply_engagement_scope(self, engagement: EngagementConfig) -> None:
         """Persist an edited scope in place and hot-reload it (delegated)."""
         self.engagement_mgr.apply_engagement_scope(engagement)
+
+    @property
+    def env(self) -> EngagementEnv:
+        """The engagement's runtime command vars (delegated)."""
+        return self.engagement_mgr.env
+
+    def apply_env(self, env: EngagementEnv) -> None:
+        """Persist the runtime vars and refresh the shell file (delegated)."""
+        self.engagement_mgr.apply_env(env)
+
+    def effective_target(self) -> str | None:
+        """The current target: manual env value, else scope default (delegated)."""
+        return self.engagement_mgr.effective_target()
+
+    def refresh_runtime_env(self) -> None:
+        """Rewrite the shell-sourced runtime env file, if any (delegated)."""
+        self.engagement_mgr.refresh_runtime_env()
 
     def set_autonomous(self, want: bool | None) -> bool:
         """Toggle autonomous execution; returns the new state (delegated)."""

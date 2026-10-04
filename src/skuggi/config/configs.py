@@ -15,6 +15,7 @@ from pathlib import Path
 
 from skuggi.common.paths import ensure_parent
 from skuggi.engagement.engagement import EngagementConfig
+from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.engagement.workspace import WorkspaceLayout
 from skuggi.tooling.commands import CommandRegistry
 from skuggi.tooling.registry import ToolRegistry
@@ -91,6 +92,33 @@ def write_commands(path: Path, registry: CommandRegistry) -> None:
     """
     resolved = ensure_parent(path)
     resolved.write_text(registry.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+
+def load_env(path: Path) -> EngagementEnv:
+    """Load the engagement's runtime variables (``env.json``), empty when absent.
+
+    Optional like the command registry: a missing file means no manual overrides
+    (the target falls back to the scope default). A present-but-malformed file
+    fails loudly like the other loaders.
+    """
+    resolved = path.expanduser()
+    if not resolved.is_file():
+        return EngagementEnv()
+    try:
+        return EngagementEnv.model_validate_json(resolved.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        msg = f"invalid engagement env at {path}: {exc}"
+        raise ConfigError(msg) from exc
+
+
+def write_env(path: Path, env: EngagementEnv) -> None:
+    """Persist the engagement's runtime variables to `path` as pretty JSON.
+
+    The write-side counterpart to ``load_env``; mirrors ``write_commands``'
+    parent-dir discipline and trailing newline.
+    """
+    resolved = ensure_parent(path)
+    resolved.write_text(env.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
 
 def load_layout(path: Path) -> WorkspaceLayout:

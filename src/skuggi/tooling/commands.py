@@ -10,11 +10,13 @@ The **rendered raw command is always surfaced** to the operator (the transparenc
 invariant) and checked against the engagement scope like any agent-proposed
 command -- ``cmd`` advises and records, it never executes silently.
 
-``$(date ...)`` and ``${target}`` are kept *literal* so the operator's shell
-expands them at run time (skuggi exports ``target`` into the wrapped shell); only
-the folder and the ``<label>`` are resolved here. The output path must therefore
-be appended **unquoted** -- ``shlex.join`` would quote the ``$`` and kill the
-expansion (see ``render``).
+``$(date ...)`` and the runtime placeholders (``${target}`` plus ``${lhost}``/
+``${lport}``/``${wordlist}`` -- see ``RUNTIME_VARS``) are kept *literal* so the
+operator's shell expands them at run time (skuggi exports those vars into the
+wrapped shell via ``skuggi.engagement.runtime_env``); only the folder and the
+``<label>`` are resolved here. Such tokens must therefore be rendered
+**unquoted** -- ``shlex.join`` would quote the ``$`` and kill the expansion
+(see ``render`` / ``_join_argv``).
 
 Loaded from ``configs/commands.json`` (shipped as ``.example``); user-extendable
 by editing that JSON *or* via the guided ``cmd add``/``cmd edit`` editor
@@ -23,6 +25,7 @@ by editing that JSON *or* via the guided ``cmd add``/``cmd edit`` editor
 
 from __future__ import annotations
 
+import re
 import shlex
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -30,10 +33,23 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from skuggi.common.text import safe_cmd_fragment
 from skuggi.tooling.registry import ToolRegistry
 
+# The per-engagement runtime variables the operator's shell exports (see
+# skuggi.engagement.runtime_env). An alias argv may reference them as
+# ``${name}`` and the token survives rendering UNQUOTED so the shell expands it.
+RUNTIME_VARS = frozenset({"target", "lhost", "lport", "wordlist"})
+
 # Literal shell expressions preserved in the rendered command (the operator's
 # shell expands them at run time, not skuggi).
 _STAMP = "$(date +%Y-%m-%d_%H%M%S)"
 _TARGET = "${target}"
+
+# A sanctioned ``${name}`` placeholder for a runtime variable.
+_PLACEHOLDER_RE = re.compile(r"\$\{(?:" + "|".join(sorted(RUNTIME_VARS)) + r")\}")
+# What a token may contain BESIDES sanctioned placeholders / the date stamp to
+# still be rendered raw (path/flag/URL-safe literals, e.g. ``LHOST=`` or
+# ``http://`` and ``/FUZZ``). Anything else (spaces, backticks, ``;``, an
+# unsanctioned ``$(...)``) forces ``shlex.quote``.
+_RAW_TOKEN_REMAINDER = re.compile(r"^[A-Za-z0-9_./=:@%+,-]*$")
 
 
 class CommandAlias(BaseModel):
@@ -135,6 +151,29 @@ def raw_command(argv: list[str]) -> str:
     return shlex.join(argv)
 
 
+def _render_token(token: str) -> str:
+    """One argv token, quoted -- except sanctioned runtime placeholders survive raw.
+
+    A token with no ``$`` is ``shlex.quote``-ed exactly as ``shlex.join`` would
+    (so a placeholder-free argv renders byte-identically). A ``$``-bearing token
+    is emitted RAW only if, after stripping every ``${name}`` runtime placeholder
+    and the ``$(date …)`` stamp, the remainder is wholly path/flag/URL-safe --
+    so ``${lport}``, ``LHOST=${lhost}`` and ``http://${target}/FUZZ`` expand in
+    the operator's shell, while ``$(id)`` / ``$HOME`` / spaces stay quoted.
+    """
+    if "$" not in token:
+        return shlex.quote(token)
+    remainder = _PLACEHOLDER_RE.sub("", token).replace(_STAMP, "")
+    if _RAW_TOKEN_REMAINDER.match(remainder):
+        return token
+    return shlex.quote(token)
+
+
+def _join_argv(argv: list[str]) -> str:
+    """`argv` joined like ``shlex.join`` but leaving runtime placeholders raw."""
+    return " ".join(_render_token(tok) for tok in argv)
+
+
 def _output_path(output_dir: str, label: str, kind: str, ext: str | None) -> str:
     """The literal, unquoted output path ``<dir>/<stamp>_${target}_<label>``.
 
@@ -150,12 +189,13 @@ def _output_path(output_dir: str, label: str, kind: str, ext: str | None) -> str
 def render(alias: CommandAlias, registry: ToolRegistry) -> str:
     """The full surfaced command for `alias`: base argv + target + output flag.
 
-    Quoting-safe: the fixed argv (and any output *extra* flags) are
-    ``shlex.join``-ed, but ``${target}`` and the output path are appended raw so
-    the ``$(date ...)``/``${target}`` expressions survive for the operator's shell.
+    Quoting-safe: the fixed argv (and any output *extra* flags) are quoted like
+    ``shlex.join``, but a sanctioned ``${name}`` runtime placeholder inside the
+    argv -- plus the appended ``${target}`` and output path -- survive raw so the
+    ``$(date ...)``/``${…}`` expressions expand in the operator's shell.
     """
     spec = registry.spec_for(alias.tool_name())
-    parts = [raw_command(list(alias.argv))]
+    parts = [_join_argv(list(alias.argv))]
 
     requires_target = spec.requires_target if spec is not None else True
     if requires_target:

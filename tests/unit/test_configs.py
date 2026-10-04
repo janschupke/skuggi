@@ -11,11 +11,14 @@ from skuggi.common import home
 from skuggi.config.configs import (
     ConfigError,
     load_commands,
+    load_env,
     load_layout,
     load_registry,
     load_scope,
     write_commands,
+    write_env,
 )
+from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.tooling.commands import CommandAlias, CommandRegistry
 from tests.support import template
 
@@ -99,6 +102,24 @@ def test_example_registry_includes_the_new_tools() -> None:
 
 
 # --- command aliases --------------------------------------------------------
+
+
+def test_missing_env_returns_empty(tmp_path: Path) -> None:
+    assert load_env(tmp_path / "absent.json") == EngagementEnv()
+
+
+def test_env_round_trips(tmp_path: Path) -> None:
+    cfg = tmp_path / "nested" / "env.json"  # parent is created
+    env = EngagementEnv(target="10.0.0.5", lport="4444", wordlist="/wl/rock.txt")
+    write_env(cfg, env)
+    assert load_env(cfg) == env
+
+
+def test_invalid_env_raises_config_error(tmp_path: Path) -> None:
+    cfg = tmp_path / "env.json"
+    cfg.write_text('{"target": "10.0.0.5 evil"}', encoding="utf-8")  # whitespace host
+    with pytest.raises(ConfigError):
+        load_env(cfg)
 
 
 def test_missing_commands_returns_empty(tmp_path: Path) -> None:

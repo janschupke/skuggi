@@ -53,7 +53,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from skuggi.agent.core import AgentCore
-    from skuggi.engagement.engagement import EngagementConfig
 
 # Exported into every child shell the wrapper launches; its presence marks "we
 # are already inside a skuggi shell" so a bare `skuggi` run here never boots a
@@ -68,12 +67,17 @@ CLIENT_NAME = "skuggi-client"
 
 _ZSH_HOOK = """\
 [ -f "{home}/.zshrc" ] && source "{home}/.zshrc"
+[ -f "$SKUGGI_RUNTIME_ENV" ] && source "$SKUGGI_RUNTIME_ENV"
 PROMPT="{shield} ${{PROMPT}}"
 _skuggi_client={client}
 function /skuggi {{
   if [[ "$1" == "exit" || "$1" == "quit" ]]; then exit 0; fi
   "$_skuggi_client" "$@"
-  [[ $? -eq 42 ]] && exit 0
+  local _rc=$?
+  # Re-source AFTER the client so `set target`/`listener`/`wordlist`/`engagement`
+  # update the live shell vars; capture $? first (source would clobber it).
+  [ -f "$SKUGGI_RUNTIME_ENV" ] && source "$SKUGGI_RUNTIME_ENV"
+  [[ $_rc -eq 42 ]] && exit 0
 }}
 # A bare `skuggi` (no slash) means the same thing inside the wrapped shell:
 # reach the warm daemon. Without this it would resolve through $PATH to the
@@ -105,12 +109,17 @@ compdef _skuggi_complete /skuggi skuggi
 
 _BASH_HOOK = """\
 [ -f "{home}/.bashrc" ] && source "{home}/.bashrc"
+[ -f "$SKUGGI_RUNTIME_ENV" ] && source "$SKUGGI_RUNTIME_ENV"
 PS1="{shield} ${{PS1}}"
 _skuggi_client={client}
 function /skuggi {{
   if [ "$1" = "exit" ] || [ "$1" = "quit" ]; then exit 0; fi
   "$_skuggi_client" "$@"
-  [ $? -eq 42 ] && exit 0
+  local _rc=$?
+  # Re-source AFTER the client so `set target`/`listener`/`wordlist`/`engagement`
+  # update the live shell vars; capture $? first (source would clobber it).
+  [ -f "$SKUGGI_RUNTIME_ENV" ] && source "$SKUGGI_RUNTIME_ENV"
+  [ $_rc -eq 42 ] && exit 0
 }}
 # A bare `skuggi` (no slash) means the same thing inside the wrapped shell:
 # reach the warm daemon, not boot a nested harness via the $PATH console
@@ -217,20 +226,6 @@ def nested_launch_note(env: Mapping[str, str]) -> str | None:
     )
 
 
-def shell_env_target(engagement: EngagementConfig | None) -> dict[str, str]:
-    """``{"target": <host>}`` to export into the wrapped shell, or ``{}``.
-
-    The cheatsheet renders ``${target}`` literally so the operator's shell
-    expands it; exporting the engagement's resolved primary target here makes a
-    pasted ``cmd`` output just work. Returns ``{}`` when there is no engagement
-    or no unambiguous target, leaving ``target`` for the operator to set.
-    """
-    if engagement is None:
-        return {}
-    target = engagement.resolve_target()
-    return {"target": target} if target else {}
-
-
 def _session_summary(core: AgentCore) -> str:  # pragma: no cover -- live ledger I/O
     """Read the current session back from the ledger and render the exit summary.
 
@@ -287,13 +282,18 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
     with tempfile.TemporaryDirectory() as raw_tmp:
         tmp = Path(raw_tmp)
         sock_path = str(tmp / "skuggi.sock")
+        # The shell-sourced runtime env file (target/lhost/lport/wordlist). The
+        # daemon rewrites it on every change; the /skuggi hook re-sources it.
+        runtime_env_path = tmp / "skuggi.env"
+        core.runtime_env_path = runtime_env_path
+        core.refresh_runtime_env()  # seed it before the child shell sources it
         handle = daemon_server.serve(core, sock_path)
         argv, env_overrides = build_shell_invocation(shell_path, tmp, home=Path.home())
         env = {
             **os.environ,
             **env_overrides,
             "SKUGGI_SOCK": sock_path,
-            **shell_env_target(core.engagement),
+            "SKUGGI_RUNTIME_ENV": str(runtime_env_path),
         }
         console.print(
             render_startup_banner(

@@ -67,6 +67,10 @@ class WorkspaceLayout(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     scope_file: str = "scope.json"
+    # The per-engagement runtime variables (target/lhost/lport/wordlist) the
+    # operator plugs into commands -- separate from the scope boundary. See
+    # skuggi.engagement.runtime_env.
+    env_file: str = "env.json"
     ledger_file: str = "ledger.db"
     notes_log: str = "notes.md"
     loot_log: str = "loot.md"
@@ -134,6 +138,11 @@ class Workspace:
     def scope_path(self) -> Path:
         """The engagement setup file (``scope.json``)."""
         return self.root / self.layout.scope_file
+
+    @property
+    def env_path(self) -> Path:
+        """The per-engagement runtime variables file (``env.json``)."""
+        return self.root / self.layout.env_file
 
     @property
     def ledger_path(self) -> Path:
@@ -211,9 +220,10 @@ class Workspace:
         return self.root / self.layout.evidence
 
     def _reserved_files(self) -> set[Path]:
-        """Control files a tool must never be pointed at (scope, ledger, vault)."""
+        """Control files a tool must never be pointed at (scope, env, ledger, vault)."""
         return {
             self.scope_path.resolve(),
+            self.env_path.resolve(),
             self.ledger_path.resolve(),
             self.vault_path.resolve(),
         }

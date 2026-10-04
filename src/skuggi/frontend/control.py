@@ -134,6 +134,50 @@ def set_thread(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.St
     return presenters.present_thread("switch", rest)
 
 
+def _set_env_field(core: AgentCore, name: str, value: str | None) -> render.Styled:
+    """Apply one runtime-var change through ``core.apply_env`` (re-validating).
+
+    ``model_copy`` does not re-validate, so round-trip through ``model_validate``
+    to catch e.g. a whitespace-bearing host before it is persisted/exported.
+    """
+    from pydantic import ValidationError  # noqa: PLC0415 -- keep this module light
+
+    from skuggi.engagement.runtime_env import EngagementEnv  # noqa: PLC0415
+
+    try:
+        updated = EngagementEnv.model_validate({**core.env.model_dump(), name: value})
+    except ValidationError as exc:
+        return presenters.present_error(str(exc))
+    core.apply_env(updated)
+    return presenters.present_env_update(name, value)
+
+
+def set_target(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
+    """Set the current ``${target}`` runtime var (``set target <host>``)."""
+    rest = rest.strip()
+    if not rest:
+        return presenters.usage("set target <host>", surface)
+    if core.engagement is None:
+        return presenters.present_error("no engagement loaded")
+    return _set_env_field(core, "target", rest)
+
+
+def set_wordlist(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
+    """Set the ``${wordlist}`` runtime var (``set wordlist <path>``)."""
+    rest = rest.strip()
+    if not rest:
+        return presenters.usage("set wordlist <path>", surface)
+    if core.engagement is None:
+        return presenters.present_error("no engagement loaded")
+    return _set_env_field(core, "wordlist", rest)
+
+
+def show_env(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
+    """The runtime command vars (target/lhost/lport/wordlist) and the target source."""
+    default = core.engagement.resolve_target() if core.engagement is not None else None
+    return presenters.present_env(core.env, default)
+
+
 def set_provider_named(
     core: AgentCore, name: str, surface: verbs.Surface
 ) -> render.Styled:
@@ -234,6 +278,7 @@ SHOW_ACTIONS: dict[str, Action] = {
     "memory": show_memory,
     "config": show_config,
     "findings": show_findings,
+    "env": show_env,
 }
 
 SET_ACTIONS: dict[str, Action] = {
@@ -241,6 +286,8 @@ SET_ACTIONS: dict[str, Action] = {
     "mode": set_mode,
     "autonomous": set_autonomous,
     "thread": set_thread,
+    "target": set_target,
+    "wordlist": set_wordlist,
 }
 
 REMOVE_ACTIONS: dict[str, Action] = {

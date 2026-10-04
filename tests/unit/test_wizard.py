@@ -229,8 +229,9 @@ def test_run_wizard_cancelled_on_abort() -> None:
 
 def test_known_keys_cover_every_managed_engagement_field() -> None:
     # Every EngagementConfig field the operator should set is in exactly one
-    # wizard field -- a field dropping out of the wizard fails here.
-    managed = set(EngagementConfig.model_fields) - {"primary_target"}
+    # wizard field -- a field dropping out of the wizard fails here. (The runtime
+    # target/listener vars live in EngagementEnv, not scope, so they are not here.)
+    managed = set(EngagementConfig.model_fields)
     assert managed == set(KNOWN_KEYS)
 
 

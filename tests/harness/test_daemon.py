@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from skuggi.agent.turn_runner import TurnEvent
+from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.frontend import attach
 from skuggi.frontend.daemon import Daemon
 from skuggi.persistence import pdf as pdf_mod
@@ -290,12 +291,10 @@ def test_cmd_resolve_out_of_scope(daemon: Daemon) -> None:
     )
     assert daemon.core.engagement is not None
     daemon.core.engagement = daemon.core.engagement.model_copy(
-        update={
-            "primary_target": "8.8.8.8",  # explicit target outside scope
-            "allowed_hosts": frozenset(),
-            "target_networks": (),
-        }
+        update={"allowed_hosts": frozenset(), "target_networks": ()}
     )
+    # A manual env target outside the (now empty) scope -> out of scope.
+    daemon.core.apply_env(EngagementEnv(target="8.8.8.8"))
     out = chunks(daemon, {"op": "input", "text": "cmd nmap-host"})
     assert "$ nmap -sV -sC ${target}" in out
     assert "OUT OF SCOPE" in out
@@ -566,9 +565,33 @@ def test_help_for_a_verb_lists_nouns(daemon: Daemon) -> None:
 def test_is_set_interactive_detects_no_value_forms() -> None:
     assert attach.is_set_interactive("set provider")
     assert attach.is_set_interactive("set model")
+    assert attach.is_set_interactive("set listener")
     assert not attach.is_set_interactive("set provider openai")
     assert not attach.is_set_interactive("set mode pentest")
     assert not attach.is_set_interactive("show status")
+
+
+def test_set_listener_one_shot_points_at_the_chat_loop(daemon: Daemon) -> None:
+    out = chunks(daemon, {"op": "input", "text": "set listener"})
+    assert "interactive" in out
+    assert "/skuggi set listener" in out  # the shell grammar for the chat loop
+
+
+def test_attach_set_listener_picks_interface_and_port(
+    daemon: Daemon, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        probe_mod,
+        "local_interfaces",
+        lambda *_a, **_k: [("eth0", "192.168.1.10"), ("tun0", "10.8.0.2")],
+    )
+    # The chat line, the chosen interface label, then the port.
+    answers = iter(["set listener", "tun0  10.8.0.2", "4444"])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(answers, None), emitted.append)
+    assert any("choose" in f for f in emitted)  # the interface picker frame
+    assert daemon.core.env.lhost == "10.8.0.2"
+    assert daemon.core.env.lport == "4444"
 
 
 def test_attach_set_model_round_trips_a_choose_frame(daemon: Daemon) -> None:

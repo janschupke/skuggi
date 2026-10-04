@@ -186,3 +186,55 @@ def test_render_still_emits_the_sanctioned_literals() -> None:
     out = render(CommandAlias(name="nmap-host", argv=("nmap", "-sV")), _REG)
     assert "$(date" in out
     assert "${target}" in out
+
+
+# --- runtime placeholders in argv survive rendering unquoted (lhost/lport/wordlist) --
+
+
+def test_render_keeps_runtime_placeholders_in_argv_unquoted() -> None:
+    # An operator-authored alias may reference the exported runtime vars; the
+    # tokens must survive UNQUOTED so the shell expands them, including the
+    # embedded forms ``LHOST=${lhost}`` and ``http://${target}/FUZZ``.
+    alias = CommandAlias(
+        name="rev-shell",
+        argv=("msfvenom", "LHOST=${lhost}", "LPORT=${lport}", "-o", "shell"),
+        output=False,
+    )
+    rendered = render(alias, _REG)
+    assert "LHOST=${lhost}" in rendered
+    assert "LPORT=${lport}" in rendered
+    assert "'${" not in rendered  # never quoted
+
+
+def test_render_keeps_wordlist_and_url_placeholders_unquoted() -> None:
+    alias = CommandAlias(
+        name="ffuf-fuzz",
+        argv=("ffuf", "-w", "${wordlist}", "-u", "http://${target}/FUZZ"),
+        output=False,
+    )
+    rendered = render(alias, _REG)
+    assert "-w ${wordlist}" in rendered
+    assert "http://${target}/FUZZ" in rendered
+    assert "'$" not in rendered
+
+
+def test_render_still_quotes_unsanctioned_dollar_tokens() -> None:
+    # A non-placeholder ``$`` token (command substitution, env var, a word with a
+    # space) is STILL shlex-quoted -- the raw path is only for sanctioned ${name}.
+    alias = CommandAlias(
+        name="danger",
+        argv=("sh", "-c", "$(id)", "$HOME", "a b"),
+        output=False,
+    )
+    rendered = render(alias, _REG)
+    assert "'$(id)'" in rendered
+    assert "'$HOME'" in rendered
+    assert "'a b'" in rendered
+
+
+def test_render_byte_identical_for_placeholder_free_argv() -> None:
+    # The fast path (no ``$``) must match shlex.join exactly, token for token.
+    argv = ("curl", "-sS", "--path-as-is", "-H", "X-Test: 1")
+    alias = CommandAlias(name="curl-x", argv=argv, output=False)
+    rendered = render(alias, _REG)
+    assert rendered.split(" ${target}")[0] == raw_command(list(argv))

@@ -34,6 +34,9 @@ def test_grouping_verbs_carry_nouns() -> None:
         "autonomous",
         "config",
         "scope",
+        "target",
+        "listener",
+        "wordlist",
         "thread",
     }
     assert verbs.noun_names("add") == {"note", "loot", "finding", "memory"}

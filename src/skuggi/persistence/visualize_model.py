@@ -242,6 +242,7 @@ def collect_engagement(  # noqa: PLR0913 -- one keyword arg per already-read sou
     notes_text: str = "",
     loot_text: str = "",
     log_text: str = "",
+    current_target: str | None = None,
     secrets: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Build the JSON-serializable view model for the whole engagement.
@@ -296,6 +297,7 @@ def collect_engagement(  # noqa: PLR0913 -- one keyword arg per already-read sou
         "brand": f"{palette.SHIELD} skuggi",
         "engagement": engagement.model_dump(mode="json") if engagement else None,
         "scope_describe": engagement.describe() if engagement else "",
+        "current_target": current_target,
         "window": {
             "start": window_start.isoformat() if window_start else None,
             "end": window_end.isoformat() if window_end else None,
