@@ -79,6 +79,28 @@
      "description": "Linux reverse-TCP meterpreter payload (set LHOST/LPORT, -f elf)"},
     {"name": "msfvenom-windows-rev",
      "argv": ["msfvenom", "-p", "windows/x64/meterpreter/reverse_tcp"],
-     "description": "Windows reverse-TCP meterpreter payload (set LHOST/LPORT, -f exe)"}
+     "description": "Windows reverse-TCP meterpreter payload (set LHOST/LPORT, -f exe)"},
+
+    {"name": "dns-dig", "argv": ["dig", "+nocmd", "+noall", "+answer"], "output": false,
+     "description": "DNS answer records for a host"},
+    {"name": "dns-dig-any", "argv": ["dig", "ANY"], "output": false,
+     "description": "all DNS record types for a host"},
+    {"name": "dns-axfr", "argv": ["dig", "axfr"], "output": false,
+     "description": "attempt a DNS zone transfer (append @<ns> if needed)"},
+    {"name": "dns-nslookup", "argv": ["nslookup"], "output": false,
+     "description": "basic DNS lookup for a host"},
+    {"name": "whois-lookup", "argv": ["whois"], "output": false,
+     "description": "domain/IP registration record"},
+    {"name": "ftp-anon", "argv": ["ftp", "-inv"], "output": false,
+     "description": "connect for FTP, no auto-login (then: user anonymous)"},
+
+    {"name": "crunch-range", "argv": ["crunch", "6", "8"],
+     "description": "generate a 6-8 char wordlist (append a charset; -o into loot is added automatically)"},
+
+    {"name": "evil-winrm-shell",
+     "argv": ["evil-winrm", "-u", "Administrator", "-p", "PASSWORD", "-i"], "output": false,
+     "description": "authenticated WinRM shell (edit -u/-p; -i takes the target)"},
+    {"name": "penelope-listen", "argv": ["penelope"], "output": false,
+     "description": "catch a reverse shell (append a port, default 4444)"}
   ]
 }

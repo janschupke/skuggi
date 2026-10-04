@@ -368,6 +368,82 @@
         "brew": "brew install --cask bloodhound",
         "apt": "apt-get install -y bloodhound"
       }
+    },
+    {
+      "name": "dig",
+      "binary": "dig",
+      "method": "recon",
+      "requires_target": true,
+      "install": {
+        "brew": "brew install bind",
+        "apt": "apt-get install -y dnsutils"
+      }
+    },
+    {
+      "name": "nslookup",
+      "binary": "nslookup",
+      "method": "recon",
+      "requires_target": true,
+      "install": {
+        "brew": "brew install bind",
+        "apt": "apt-get install -y dnsutils"
+      }
+    },
+    {
+      "name": "whois",
+      "binary": "whois",
+      "method": "recon",
+      "requires_target": true,
+      "install": {
+        "brew": "brew install whois",
+        "apt": "apt-get install -y whois"
+      }
+    },
+    {
+      "name": "ftp",
+      "binary": "ftp",
+      "method": "recon",
+      "requires_target": true,
+      "install": {
+        "brew": "brew install inetutils",
+        "apt": "apt-get install -y ftp"
+      }
+    },
+    {
+      "name": "crunch",
+      "binary": "crunch",
+      "method": "recon",
+      "requires_target": false,
+      "install": {
+        "brew": "brew install crunch",
+        "apt": "apt-get install -y crunch"
+      },
+      "output_flag": "-o",
+      "output_dir": "loot",
+      "output_kind": "file",
+      "output_ext": ".txt"
+    },
+    {
+      "name": "evil-winrm",
+      "binary": "evil-winrm",
+      "method": "exploit",
+      "target_flags": [
+        "-i"
+      ],
+      "requires_target": true,
+      "install": {
+        "apt": "apt-get install -y evil-winrm",
+        "gem": "gem install evil-winrm"
+      }
+    },
+    {
+      "name": "penelope",
+      "binary": "penelope",
+      "method": "exploit",
+      "requires_target": false,
+      "install": {
+        "pip": "pip install penelope-shell-handler"
+      }
     }
   ]
 }
