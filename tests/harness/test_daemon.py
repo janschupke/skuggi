@@ -312,6 +312,43 @@ def test_cmd_list_search_and_miss(daemon: Daemon) -> None:
     )
 
 
+def _raw(daemon: Daemon, msg: dict[str, object]) -> str:
+    """Like `chunks`, but WITHOUT stripping SGR -- so highlighting is visible."""
+    return "".join(str(r.get("chunk", "")) for r in daemon.handle_request(msg))
+
+
+_REVERSE = "\x1b[7m"  # the SGR introducer Rich emits for the `reverse` match style
+
+
+def test_cmd_search_highlights_the_matched_substring(daemon: Daemon) -> None:
+    daemon.core.commands = CommandRegistry(
+        commands=(
+            CommandAlias(name="nmap-host", argv=("nmap", "-sV"), description="scan it"),
+            CommandAlias(name="web-dir", argv=("curl",), description="d"),
+        )
+    )
+    out = _raw(daemon, {"op": "input", "text": "cmd nmap"})
+    # the query is reverse-video, and the full name + literal target survive
+    assert _REVERSE in out
+    assert f"{_REVERSE}nmap" in out
+    assert "nmap-host" in chunks(daemon, {"op": "input", "text": "cmd nmap"})
+    assert "${target}" in out
+    # the listing stays filtered to the hit
+    assert "web-dir" not in out
+
+
+def test_cmd_list_has_nothing_to_highlight(daemon: Daemon) -> None:
+    daemon.core.commands = CommandRegistry(
+        commands=(
+            CommandAlias(name="nmap-host", argv=("nmap", "-sV"), description="d"),
+        )
+    )
+    out = _raw(daemon, {"op": "input", "text": "cmd list"})
+    assert _REVERSE not in out  # blank query -> no match style
+    # alignment/content preserved (ANSI-stripped)
+    assert "nmap-host" in chunks(daemon, {"op": "input", "text": "cmd list"})
+
+
 # --- config verb ------------------------------------------------------------
 
 

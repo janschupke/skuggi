@@ -57,6 +57,9 @@ from skuggi.tooling.doctor import (
 # The help listing's intro line, per surface. The command grammar differs
 # (``/skuggi <verb>`` at the wrapped-shell prompt, a bare ``<verb>`` inside the
 # chat loop, ``/<verb>`` in the REPL), so the intro names the one that works here.
+# Column width for the cheatsheet alias name, so the rendered commands line up.
+_NAME_COL = 16
+
 _HELP_INTRO: dict[verbs.Surface, str] = {
     "shell": "skuggi shell commands (/skuggi <verb> <rest>):",
     "chat": "skuggi commands (type a verb):",
@@ -379,7 +382,7 @@ class Daemon:
         sub, _, rest = arg.partition(" ")
         sub, rest = sub.strip(), rest.strip()
         if not sub or sub == "list":
-            yield from self._cheat_list(self.core.commands.commands)
+            yield from self._cheat_list(self.core.commands.commands, "")
             return
         if sub in cmdflow.REMOVE_ARGS:
             yield from self._cheat_remove(rest)
@@ -396,18 +399,35 @@ class Daemon:
             hint = self._cmd("cmd list")
             yield f"no cheatsheet entry matches {arg.strip()!r} -- try {hint}\n"
             return
-        yield from self._cheat_list(matches)
+        yield from self._cheat_list(matches, arg.strip())
 
     def _cheat_resolve(self, name: str) -> Iterator[str]:
         yield from self._emit(control.resolve_cmd(self.core, name, self._surface()))
 
-    def _cheat_list(self, aliases: tuple[CommandAlias, ...]) -> Iterator[str]:
+    def _cheat_list(
+        self, aliases: tuple[CommandAlias, ...], query: str
+    ) -> Iterator[str]:
+        """List `aliases`, highlighting `query` wherever it matched (name/desc).
+
+        Built as styled spans and emitted through :meth:`_emit` (ANSI), so the
+        matched substring is reverse-video just as in the REPL. Alignment holds
+        because the ``{name:<16} `` padding is sized off the PLAIN name length
+        and carried as its own unpainted span -- the highlight adds no width.
+        """
         if not aliases:
             yield "no command aliases configured\n"
             return
         for a in aliases:
             rendered = render_alias(a, self.core.registry)
-            yield f"  {a.name:<16} {rendered}  -- {a.description}\n"
+            pad = max(_NAME_COL - len(a.name), 0) + 1
+            segments: list[render.Span] = [
+                ("  ", None),
+                *render.highlight_spans(a.name, query),
+                (" " * pad, None),
+                (f"{rendered}  -- ", None),
+                *render.highlight_spans(a.description, query),
+            ]
+            yield from self._emit([render.spans(segments)])
 
     def _cheat_remove(self, name: str) -> Iterator[str]:
         if not name:

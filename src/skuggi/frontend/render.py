@@ -102,6 +102,24 @@ def spans(segments: list[Span]) -> Line:
     return Line("".join(text for text, _ in segments), "plain", tuple(segments))
 
 
+def highlight_spans(text: str, query: str, *, match: str = palette.MATCH) -> list[Span]:
+    """Spans for `text`: each case-insensitive hit of `query` tagged `match`.
+
+    The styled-span counterpart of :func:`skuggi.common.text.highlight` (which
+    produces Rich markup): both ride :func:`skuggi.common.text.split_matches`, so
+    the daemon's aligned cheatsheet listing highlights the same runs the REPL
+    does. Non-match runs are left unpainted (``None``); the per-span text is
+    escaped at render time by :func:`to_markup`/:func:`to_ansi`, so it is passed
+    through raw here.
+    """
+    from skuggi.common.text import split_matches  # noqa: PLC0415 -- avoid import cycle
+
+    return [
+        (seg, match if is_match else None)
+        for seg, is_match in split_matches(text, query)
+    ]
+
+
 def to_markup(line: Line) -> str:
     """Render `line` as Rich markup for the REPL (unpainted when ``plain``).
 
@@ -131,7 +149,9 @@ def to_ansi(line: Line) -> str:
     """
     if line.spans is None and _STYLE_TO_RICH[line.style] is None:
         return line.text
-    console = Console(force_terminal=True, width=10_000)
+    # highlight=False mirrors the REPL console: Rich's auto-highlighter would
+    # otherwise repaint `${target}`, digits and paths in our literal content.
+    console = Console(force_terminal=True, width=10_000, highlight=False)
     with console.capture() as capture:
         console.print(to_markup(line), end="", soft_wrap=True)
     return capture.get()

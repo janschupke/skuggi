@@ -68,6 +68,32 @@ def redact_secrets(text: str, secrets: Iterable[str] = ()) -> str:
     return _BEARER.sub(lambda m: f"{m.group('kind')} {REDACTED}", text)
 
 
+def split_matches(text: str, query: str) -> list[tuple[str, bool]]:
+    """`text` split into ``(segment, is_match)`` runs over `query`'s hits.
+
+    Every case-insensitive occurrence of `query` becomes its own
+    ``(segment, True)`` run, the stretches between them ``(segment, False)``. An
+    empty `query` (or no hit) yields a single non-match run of the whole string.
+    This is the shared matcher behind both highlight forms -- the REPL's Rich
+    markup (:func:`highlight`) and the daemon's styled spans
+    (``render.highlight_spans``) -- so the two cannot drift.
+    """
+    if not query:
+        return [(text, False)]
+    low, needle = text.lower(), query.lower()
+    span = len(query)
+    runs: list[tuple[str, bool]] = []
+    i = 0
+    while (j := low.find(needle, i)) != -1:
+        if j > i:
+            runs.append((text[i:j], False))
+        runs.append((text[j : j + span], True))
+        i = j + span
+    if i < len(text):
+        runs.append((text[i:], False))
+    return runs or [(text, False)]
+
+
 def highlight(text: str, query: str, *, base: str, match: str) -> str:
     """Rich markup for `text` in style `base`, each hit of `query` in `match`.
 
@@ -78,22 +104,14 @@ def highlight(text: str, query: str, *, base: str, match: str) -> str:
     """
     from rich.markup import escape  # noqa: PLC0415 -- keep this module import-light
 
-    # Escape ONCE over the whole string (slicing first would split a `[tag]`
-    # across segments and defeat the escape, and would mishandle a trailing
-    # backslash); then locate/wrap on the already-safe string. A matched region
-    # therefore never contains a bracket, so wrapping it stays balanced markup.
-    safe = escape(text)
-    if not query:
-        return f"[{base}]{safe}[/{base}]"
-    low, needle = safe.lower(), query.lower()
-    span = len(query)
+    # Escape ONCE over the whole string, then split the ALREADY-SAFE string:
+    # slicing an escaped string at the match boundaries keeps every literal
+    # bracket escaped (a boundary cannot strand a `[` from its `\`), so each
+    # wrapped run stays balanced markup. (The daemon's span form escapes per
+    # segment at render time instead -- see ``render.highlight_spans``.)
     out: list[str] = []
-    i = 0
-    while (j := low.find(needle, i)) != -1:
-        out.append(safe[i:j])
-        out.append(f"[{match}]{safe[j : j + span]}[/{match}]")
-        i = j + span
-    out.append(safe[i:])
+    for segment, is_match in split_matches(escape(text), query):
+        out.append(f"[{match}]{segment}[/{match}]" if is_match else segment)
     return f"[{base}]{''.join(out)}[/{base}]"
 
 
