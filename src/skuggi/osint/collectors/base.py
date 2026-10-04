@@ -41,6 +41,11 @@ class HttpRequest:
 # (request) -> the response body text, or None on any failure (best-effort).
 Fetch = Callable[[HttpRequest], "str | None"]
 
+# (actor_id, run_input) -> the actor run's dataset rows, or None on any failure.
+# The injectable Apify seam: the default lazily imports apify-client; a test passes
+# a fake that returns canned rows. None means "actor unavailable / failed".
+ApifyRun = Callable[[str, "Mapping[str, object]"], "list[dict[str, object]] | None"]
+
 
 @runtime_checkable
 class Driver(Protocol):
@@ -63,6 +68,7 @@ class CollectContext:
     clean: Callable[[str], str]  # the session redactor (executor._redactor)
     secrets: Mapping[str, str] = field(default_factory=dict)
     driver_factory: Callable[[], Driver] | None = None
+    apify_run: ApifyRun | None = None
     source_config: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
     def config_for(self, source: OsintSource) -> Mapping[str, str]:

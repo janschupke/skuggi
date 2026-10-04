@@ -13,6 +13,7 @@ themselves behind ``available()`` so the HTTP-only install still runs the loop.
 from __future__ import annotations
 
 from skuggi.engagement.scope import OsintSource
+from skuggi.osint.collectors.ats import ATSCollector
 from skuggi.osint.collectors.base import (
     CollectContext,
     Collector,
@@ -25,6 +26,9 @@ from skuggi.osint.collectors.base import (
 from skuggi.osint.collectors.crtsh import CrtShCollector
 from skuggi.osint.collectors.dns import DnsCollector
 from skuggi.osint.collectors.github import GitHubCollector
+from skuggi.osint.collectors.linkedin import LinkedInCollector
+from skuggi.osint.collectors.shodan import ShodanCollector
+from skuggi.osint.collectors.social import SocialCollector
 from skuggi.osint.collectors.websearch import WebSearchCollector
 
 __all__ = [
@@ -47,6 +51,10 @@ def default_collectors() -> tuple[Collector, ...]:
         DnsCollector(),
         GitHubCollector(),
         WebSearchCollector(),
+        ShodanCollector(),
+        LinkedInCollector(),
+        ATSCollector(),
+        SocialCollector(),
     )
 
 

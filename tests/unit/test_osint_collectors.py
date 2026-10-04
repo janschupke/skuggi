@@ -166,4 +166,4 @@ def test_default_collectors_cover_the_http_sources() -> None:
 def test_collector_for_finds_and_misses() -> None:
     collectors = default_collectors()
     assert collector_for("crtsh", collectors) is not None
-    assert collector_for("linkedin", collectors) is None
+    assert collector_for("crtsh", ()) is None  # empty registry -> miss

@@ -70,6 +70,17 @@ documents = [
     "python-docx>=1.1",
     "openpyxl>=3.1",
 ]
+# Browser-driven OSINT collectors (LinkedIn/ATS/social). Heavy -- Playwright
+# downloads a Chromium -- so it is opt-in; the collectors gate on availability and
+# the HTTP-only loop runs without it. After install: `playwright install chromium`.
+osint-browser = [
+    "playwright>=1.48",
+]
+# The optional Apify scraper backend for the browser-driven sources (an alternative
+# to a local Chromium when an APIFY_TOKEN + per-source actor are configured).
+osint-apify = [
+    "apify-client>=1.7",
+]
 
 [project.scripts]
 # Every console script goes through the guarded shims in skuggi.cli (a stable
@@ -345,4 +356,10 @@ warn_required_dynamic_aliases = true
 # markupsafe are all typed.
 [[tool.mypy.overrides]]
 module = ["weasyprint.*", "pygments.*", "openpyxl.*"]
+ignore_missing_imports = true
+
+# Optional OSINT extras (osint-browser / osint-apify). Imported lazily inside
+# available()-guarded paths, so a strict run without the extra still type-checks.
+[[tool.mypy.overrides]]
+module = ["playwright.*", "apify_client.*"]
 ignore_missing_imports = true
