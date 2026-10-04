@@ -5,11 +5,40 @@ from __future__ import annotations
 from pathlib import Path
 
 from skuggi.frontend import outcomes, presenters_journal
-from skuggi.frontend.render import Styled
+from skuggi.frontend.render import Styled, to_markup
+from skuggi.persistence.ledger import FindingRow
 
 
 def _texts(lines: Styled) -> list[str]:
     return [line.text for line in lines]
+
+
+def _finding(
+    severity: str, *, command_id: int | None = None, tm: int | None = None
+) -> FindingRow:
+    return FindingRow(
+        id=7,
+        session_id="s1",
+        command_id=command_id,
+        title="SQLi in login",
+        severity=severity,
+        description="d",
+        evidence="",
+        cvss_version=None,
+        cvss_vector=None,
+        cvss_base=None,
+        cvss_temporal=None,
+        cvss_environmental=None,
+        cvss_score=None,
+        cvss_severity=None,
+        author="operator",
+        status="approved",
+        review_reason="",
+        reviewed_at=None,
+        cvss_tm_version=tm,
+        cvss_scored_at=None,
+        created_at="2026-10-03T00:00:00+00:00",
+    )
 
 
 def test_present_report_note_usage_and_added() -> None:
@@ -44,3 +73,27 @@ def test_present_ingest_usage_and_count() -> None:
     assert _texts(presenters_journal.present_ingest(outcomes.Indexed(7), "shell")) == [
         "indexed 7 chunk(s)"
     ]
+
+
+def test_present_findings_list_empty_and_painted() -> None:
+    assert _texts(presenters_journal.present_findings_list([], None)) == [
+        "(no findings yet)"
+    ]
+    [line] = presenters_journal.present_findings_list(
+        [_finding("high", command_id=3)], None
+    )
+    # One spans line: severity painted, the rest plain; plain text is the full row.
+    assert line.spans is not None
+    assert line.text == "HIGH [7] SQLi in login — operator/approved (cmd:3)"
+    assert to_markup(line) != line.text  # colour applied to the severity token
+
+
+def test_present_findings_list_flags_outdated_against_current_version() -> None:
+    [line] = presenters_journal.present_findings_list([_finding("low", tm=1)], 2)
+    assert "⚠ outdated" in line.text
+
+
+def test_present_finding_recorded_prefixes_recorded() -> None:
+    [line] = presenters_journal.present_finding_recorded(_finding("medium"))
+    assert line.text == "recorded MEDIUM [7] SQLi in login — operator/approved"
+    assert line.spans is not None

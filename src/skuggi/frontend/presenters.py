@@ -70,14 +70,14 @@ from skuggi.persistence.session_summary import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
     from pathlib import Path
 
     from langchain_core.messages import BaseMessage
 
     from skuggi.agent.protocol import CommandBrief
     from skuggi.agent.readiness import Readiness
-    from skuggi.persistence.ledger import FindingRow, ThreadSummary
+    from skuggi.persistence.ledger import ThreadSummary
 
 # ``show history`` renders each message type under a short label; the default
 # window and the trace/status truncation caps live here too, so the two front-ends
@@ -91,32 +91,6 @@ STATUS_LINE_CAP = 100
 def usage(invocation: str, surface: verbs.Surface) -> Styled:
     """A single ``usage: <command>`` line, phrased for `surface`."""
     return [render.warning(f"usage: {verbs.cmd(invocation, surface)}")]
-
-
-def finding_line(
-    row: FindingRow,
-    paint: Callable[[str, str], str] | None = None,
-    *,
-    outdated: bool = False,
-) -> str:
-    """One-line summary of a finding: ``SEV [id] title — author/status (cmd:N)``.
-
-    Shared by the REPL and the shell daemon so the row shape and the command link
-    never drift. ``paint`` styles the severity token (the REPL passes the palette;
-    the plaintext daemon passes nothing). ``outdated`` flags a finding whose CVSS
-    score predates a threat-model change (see ``Ledger.rescore_finding``).
-
-    Lives here, not in the persistence layer: it is the one presentation function
-    the ledger used to carry, and keeping ``paint`` plumbing out of the DB module
-    is the point of the move.
-    """
-    severity = row.severity.upper()
-    if paint is not None:
-        severity = paint(severity, row.severity)
-    link = f" (cmd:{row.command_id})" if row.command_id is not None else ""
-    stale = " ⚠ outdated" if outdated else ""
-    meta = f" — {row.author}/{row.status}{stale}"
-    return f"{severity} [{row.id}] {row.title}{meta}{link}"
 
 
 def present_history(messages: Sequence[BaseMessage], arg: str) -> Styled:
@@ -223,8 +197,9 @@ def present_memory(outcome: MemoryOutcome) -> Styled:  # noqa: PLR0911 -- one re
 def present_add(outcome: AddOutcome, surface: verbs.Surface) -> Styled:
     """Render note/loot/usage add outcomes.
 
-    A recorded FINDING is NOT handled here (the front-end paints its severity via
-    ``finding_line``); callers branch on ``FindingRecorded`` before calling.
+    A recorded FINDING is NOT handled here (its severity is painted by
+    ``presenters_journal.present_finding_recorded``); the shared ``add`` action
+    branches on ``FindingRecorded`` before calling this.
     """
     match outcome:
         case AddUsage(form):

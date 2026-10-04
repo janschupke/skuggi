@@ -147,13 +147,11 @@ class Tui:
         # `verbs.noun_names(<verb>)` so a new noun cannot be half-wired.
         self._show_nouns: dict[str, Callable[[str], None]] = {
             **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
-            "config": self._show_config,
             "engagement": self._show_engagement,
             "db": self._show_db,
             "tools": self._show_tools,
             "notes": self._show_notes,
             "loot": self._show_loot,
-            "findings": self._show_findings,
             "history": self._show_history,
             "trace": self._show_trace,
         }
@@ -165,9 +163,9 @@ class Tui:
             "scope": self._flows.set_scope,
         }
         self._add_nouns: dict[str, Callable[[str], None]] = {
-            "note": lambda rest: self._add_record("note", rest),
-            "loot": lambda rest: self._add_record("loot", rest),
-            "finding": lambda rest: self._add_record("finding", rest),
+            "note": self._styled(control.add_record_for("note")),
+            "loot": self._styled(control.add_record_for("loot")),
+            "finding": self._styled(control.add_record_for("finding")),
             "memory": self._styled(control.add_memory),
         }
         self._remove_nouns: dict[str, Callable[[str], None]] = {
@@ -488,26 +486,7 @@ class Tui:
     def _resolve_cmd(self, name: str) -> None:
         self._emit(control.resolve_cmd(self.core, name, "repl"))
 
-    # ----- add <noun> --------------------------------------------------------
-
-    def _add_record(self, noun: str, rest: str) -> None:
-        """Record a note, loot item or finding (finding keeps its severity colour)."""
-        outcome = dispatch.run_add(self.core, f"{noun} {rest}".strip())
-        if not isinstance(outcome, outcomes.FindingRecorded):
-            self._emit(presenters.present_add(outcome, "repl"))
-            return
-        self.console.print(
-            "[green]recorded[/green] "
-            + presenters.finding_line(
-                outcome.row,
-                lambda text, sev: palette.paint(text, palette.severity_style(sev)),
-            )
-        )
-
     # ----- show <noun> -------------------------------------------------------
-
-    def _show_config(self, _rest: str) -> None:
-        self.console.print(self.core.config.summary())
 
     def _show_engagement(self, _rest: str) -> None:
         eng = self.engagement
@@ -557,22 +536,6 @@ class Tui:
             self.console.print("[dim](no loot yet)[/dim]")
             return
         self.console.print(Markdown(text))
-
-    def _show_findings(self, _rest: str) -> None:
-        rows = self.core.journal.findings()
-        if not rows:
-            self.console.print("[dim](no findings yet)[/dim]")
-            return
-        current = self.core.ledger.current_threat_model_version()
-        for finding in rows:
-            self.console.print(
-                presenters.finding_line(
-                    finding,
-                    lambda text, sev: palette.paint(text, palette.severity_style(sev)),
-                    outdated=finding.cvss_tm_version is not None
-                    and finding.cvss_tm_version != current,
-                )
-            )
 
     def _show_history(self, arg: str) -> None:
         self._emit(

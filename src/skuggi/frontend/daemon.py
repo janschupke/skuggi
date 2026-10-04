@@ -337,13 +337,11 @@ class Daemon:
             arg,
             {
                 **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
-                "config": self._show_config,
                 "engagement": self._show_engagement,
                 "db": self._show_db,
                 "tools": self._show_tools,
                 "notes": self._notes,
                 "loot": self._loot,
-                "findings": self._show_findings,
                 "history": self._history,
                 "trace": self._trace,
             },
@@ -435,9 +433,6 @@ class Daemon:
 
     # ----- show <noun> -------------------------------------------------------
 
-    def _show_config(self, _rest: str) -> Iterator[str]:
-        yield self.core.config.summary() + "\n"
-
     def _show_engagement(self, _rest: str) -> Iterator[str]:
         described = self.core.describe_engagement()
         if described:
@@ -461,9 +456,6 @@ class Daemon:
             yield f"(no {which} tools)\n"
             return
         yield table_ansi(doctor_table(filtered))
-
-    def _show_findings(self, _rest: str) -> Iterator[str]:
-        yield from self._render_findings()
 
     def _engagement(self, arg: str) -> Iterator[str]:
         first = arg.split(maxsplit=1)[0] if arg.split() else ""
@@ -585,17 +577,10 @@ class Daemon:
             )
             return
         if noun in {"note", "loot", "finding"}:
-            yield from self._add_record(f"{noun} {rest.strip()}".strip())
+            yield from self._styled(control.add_record_for(noun))(rest.strip())
             return
         options = " | ".join(n.name for n in verbs.nouns_of("add"))
         yield from self._emit(presenters.usage(f"add <{options}>", self._surface()))
-
-    def _add_record(self, arg: str) -> Iterator[str]:
-        outcome = dispatch.run_add(self.core, arg)
-        if isinstance(outcome, outcomes.FindingRecorded):
-            yield "recorded " + presenters.finding_line(outcome.row) + "\n"
-            return
-        yield from self._emit(presenters.present_add(outcome, self._surface()))
 
     def _notes(self, _arg: str) -> Iterator[str]:
         text = self.core.journal.notes()
@@ -618,24 +603,6 @@ class Daemon:
             yield message + "\n"
             return
         yield from self._emit(presenters.present_findings_usage(self._surface()))
-
-    def _render_findings(self) -> Iterator[str]:
-        rows = self.core.journal.findings()
-        if not rows:
-            yield "(no findings yet)\n"
-            return
-        current = self.core.ledger.current_threat_model_version()
-        yield (
-            "\n".join(
-                presenters.finding_line(
-                    f,
-                    outdated=f.cvss_tm_version is not None
-                    and f.cvss_tm_version != current,
-                )
-                for f in rows
-            )
-            + "\n"
-        )
 
     def _help_text(self, arg: str = "") -> str:
         """Render help for this connection's surface (bare verbs in the chat loop).

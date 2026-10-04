@@ -30,11 +30,11 @@ from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
 from skuggi.agent.core import parse_toggle
-from skuggi.frontend import dispatch, presenters, presenters_journal, verbs
+from skuggi.frontend import dispatch, presenters, presenters_journal, render, verbs
+from skuggi.frontend.outcomes import FindingRecorded
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
-    from skuggi.frontend import render
 
 # A control action: run the verb against the core and render it for `surface`.
 Action = Callable[["AgentCore", str, "verbs.Surface"], "render.Styled"]
@@ -80,6 +80,20 @@ def show_threads(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render
 def show_memory(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
     """The remembered operator preferences."""
     return presenters.present_memory(dispatch.run_memory(core, ""))
+
+
+def show_config(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
+    """The application config summary (credentials redacted)."""
+    return [render.plain(core.config.summary())]
+
+
+def show_findings(
+    core: AgentCore, _rest: str, _surface: verbs.Surface
+) -> render.Styled:
+    """The recorded findings, severity-painted, flagging threat-model-outdated ones."""
+    return presenters_journal.present_findings_list(
+        core.journal.findings(), core.ledger.current_threat_model_version()
+    )
 
 
 # ----- set <noun> ------------------------------------------------------------
@@ -144,6 +158,24 @@ def add_memory(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Sty
     return presenters.present_memory(dispatch.run_memory(core, f"add {rest}"))
 
 
+def add_record_for(noun: str) -> Action:
+    """An ``add note|loot|finding`` action for `noun` (the record kind).
+
+    A finding keeps its severity colour via
+    :func:`presenters_journal.present_finding_recorded`; a note/loot renders through
+    the shared :func:`presenters.present_add`. Branching here (not in each
+    front-end) is what removed the duplicated ``FindingRecorded`` special-case.
+    """
+
+    def action(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
+        outcome = dispatch.run_add(core, f"{noun} {rest}".strip())
+        if isinstance(outcome, FindingRecorded):
+            return presenters_journal.present_finding_recorded(outcome.row)
+        return presenters.present_add(outcome, surface)
+
+    return action
+
+
 def remove_memory(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
     """Forget one preference (``remove memory <id>``) or every one (``all``)."""
     if rest == "all":
@@ -200,6 +232,8 @@ SHOW_ACTIONS: dict[str, Action] = {
     "sessions": show_sessions,
     "threads": show_threads,
     "memory": show_memory,
+    "config": show_config,
+    "findings": show_findings,
 }
 
 SET_ACTIONS: dict[str, Action] = {
