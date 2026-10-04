@@ -38,12 +38,24 @@ _STYLE_TO_RICH: dict[Style, str | None] = {
 }
 
 
+# A styled segment within a line: literal text plus the resolved Rich style to
+# paint it with (``None`` leaves it unpainted). Spans let one line mix colours --
+# notably a severity-coloured finding breakdown -- which a single ``style`` cannot.
+Span = tuple[str, str | None]
+
+
 @dataclass(frozen=True, slots=True)
 class Line:
-    """One line of output: plain text plus its semantic style."""
+    """One line of output: plain text plus its semantic style.
+
+    A line with ``spans`` carries per-segment colour instead; ``text`` is then the
+    concatenation of the span texts (so ``.text`` stays usable for the daemon's
+    plain fallback and for substring checks) and ``style`` is ignored.
+    """
 
     text: str
     style: Style = "plain"
+    spans: tuple[Span, ...] | None = None
 
 
 Styled = list[Line]
@@ -79,13 +91,30 @@ def heading(text: str) -> Line:
     return Line(text, "heading")
 
 
+def spans(segments: list[Span]) -> Line:
+    """A line whose segments carry their own resolved Rich styles (multi-colour).
+
+    Each segment is ``(text, style)`` where ``style`` is a resolved Rich style
+    string (e.g. from :func:`skuggi.common.palette.severity_style`) or ``None`` to
+    leave that segment unpainted. This is how structural, multi-colour content (a
+    severity-coloured finding breakdown) rides the one shared emit path.
+    """
+    return Line("".join(text for text, _ in segments), "plain", tuple(segments))
+
+
 def to_markup(line: Line) -> str:
     """Render `line` as Rich markup for the REPL (unpainted when ``plain``).
 
     The text is escaped first: it is literal content (a tool renders as
     ``name [binary]``, a command carries its argv), never markup, so a stray
-    ``[`` must not be read as a style tag.
+    ``[`` must not be read as a style tag. A spanned line paints each segment
+    with its own style, escaping each segment's text the same way.
     """
+    if line.spans is not None:
+        return "".join(
+            escape(text) if style is None else palette.paint(escape(text), style)
+            for text, style in line.spans
+        )
     text = escape(line.text)
     style = _STYLE_TO_RICH[line.style]
     return palette.paint(text, style) if style is not None else text
@@ -100,7 +129,7 @@ def to_ansi(line: Line) -> str:
     :func:`to_markup` so the chat loop and the REPL share the one palette and
     cannot drift; a ``plain`` line stays bare text (no escape codes).
     """
-    if _STYLE_TO_RICH[line.style] is None:
+    if line.spans is None and _STYLE_TO_RICH[line.style] is None:
         return line.text
     console = Console(force_terminal=True, width=10_000)
     with console.capture() as capture:

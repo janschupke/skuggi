@@ -59,8 +59,10 @@ def show_grants(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.
 
 
 def show_status(core: AgentCore, _rest: str, surface: verbs.Surface) -> render.Styled:
-    """A one-glance summary of provider, model, mode and engagement."""
-    return presenters.present_status(dispatch.run_status(core), surface)
+    """A one-glance summary of config readiness plus this session's activity stats."""
+    return presenters.present_status(
+        dispatch.run_status(core), dispatch.run_session_stats(core), surface
+    )
 
 
 def show_sessions(

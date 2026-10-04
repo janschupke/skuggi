@@ -74,6 +74,7 @@ from skuggi.frontend.outcomes import (
     ScaffoldExists,
     ScaffoldOutcome,
     SessionCount,
+    SessionStats,
     SetEngagementError,
     SetEngagementOutcome,
 )
@@ -98,18 +99,13 @@ def _count_journal_entries(text: str) -> int:
     return sum(1 for line in text.splitlines() if line.strip().startswith("- "))
 
 
-def run_db_stats(core: AgentCore) -> str:
-    """Render the current session's ledger stats (the ``show db`` view).
+def run_session_stats(core: AgentCore) -> SessionStats:
+    """Read the current session's activity metrics back from the ledger and journal.
 
-    Reads turns / commands / findings / notes / loot back from the live ledger
-    and journal and formats them with the shared session-summary renderer, so the
-    REPL, the daemon and the shell's exit summary all read the same.
+    One source for both the ``show db`` / exit summary and the ``show status``
+    view, so they can never report different turn / command / finding counts.
     """
     from datetime import UTC, datetime  # noqa: PLC0415 -- keep module load light
-
-    from skuggi.persistence.session_summary import (  # noqa: PLC0415
-        render_session_summary,
-    )
 
     events = core.ledger.events_for(core.session_id)
     session = core.ledger.session(core.session_id)
@@ -117,15 +113,37 @@ def run_db_stats(core: AgentCore) -> str:
     if session is not None:
         started = datetime.fromisoformat(session.started_at)
         elapsed = (datetime.now(UTC) - started).total_seconds()
-    return render_session_summary(
-        engagement_name=core.engagement.name if core.engagement else None,
-        mode=core.mode,
+    return SessionStats(
         elapsed_s=elapsed,
         turns=sum(1 for ev in events if ev.kind == "prompt"),
         commands=core.ledger.commands_for(core.session_id),
         findings=core.ledger.findings_for(core.session_id),
         notes=_count_journal_entries(core.journal.notes()),
         loot=_count_journal_entries(core.journal.loot()),
+    )
+
+
+def run_db_stats(core: AgentCore) -> str:
+    """Render the current session's ledger stats (the ``show db`` view).
+
+    Reads turns / commands / findings / notes / loot back from the live ledger
+    and journal and formats them with the shared session-summary renderer, so the
+    REPL, the daemon and the shell's exit summary all read the same.
+    """
+    from skuggi.persistence.session_summary import (  # noqa: PLC0415
+        render_session_summary,
+    )
+
+    stats = run_session_stats(core)
+    return render_session_summary(
+        engagement_name=core.engagement.name if core.engagement else None,
+        mode=core.mode,
+        elapsed_s=stats.elapsed_s,
+        turns=stats.turns,
+        commands=stats.commands,
+        findings=stats.findings,
+        notes=stats.notes,
+        loot=stats.loot,
     )
 
 

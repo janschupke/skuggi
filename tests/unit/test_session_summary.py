@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from skuggi.persistence.ledger import CommandRow, FindingRow
-from skuggi.persistence.session_summary import _fmt_duration, render_session_summary
+from skuggi.persistence.session_summary import fmt_duration, render_session_summary
 
 
 def _cmd(status: str, *, exit_code: int | None = 0) -> CommandRow:
@@ -52,10 +52,10 @@ def _finding(severity: str) -> FindingRow:
 
 
 def test_fmt_duration_scales_seconds_minutes_hours() -> None:
-    assert _fmt_duration(None) == "unknown"
-    assert _fmt_duration(45) == "45s"
-    assert _fmt_duration(14 * 60 + 2) == "14m 02s"
-    assert _fmt_duration(2 * 3600 + 5 * 60) == "2h 05m"
+    assert fmt_duration(None) == "unknown"
+    assert fmt_duration(45) == "45s"
+    assert fmt_duration(14 * 60 + 2) == "14m 02s"
+    assert fmt_duration(2 * 3600 + 5 * 60) == "2h 05m"
 
 
 def test_summary_reports_header_duration_turns_and_command_breakdown() -> None:

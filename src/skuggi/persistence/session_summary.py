@@ -23,7 +23,7 @@ _LABEL_WIDTH = 10
 _PER_MINUTE = 60  # seconds in a minute, and minutes in an hour
 
 
-def _fmt_duration(seconds: float | None) -> str:
+def fmt_duration(seconds: float | None) -> str:
     """A compact human duration: ``45s``, ``14m 02s``, ``2h 05m``."""
     if seconds is None:
         return "unknown"
@@ -37,29 +37,47 @@ def _fmt_duration(seconds: float | None) -> str:
     return f"{hours}h {minutes:02d}m"
 
 
+def command_breakdown(commands: list[CommandRow]) -> list[tuple[str, int]]:
+    """Non-zero command-status counts in display order (``executed`` first).
+
+    Shared with ``show status`` so the exit summary and the live status view
+    count and order command statuses identically.
+    """
+    counts = dict.fromkeys(_STATUSES, 0)
+    for cmd in commands:
+        if cmd.status in counts:
+            counts[cmd.status] += 1
+    return [(status, counts[status]) for status in _STATUSES if counts[status]]
+
+
+def finding_breakdown(findings: list[FindingRow]) -> list[tuple[str, int]]:
+    """Finding counts by severity, ranked critical..info (unknowns last).
+
+    Shared with ``show status`` so both views group and order severities the same;
+    each consumer paints the result in its own way (markup string here, spans in
+    the status view).
+    """
+    by_sev: dict[str, int] = {}
+    for finding in findings:
+        by_sev[finding.severity] = by_sev.get(finding.severity, 0) + 1
+    rank = {sev: i for i, sev in enumerate(palette.severities())}
+    return sorted(by_sev.items(), key=lambda kv: rank.get(kv[0], len(rank)))
+
+
 def _row(label: str, value: str) -> str:
     return f"  {label.ljust(_LABEL_WIDTH)} {value}"
 
 
 def _command_line(commands: list[CommandRow]) -> str:
-    counts = dict.fromkeys(_STATUSES, 0)
-    for cmd in commands:
-        if cmd.status in counts:
-            counts[cmd.status] += 1
-    parts = [f"{counts[s]} {s}" for s in _STATUSES if counts[s]]
+    parts = [f"{n} {status}" for status, n in command_breakdown(commands)]
     breakdown = f"  ({' · '.join(parts)})" if parts else ""
     return _row("commands", f"{len(commands)}{breakdown}")
 
 
 def _finding_line(findings: list[FindingRow]) -> str:
-    by_sev: dict[str, int] = {}
-    for finding in findings:
-        by_sev[finding.severity] = by_sev.get(finding.severity, 0) + 1
-    # Order by the palette's severity ranking (critical..info); unknowns last.
-    rank = {sev: i for i, sev in enumerate(palette.severities())}
-    ordered = sorted(by_sev.items(), key=lambda kv: rank.get(kv[0], len(rank)))
     parts = [
-        palette.paint(f"{n} {sev}", palette.severity_style(sev)) for sev, n in ordered
+        palette.paint(f"{n} {sev}", palette.severity_style(sev))
+        for sev, n in finding_breakdown(findings)
     ]
     breakdown = f"  ({' · '.join(parts)})" if parts else ""
     return _row("findings", f"{len(findings)}{breakdown}")
@@ -91,7 +109,7 @@ def render_session_summary(  # noqa: PLR0913 -- one keyword-only arg per metric
     rows = [
         _row("engagement", engagement_name or "agent-only"),
         _row("mode", mode),
-        _row("ran for", _fmt_duration(elapsed_s)),
+        _row("ran for", fmt_duration(elapsed_s)),
         _row("turns", str(turns)),
         _command_line(commands),
         _finding_line(findings),

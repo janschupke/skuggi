@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
+from skuggi.common import palette
 from skuggi.frontend import render, verbs
 from skuggi.frontend.outcomes import (
     AddedLoot,
@@ -56,11 +57,17 @@ from skuggi.frontend.outcomes import (
     ReconcileUnknown,
     ReconcileUsage,
     SessionCount,
+    SessionStats,
     SetEngagementError,
     SetEngagementOutcome,
 )
 from skuggi.frontend.render import Styled
 from skuggi.install import configdiff, reconcile
+from skuggi.persistence.session_summary import (
+    command_breakdown,
+    finding_breakdown,
+    fmt_duration,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -339,15 +346,70 @@ def _drift_note(readiness_now: Readiness, surface: verbs.Surface) -> str | None:
     )
 
 
-def present_status(readiness_now: Readiness, surface: verbs.Surface) -> Styled:
-    """Render ``show status``: the shared glance, pending steps, and any drift."""
+_STAT_LABEL = 8  # widest status stat label ("commands"/"findings"/"journal")
+
+
+def _stat(label: str, value: str) -> str:
+    return f"{label.ljust(_STAT_LABEL)}  {value}"
+
+
+def _command_stat_line(stats: SessionStats) -> render.Line:
+    """``commands N  (n executed · n blocked …)`` -- plain, no per-token colour."""
+    parts = [f"{n} {status}" for status, n in command_breakdown(stats.commands)]
+    tail = f"  ({' · '.join(parts)})" if parts else ""
+    return render.plain(_stat("commands", f"{len(stats.commands)}{tail}"))
+
+
+def _finding_stat_line(stats: SessionStats) -> render.Line:
+    """``findings N  (n critical · n high …)`` with each severity painted its colour."""
+    breakdown = finding_breakdown(stats.findings)
+    head = _stat("findings", str(len(stats.findings)))
+    if not breakdown:
+        return render.plain(head)
+    segments: list[render.Span] = [(f"{head}  (", None)]
+    for i, (sev, n) in enumerate(breakdown):
+        if i:
+            segments.append((" · ", None))
+        segments.append((f"{n} {sev}", palette.severity_style(sev)))
+    segments.append((")", None))
+    return render.spans(segments)
+
+
+def _status_stat_lines(stats: SessionStats) -> Styled:
+    """The activity block shared with the exit summary (empty for a quiet session)."""
+    if stats.is_empty:
+        return []
+    lines: Styled = [
+        render.plain(_stat("ran for", fmt_duration(stats.elapsed_s))),
+        render.plain(_stat("turns", str(stats.turns))),
+        _command_stat_line(stats),
+        _finding_stat_line(stats),
+    ]
+    if stats.notes or stats.loot:
+        lines.append(
+            render.plain(_stat("journal", f"notes {stats.notes} · loot {stats.loot}"))
+        )
+    return lines
+
+
+def present_status(
+    readiness_now: Readiness, stats: SessionStats, surface: verbs.Surface
+) -> Styled:
+    """Render ``show status``: the glance, pending steps, drift, and activity stats.
+
+    The activity block (ran for / turns / commands / findings / journal) mirrors the
+    exit summary; a session that has done nothing shows no block, keeping the glance
+    and the ``ready`` sign-off as before.
+    """
     lines: Styled = [render.plain(readiness.glance(readiness_now))]
     notes = readiness.render_banner_notes(readiness_now, surface)
     lines += [render.info(note) for note in notes]
     drift = _drift_note(readiness_now, surface)
     if drift is not None:
         lines.append(render.info(drift))
-    if not notes and drift is None:
+    stat_lines = _status_stat_lines(stats)
+    lines += stat_lines
+    if not notes and drift is None and not stat_lines:
         lines.append(render.success("ready"))
     return lines
 
@@ -463,8 +525,30 @@ def present_reconcile(  # noqa: PLR0911 -- one return per outcome
             return _reconcile_all_lines(results)
 
 
+def _aligned_rows(rows: Sequence[Sequence[str]], aligns: str) -> list[str]:
+    """Pad each column to its widest cell so columns line up, joined by two spaces.
+
+    `aligns` gives ``l`` (left) or ``r`` (right) per column; it need only cover the
+    columns before the last. The final column is left at its natural width, so a row
+    carries no trailing whitespace and a trailing marker can follow it cleanly.
+    """
+    if not rows:
+        return []
+    last = len(rows[0]) - 1
+    widths = [max(len(row[i]) for row in rows) for i in range(last)]
+    out: list[str] = []
+    for row in rows:
+        cells = [
+            cell.rjust(widths[i]) if aligns[i] == "r" else cell.ljust(widths[i])
+            for i, cell in enumerate(row[:last])
+        ]
+        cells.append(row[last])
+        out.append("  ".join(cells))
+    return out
+
+
 def present_sessions(rows: list[SessionCount]) -> Styled:
-    """Render ``show sessions`` as one compact line per session, with a legend."""
+    """Render ``show sessions`` as one aligned row per session, with a legend."""
     if not rows:
         return empty("sessions")
     lines: Styled = [
@@ -473,14 +557,23 @@ def present_sessions(rows: list[SessionCount]) -> Styled:
             "(id · started · mode · Nt turns · Nc commands · Nf findings; * = current):"
         )
     ]
-    for s in rows:
+    # Right-justify each count within its own column so the t/c/f suffixes line up,
+    # keeping the single-space grouping; `mode` and the rest align via `_aligned_rows`.
+    wt = max(len(str(s.turns)) for s in rows)
+    wc = max(len(str(s.commands)) for s in rows)
+    wf = max(len(str(s.findings)) for s in rows)
+    cells = [
+        [
+            s.session_id[:8],
+            s.started_at,
+            s.mode,
+            f"{s.turns:>{wt}}t {s.commands:>{wc}}c {s.findings:>{wf}}f",
+        ]
+        for s in rows
+    ]
+    for s, row in zip(rows, _aligned_rows(cells, "lll"), strict=True):
         mark = " *" if s.current else ""
-        lines.append(
-            render.plain(
-                f"{s.session_id[:8]}  {s.started_at}  {s.mode}  "
-                f"{s.turns}t {s.commands}c {s.findings}f{mark}"
-            )
-        )
+        lines.append(render.plain(f"{row}{mark}"))
     return lines
 
 
@@ -500,14 +593,19 @@ def present_threads(rows: list[ThreadSummary], current: str) -> Styled:
             "(id · Nt turns · last activity · first prompt; * = current):"
         )
     ]
-    for t in rows:
+    wt = max(len(str(t.turns)) for t in rows)
+    cells = [
+        [
+            t.thread_id[:8],
+            f"{t.turns:>{wt}}t",
+            t.last_activity,
+            _snippet(t.first_prompt) if t.first_prompt else "(no prompts yet)",
+        ]
+        for t in rows
+    ]
+    for t, row in zip(rows, _aligned_rows(cells, "lrl"), strict=True):
         mark = " *" if t.thread_id == current else ""
-        label = _snippet(t.first_prompt) if t.first_prompt else "(no prompts yet)"
-        lines.append(
-            render.plain(
-                f"{t.thread_id[:8]}  {t.turns}t  {t.last_activity}  {label}{mark}"
-            )
-        )
+        lines.append(render.plain(f"{row}{mark}"))
     return lines
 
 

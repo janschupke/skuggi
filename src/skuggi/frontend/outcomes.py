@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from skuggi.install import configdiff, reconcile
-    from skuggi.persistence.ledger import FindingRow, SessionRow
+    from skuggi.persistence.ledger import CommandRow, FindingRow, SessionRow
     from skuggi.persistence.preferences import PreferenceRow
 
 
@@ -379,3 +379,27 @@ class SessionCount:
     commands: int
     findings: int
     current: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SessionStats:
+    """The current session's raw activity metrics, for ``show status``.
+
+    The same numbers the exit summary reports; keeping the command and finding
+    *rows* (not just counts) lets the status view reuse the shared breakdown
+    helpers in :mod:`skuggi.persistence.session_summary`.
+    """
+
+    elapsed_s: float | None
+    turns: int
+    commands: list[CommandRow]
+    findings: list[FindingRow]
+    notes: int
+    loot: int
+
+    @property
+    def is_empty(self) -> bool:
+        """True when nothing happened -- the status view then shows no stat block."""
+        return not (
+            self.turns or self.commands or self.findings or self.notes or self.loot
+        )
