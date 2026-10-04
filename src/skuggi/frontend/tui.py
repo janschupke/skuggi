@@ -36,6 +36,7 @@ from skuggi.frontend import (
     menu,
     outcomes,
     presenters,
+    presenters_journal,
     render,
     verbs,
     wizard,
@@ -424,19 +425,11 @@ class Tui:
         """Install one recognized tool. Issuing this command is the confirm."""
         with self.console.status(f"installing {binary}…", spinner="dots"):
             outcome = dispatch.run_install(self.core, binary)
-        match outcome:
-            case outcomes.InstallUnknown(name):
-                self.console.print(f"[red]unknown tool:[/red] {name!r}")
-                self.console.print(f"[dim]try: doctor research {name}[/dim]")
-            case outcomes.Installed(name, version, source):
-                self.console.print(
-                    f"[green]installed[/green] {name} ({version or '?'}) via {source}"
-                )
-            case outcomes.InstallFailed(name):
-                self.console.print(
-                    f"[red]install failed or unavailable[/red] for {name}"
-                )
-                self.console.print(f"[dim]try: doctor research {name}[/dim]")
+        self._emit(presenters.present_install(outcome))
+        # The `doctor research <tool>` fallback is REPL-only (the daemon has no
+        # research verb), so it is appended here rather than in the shared presenter.
+        if isinstance(outcome, (outcomes.InstallUnknown, outcomes.InstallFailed)):
+            self.console.print(f"[dim]try: doctor research {outcome.binary}[/dim]")
 
     def _cmd_cmd(self, arg: str) -> None:  # noqa: PLR0911 -- one return per cmd sub-command
         """Search the cheatsheet, resolve an exact alias, or edit the registry."""
@@ -556,18 +549,11 @@ class Tui:
 
     def _cmd_replay(self, arg: str) -> None:
         """Reconstruct & view a session transcript (``list`` enumerates them)."""
-        match dispatch.run_replay(self.core, arg, current_id=self.session_id):
-            case outcomes.ReplayEmpty():
-                self.console.print("[dim](no sessions)[/dim]")
-            case outcomes.ReplayList(rows, current_id):
-                for s in rows:
-                    marker = " *" if s.session_id == current_id else ""
-                    self.console.print(
-                        f"[cyan]{s.session_id[:8]}[/cyan]  "
-                        f"{s.started_at}  {s.mode}{marker}"
-                    )
-            case outcomes.ReplayTranscript(text):
-                self.console.print(Markdown(text))
+        outcome = dispatch.run_replay(self.core, arg, current_id=self.session_id)
+        if isinstance(outcome, outcomes.ReplayTranscript):
+            self.console.print(Markdown(outcome.text))  # structural body
+            return
+        self._emit(presenters_journal.present_replay_list(outcome))
 
     def _cmd_review(self, arg: str) -> None:
         """Print the private LLM critique of a session (also audit-logged)."""

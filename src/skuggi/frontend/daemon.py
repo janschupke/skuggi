@@ -36,6 +36,7 @@ from skuggi.frontend import (
     memoryflow,
     outcomes,
     presenters,
+    presenters_journal,
     render,
     verbs,
     wizard,
@@ -418,15 +419,11 @@ class Daemon:
             yield f"unknown alias {name!r}\n"
 
     def _replay(self, arg: str) -> Iterator[str]:
-        match dispatch.run_replay(self.core, arg, current_id=self.core.session_id):
-            case outcomes.ReplayEmpty():
-                yield "(no sessions)\n"
-            case outcomes.ReplayList(rows, current_id):
-                for s in rows:
-                    mark = " *" if s.session_id == current_id else ""
-                    yield f"  {s.session_id[:8]}  {s.started_at}  {s.mode}{mark}\n"
-            case outcomes.ReplayTranscript(text):
-                yield text + "\n"
+        outcome = dispatch.run_replay(self.core, arg, current_id=self.core.session_id)
+        if isinstance(outcome, outcomes.ReplayTranscript):
+            yield outcome.text + "\n"  # structural body: rendered per surface
+            return
+        yield from self._emit(presenters_journal.present_replay_list(outcome))
 
     def _review(self, arg: str) -> Iterator[str]:
         yield self.core.archive.review(arg.strip() or None) + "\n"

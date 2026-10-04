@@ -6,7 +6,7 @@ from pathlib import Path
 
 from skuggi.frontend import outcomes, presenters_journal
 from skuggi.frontend.render import Styled, to_markup
-from skuggi.persistence.ledger import FindingRow
+from skuggi.persistence.ledger import FindingRow, SessionRow
 
 
 def _texts(lines: Styled) -> list[str]:
@@ -97,3 +97,19 @@ def test_present_finding_recorded_prefixes_recorded() -> None:
     [line] = presenters_journal.present_finding_recorded(_finding("medium"))
     assert line.text == "recorded MEDIUM [7] SQLi in login — operator/approved"
     assert line.spans is not None
+
+
+def test_present_replay_list_empty_and_rows() -> None:
+    assert _texts(presenters_journal.present_replay_list(outcomes.ReplayEmpty())) == [
+        "(no sessions)"
+    ]
+    rows = [
+        SessionRow("aaaa1111-x", "acme", "pentest", "2026-10-03T00:00:00+00:00"),
+        SessionRow("bbbb2222-y", "acme", "redteam", "2026-10-04T00:00:00+00:00"),
+    ]
+    lines = presenters_journal.present_replay_list(
+        outcomes.ReplayList(rows, current_id="bbbb2222-y")
+    )
+    assert lines[0].text == "aaaa1111  2026-10-03T00:00:00+00:00  pentest"
+    assert lines[1].text.endswith(" *")  # the current session is marked
+    assert all(line.spans is not None for line in lines)  # id painted on both surfaces

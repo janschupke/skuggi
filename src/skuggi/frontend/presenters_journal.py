@@ -18,6 +18,8 @@ from skuggi.frontend.outcomes import (
     Indexed,
     IngestOutcome,
     IngestUsage,
+    ReplayEmpty,
+    ReplayList,
     ReportNoteAdded,
     ReportNoteUsage,
     ReportOutcome,
@@ -96,6 +98,31 @@ def present_findings_list(
         )
         for f in rows
     ]
+
+
+def present_replay_list(outcome: ReplayEmpty | ReplayList) -> Styled:
+    """Render the ``replay list`` listing: the empty state, or one row per session.
+
+    The reconstructed transcript (``ReplayTranscript``) is NOT handled here -- its
+    body is structural (Markdown in the REPL, plain text over the socket), so each
+    front-end renders that case itself. The session id is painted via
+    ``render.spans`` so the listing is coloured on both surfaces (the daemon's was
+    previously plain) and the two drifting row formats collapse to one.
+    """
+    if isinstance(outcome, ReplayEmpty):
+        return [render.info("(no sessions)")]
+    lines: Styled = []
+    for s in outcome.rows:
+        mark = " *" if s.session_id == outcome.current_id else ""
+        lines.append(
+            render.spans(
+                [
+                    (s.session_id[:8], "cyan"),
+                    (f"  {s.started_at}  {s.mode}{mark}", None),
+                ]
+            )
+        )
+    return lines
 
 
 def present_finding_recorded(row: FindingRow) -> Styled:
