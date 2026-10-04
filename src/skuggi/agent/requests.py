@@ -87,6 +87,7 @@ def ask[T: BaseModel](  # noqa: PLR0913 -- the ask seam binds llm + request + po
     *,
     policy: RedactionPolicy,
     native: bool,
+    label: str = "",
 ) -> T:
     """Obtain a validated ``schema`` instance for one structured request.
 
@@ -94,7 +95,8 @@ def ask[T: BaseModel](  # noqa: PLR0913 -- the ask seam binds llm + request + po
     ``render_request(ctx)``); it is scrubbed here -- the single egress point --
     before the call. ``native`` selects the provider path inside
     :func:`structured_invoke` (native ``with_structured_output`` vs the JSON
-    contract + repair retry on the tool-less chatgpt path).
+    contract + repair retry on the tool-less chatgpt path). ``label`` names the
+    calling node for the per-turn latency breakdown (diagnostics only).
     """
     if llm is None:  # defensive: a caller builds the model before streaming
         msg = "no model provider configured; run /setup"
@@ -103,4 +105,4 @@ def ask[T: BaseModel](  # noqa: PLR0913 -- the ask seam binds llm + request + po
         SystemMessage(content=system),
         HumanMessage(content=scrub(human_text, policy)),
     ]
-    return structured_invoke(llm, schema, prompt, native=native)
+    return structured_invoke(llm, schema, prompt, native=native, label=label)

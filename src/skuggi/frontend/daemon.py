@@ -248,8 +248,7 @@ class Daemon:
         if verb == "help":
             yield {"chunk": self._help_text(rest)}
         elif verb == "ask":
-            for chunk in self._agent(rest):
-                yield {"chunk": chunk}
+            yield from self._agent(rest)
         elif verb in verbs.KNOWN:
             for chunk in self._control(verb, rest):
                 yield {"chunk": chunk}
@@ -261,30 +260,28 @@ class Daemon:
             }
         yield {"end": True, "exit": False}
 
-    def _agent(self, text: str) -> Iterator[str]:
+    def _agent(self, text: str) -> Iterator[dict[str, object]]:
+        """Stream a chat turn: status -> `pending` (live spinner), answer -> `chunk`."""
         if not text:
-            yield "usage: ask <prompt>\n"
+            yield {"chunk": "usage: ask <prompt>\n"}
             return
         final = ""
         for ev in self.core.turn(text):
             if ev.kind == "status" and ev.text:
                 if ev.node == "error":
-                    # Surface the whole error -- a pydantic ValidationError spans
-                    # several lines, and truncating to the first hides the field
-                    # and reason that make a failure diagnosable.
-                    yield f"({ev.node}) {ev.text}\n"
+                    yield {"chunk": f"({ev.node}) {ev.text}\n"}
                 else:
-                    summary = ev.text.splitlines()[0][: presenters.STATUS_LINE_CAP]
-                    yield f"({ev.node}) {summary}\n"
+                    yield {"pending": f"{ev.text}..."}
             elif ev.kind == "final":
                 final = ev.text
-        yield (final or "(no answer)") + "\n"
+        yield {"chunk": (final or "(no answer)") + "\n"}
         # One-shot ask: announce what the evaluator would remember, never write (the
         # chat loop, surface "chat", gates the write itself in run_attached).
         if self._surface() != "chat":
-            yield from memoryflow.announce_capture(
+            for line in memoryflow.announce_capture(
                 self.core.memory.propose_capture(text), hint=self._cmd("add memory")
-            )
+            ):
+                yield {"chunk": line}
 
     def _stream_turn(self, events: Iterator[TurnEvent]) -> Iterator[str]:
         """Render a loop's event stream: a line per node status, then the final."""
@@ -374,6 +371,7 @@ class Daemon:
                 **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
                 "engagement": self._show_engagement,
                 "db": self._show_db,
+                "latency": self._show_latency,
                 "tools": self._show_tools,
                 "notes": self._notes,
                 "loot": self._loot,
@@ -491,6 +489,9 @@ class Daemon:
 
     def _show_db(self, _rest: str) -> Iterator[str]:
         yield dispatch.run_db_stats(self.core) + "\n"
+
+    def _show_latency(self, _rest: str) -> Iterator[str]:
+        yield dispatch.run_latency(self.core) + "\n"
 
     def _show_tools(self, rest: str) -> Iterator[str]:
         which = rest.strip().lower() or "all"

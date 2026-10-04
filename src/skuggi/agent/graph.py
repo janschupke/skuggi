@@ -178,6 +178,16 @@ def _finding_briefs(deps: GraphDeps) -> tuple[FindingBrief, ...]:
     )
 
 
+# The node each response schema belongs to, so the per-turn latency breakdown
+# labels a round-trip by its node (planner/worker/critic) rather than by the
+# schema class name. Used by the ``ask`` closure in ``build_graph``.
+_NODE_LABELS: dict[type, str] = {
+    PlannerResponse: "planner",
+    WorkerResponse: "worker",
+    CriticResponse: "critic",
+}
+
+
 # --- routing ----------------------------------------------------------------
 
 
@@ -356,6 +366,8 @@ def build_graph(
         # rendered request -- the one place the whole block is re-scanned -- and
         # obtains the validated schema. This closure only binds the turn graph's
         # plumbing (llm/policy/native) and renders the turn's RequestContext.
+        # The schema identifies the node, so the latency breakdown can attribute
+        # each round-trip without the node call sites passing a label by hand.
         return _ask(
             deps.llm,
             system,
@@ -363,6 +375,7 @@ def build_graph(
             schema,
             policy=policy,
             native=deps.native_structured,
+            label=_NODE_LABELS.get(schema, schema.__name__.lower()),
         )
 
     def plan_node(state: AgentState) -> PlanUpdate:
@@ -381,7 +394,7 @@ def build_graph(
     def executor_node(state: AgentState) -> ExecutorUpdate:
         return execute_node(state, deps, work_dir)
 
-    def after_executor(state: AgentState) -> Literal["worker", "critic"]:
+    def after_executor(state: AgentState) -> Literal["worker", "critic", "respond"]:
         return route_after_executor(state, deps)
 
     def critique_node(state: AgentState) -> CritiqueUpdate:

@@ -50,6 +50,19 @@ def test_plain_input_reaches_the_agent(daemon: Daemon) -> None:
     assert "(critic)" not in out
 
 
+def test_agent_streams_phase_labels_as_pending_frames(daemon: Daemon) -> None:
+    # A slow turn must show what it is doing: each phase is a `pending` frame so
+    # the client's spinner relabels live (planning -> working -> reviewing), while
+    # the answer is a single trailing chunk so the spinner turns right up to it.
+    frames = responses(daemon, {"op": "input", "text": "ask what is exposed?"})
+    pending = [str(f["pending"]) for f in frames if "pending" in f]
+    assert pending  # the turn announced its phases
+    assert all(label.endswith("...") for label in pending)
+    assert any("working" in label for label in pending)
+    answer = "".join(str(f.get("chunk", "")) for f in frames)
+    assert "the answer" in answer
+
+
 def test_slash_findings_lists_findings(daemon: Daemon) -> None:
     assert "no findings" in chunks(daemon, {"op": "input", "text": "/show findings"})
 
@@ -473,7 +486,9 @@ def test_agent_relays_a_multiline_error_in_full(
         "turn",
         lambda _text: iter([TurnEvent("status", err, node="error")]),
     )
-    out = "".join(daemon._agent("ask who are you?"))
+    out = "".join(
+        str(frame.get("chunk", "")) for frame in daemon._agent("ask who are you?")
+    )
     assert "phase" in out
     assert "Field required" in out
 

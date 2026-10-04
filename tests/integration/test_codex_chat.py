@@ -118,6 +118,25 @@ def test_body_matches_the_codex_shape(tmp_path: Path) -> None:
     roles = [e.get("role") for e in body["input"] if isinstance(e, dict)]
     assert "system" not in roles, "codex takes no system entry inside input"
     assert "user" in roles
+    assert "reasoning" not in body, "no effort set -> endpoint default stands"
+
+
+@respx.mock
+def test_reasoning_effort_is_sent_in_the_body(tmp_path: Path) -> None:
+    # The latency lever: effort rides in the Responses body, not as a model kwarg.
+    route = respx.post(RESPONSES_URL).mock(
+        return_value=httpx.Response(
+            200, text=_sse("ok"), headers={"content-type": "text/event-stream"}
+        )
+    )
+    model = build_codex_chat_model(
+        "gpt-5", auth_path=_auth_json(tmp_path), reasoning_effort="low"
+    )
+
+    model.invoke([("human", "hi")])
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["reasoning"] == {"effort": "low"}
 
 
 @respx.mock

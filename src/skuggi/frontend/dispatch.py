@@ -156,6 +156,33 @@ def run_db_stats(core: AgentCore) -> str:
     )
 
 
+def run_latency(core: AgentCore) -> str:
+    """Render the most recent turn's latency breakdown (the ``show latency`` view).
+
+    Answers "where did those 20 seconds go?": the total wall-clock, how much of it
+    was model round-trips (and how many, with repairs called out), and the split
+    across the planner/worker/critic calls. The gap between the total and the LLM
+    time is the harness's own work. ``None`` latency means no turn has run yet.
+    """
+    latency = core.turn_runner.last_latency
+    if latency is None:
+        return "no turn has run yet this session."
+    lines = [
+        f"last turn: {latency.total_s:.1f}s total"
+        f" ({latency.llm_s:.1f}s in {latency.calls} model call(s)"
+        + (f", {latency.repairs} repair(s)" if latency.repairs else "")
+        + ")",
+    ]
+    for node, secs in sorted(
+        latency.by_node.items(), key=lambda kv: kv[1], reverse=True
+    ):
+        lines.append(f"  {node:<10} {secs:5.1f}s")
+    overhead = latency.total_s - latency.llm_s
+    if overhead > 0.05:  # noqa: PLR2004 -- only worth a line above measurement noise
+        lines.append(f"  {'harness':<10} {overhead:5.1f}s")
+    return "\n".join(lines)
+
+
 # ----- scaffold -------------------------------------------------------------
 
 

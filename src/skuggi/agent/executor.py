@@ -102,14 +102,28 @@ def execute_node(state: AgentState, deps: GraphDeps, work_dir: Path) -> Executor
     return updates
 
 
-def route_after_executor(
+def route_after_executor(  # noqa: PLR0911 -- a flat guard ladder reads clearer than nesting the autonomous/advice/review branches
     state: AgentState, deps: GraphDeps
-) -> Literal["worker", "critic"]:
-    """Loop back to the worker only while an autonomous run can still make progress."""
+) -> Literal["worker", "critic", "respond"]:
+    """Route after the executor: loop, review, or (for advice-only turns) answer.
+
+    Loop back to the worker only while an autonomous run can still make progress.
+    Otherwise review with the critic -- except when the worker proposed no command
+    and recorded no finding: that pure advice/conversational answer has nothing
+    high-stakes to vet, so in non-autonomous mode it skips straight to ``respond``.
+    That removes one sequential reasoning round-trip (the critic cost as much as
+    the worker in the latency audit) on the common chat turn, while any command or
+    finding still goes through the critic.
+    """
     resp = state.get("worker")
-    if resp is None or resp.done or resp.command is None:
+    if resp is None:
         return "critic"
-    if deps.engagement is None or not deps.engagement.autonomous:
+    autonomous = deps.engagement is not None and deps.engagement.autonomous
+    if not autonomous and resp.command is None and not resp.findings:
+        return "respond"
+    if resp.done or resp.command is None:
+        return "critic"
+    if not autonomous:
         return "critic"
     if (state.get("command_rounds") or 0) >= deps.max_command_rounds:
         return "critic"

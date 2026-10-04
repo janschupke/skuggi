@@ -107,6 +107,7 @@ VERBS: tuple[Verb, ...] = (
             Noun("engagement", "scope summary"),
             Noun("env", "runtime command vars (target/lhost/lport/wordlist)"),
             Noun("db", "session ledger stats"),
+            Noun("latency", "last turn's latency breakdown"),
             Noun("sessions", "past sessions with activity counts"),
             Noun("tools", "recognized tools / host status", "[filter]"),
             Noun("memory", "remembered operator preferences"),

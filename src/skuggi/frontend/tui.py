@@ -152,6 +152,7 @@ class Tui:
             **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
             "engagement": self._show_engagement,
             "db": self._show_db,
+            "latency": self._show_latency,
             "tools": self._show_tools,
             "notes": self._show_notes,
             "loot": self._show_loot,
@@ -501,6 +502,9 @@ class Tui:
     def _show_db(self, _rest: str) -> None:
         self.console.print(dispatch.run_db_stats(self.core))
 
+    def _show_latency(self, _rest: str) -> None:
+        self.console.print(dispatch.run_latency(self.core))
+
     def _show_tools(self, rest: str) -> None:
         which = rest.strip().lower() or "all"
         if which not in TOOL_FILTERS:
@@ -631,16 +635,28 @@ class Tui:
             Spinner("dots", "thinking..."), console=self.console, refresh_per_second=20
         ) as live:
             view = DraftView(live)
+            drafted = False
             try:
                 for ev in self.core.turn(user_text):
                     if ev.kind == "reset":
                         view.reset()
+                        drafted = False
                     elif ev.kind == "status":
-                        self._status(ev.node, ev.text)
+                        # A non-error status names the phase now in flight; relabel
+                        # the spinner so a 20s turn visibly advances planning ->
+                        # working -> reviewing instead of a frozen "thinking...".
+                        # Once a draft is on screen, keep it (the critic reviews it
+                        # silently) rather than clobbering it with a spinner.
+                        if ev.node == "error":
+                            self._status(ev.node, ev.text)
+                        elif ev.text and not drafted:
+                            live.update(Spinner("dots", f"{ev.text}..."))
                     elif ev.kind == "token":
                         view.push_text(ev.text)
+                        drafted = True
                     elif ev.kind == "final":
                         view.show(ev.text)
+                        drafted = True
                 completed = True
             except KeyboardInterrupt:
                 # Ctrl-C cancels the in-flight turn and returns to the prompt. The

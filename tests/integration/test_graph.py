@@ -122,11 +122,15 @@ def test_approved_turn_records_exactly_one_answer() -> None:
 
 
 def test_revision_replans_and_feeds_the_critique_back() -> None:
-    """The point of the loop: the critic's complaint must reach the next planner."""
+    """The point of the loop: the critic's complaint must reach the next planner.
+
+    The critic only reviews actionable output (a command or finding), so the
+    worker proposes a command here to exercise the revision loop.
+    """
     model = RoleScriptedChatModel(
         worker_replies=[
-            WorkerResponse(summary="too terse"),
-            WorkerResponse(summary="a fuller answer"),
+            WorkerResponse(command="nmap 10.0.0.5", summary="too terse"),
+            WorkerResponse(command="nmap 10.0.0.5", summary="a fuller answer"),
         ],
         critic_replies=[
             CriticResponse(approved=False, reason="add detail"),
@@ -143,8 +147,12 @@ def test_revision_replans_and_feeds_the_critique_back() -> None:
 
 
 def test_a_revised_turn_still_persists_only_one_answer() -> None:
+    # A command makes the turn actionable, so the critic reviews it and can revise.
     model = RoleScriptedChatModel(
-        worker_replies=[WorkerResponse(summary="bad"), WorkerResponse(summary="good")],
+        worker_replies=[
+            WorkerResponse(command="nmap 10.0.0.5", summary="bad"),
+            WorkerResponse(command="nmap 10.0.0.5", summary="good"),
+        ],
         critic_replies=[
             CriticResponse(approved=False, reason="no"),
             CriticResponse(approved=True, reason="yes"),
@@ -158,8 +166,9 @@ def test_a_revised_turn_still_persists_only_one_answer() -> None:
 
 
 def test_max_revisions_cuts_the_loop_off() -> None:
+    # A command routes to the critic; an endlessly-unhappy critic exercises the cap.
     model = RoleScriptedChatModel(
-        worker_replies=[WorkerResponse(summary="draft")],
+        worker_replies=[WorkerResponse(command="nmap 10.0.0.5", summary="draft")],
         critic_replies=[CriticResponse(approved=False, reason="never happy")],
     )
 
@@ -171,6 +180,24 @@ def test_max_revisions_cuts_the_loop_off() -> None:
 
 
 # --- triage (the planner answers directly) ----------------------------------
+
+
+def test_advice_only_turn_skips_the_critic() -> None:
+    """A non-autonomous advice reply answers without the critic.
+
+    No command and no finding means nothing high-stakes to vet, so the turn saves
+    one sequential model round-trip -- the common chat turn.
+    """
+    model = RoleScriptedChatModel(
+        worker_replies=[WorkerResponse(summary="just advice", advice="try X")],
+        critic_replies=[CriticResponse(approved=True)],  # must never be consumed
+    )
+
+    state = _turn(_app(model), "explain your approach")
+
+    assert "just advice" in state["messages"][-1].text
+    assert model.prompts_for("critic") == []  # the critic never ran
+    assert state.get("approved") is None
 
 
 def test_direct_answer_skips_the_worker_and_critic() -> None:
@@ -198,8 +225,8 @@ def test_direct_answer_is_refused_mid_revision() -> None:
             PlannerResponse(action="answer", answer="never mind"),
         ],
         worker_replies=[
-            WorkerResponse(summary="first"),
-            WorkerResponse(summary="second"),
+            WorkerResponse(command="nmap 10.0.0.5", summary="first"),
+            WorkerResponse(command="nmap 10.0.0.5", summary="second"),
         ],
         critic_replies=[
             CriticResponse(approved=False, reason="more"),

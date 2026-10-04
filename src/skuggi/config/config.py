@@ -55,6 +55,13 @@ PROVIDERS: tuple[Provider, ...] = (
     "claude-cli",
     "ollama",
 )
+# How hard a reasoning model (gpt-5/6, codex) thinks before answering. Lower
+# effort trades depth for latency, which is the dominant cost on the tool-less
+# reasoning path (planner/worker/critic are three sequential reasoning calls).
+# Read by the codex (ChatGPT-account) Responses path; other providers ignore it.
+ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+REASONING_EFFORTS: tuple[ReasoningEffort, ...] = ("minimal", "low", "medium", "high")
+
 ToolSource = Literal["host", "managed", "combine"]
 
 # The ChatGPT-account (codex) endpoints. Verified live: the responses route is
@@ -214,6 +221,14 @@ class Settings(BaseSettings):
 
     embedding_model: str = "text-embedding-3-small"
     embedding_model_ollama: str = "nomic-embed-text"
+
+    # Reasoning depth for the OpenAI/codex Responses path. A turn is three
+    # sequential reasoning calls (planner -> worker -> critic), each paying the
+    # model's full think time, so this is the single largest latency lever on that
+    # path. "low" keeps the harness responsive for interactive use while leaving
+    # the worker enough depth to reason about a target; raise it for harder
+    # engagements. Ignored by providers that are not reasoning models.
+    reasoning_effort: ReasoningEffort = "low"
 
     # USD per 1,000,000 tokens, as (input, output), keyed by model name. Read by
     # the eval budget dimension (skuggi.eval.cost) to turn a turn's token usage

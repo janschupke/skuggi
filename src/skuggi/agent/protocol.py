@@ -28,15 +28,20 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from typing import Literal, cast, get_args
 
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
+from skuggi.common.logs import get_logger
 from skuggi.common.text import join_blocks, labeled
+from skuggi.common.timing import record_call
 from skuggi.frameworks import cvss, registry
+
+log = get_logger(__name__)
 
 # --- domain enums -----------------------------------------------------------
 
@@ -572,25 +577,55 @@ def _extract_json[T: BaseModel](text: str, schema: type[T]) -> T:
     return schema.model_validate_json(stripped[start : end + 1])
 
 
-def structured_invoke[T: BaseModel](
+def _timed_invoke[R](label: str, *, repaired: bool, call: Callable[[], R]) -> R:
+    """Run one model ``call``, recording its wall-clock against the active turn.
+
+    The one seam where every structured LLM round-trip is timed: it feeds the
+    per-turn :mod:`skuggi.common.timing` collector (so a turn can report where its
+    seconds went) and logs one diagnostic line per call. ``repaired`` marks the
+    JSON-contract retry so a doubled tool-less call is visible, not hidden. Timing
+    is recorded in ``finally`` so a failed call still accounts for the time spent.
+    """
+    start = time.perf_counter()
+    try:
+        return call()
+    finally:
+        elapsed = time.perf_counter() - start
+        record_call(label, elapsed, repaired=repaired)
+        log.info(
+            "llm call node=%s elapsed_s=%.3f repaired=%s",
+            label or "llm",
+            elapsed,
+            repaired,
+        )
+
+
+def structured_invoke[T: BaseModel](  # noqa: PLR0913 -- the model seam binds the schema, messages, provider path, and its diagnostics label
     llm: BaseChatModel,
     schema: type[T],
     messages: Sequence[BaseMessage],
     *,
     native: bool,
     repair: bool = True,
+    label: str = "",
 ) -> T:
     """Obtain a validated ``schema`` instance from one LLM call.
 
     ``native`` providers use ``with_structured_output``. The tool-less chatgpt
     path instead appends :func:`format_instructions`, parses the JSON out of the
     reply, and -- once, when ``repair`` is set -- re-asks with the validation
-    error if the first reply does not validate.
+    error if the first reply does not validate. ``label`` names the calling node
+    (planner/worker/critic) so the per-turn latency breakdown can attribute time;
+    it is diagnostics only and never changes the result.
     """
     msgs = list(messages)
     if native:
-        raw = llm.with_structured_output(schema).invoke(
-            cast("LanguageModelInput", msgs)
+        raw = _timed_invoke(
+            label,
+            repaired=False,
+            call=lambda: llm.with_structured_output(schema).invoke(
+                cast("LanguageModelInput", msgs)
+            ),
         )
         return schema.model_validate(raw)
 
@@ -598,7 +633,13 @@ def structured_invoke[T: BaseModel](
         *msgs,
         SystemMessage(content=format_instructions(schema)),
     ]
-    text = _text_of(llm.invoke(cast("LanguageModelInput", instructed)))
+    text = _text_of(
+        _timed_invoke(
+            label,
+            repaired=False,
+            call=lambda: llm.invoke(cast("LanguageModelInput", instructed)),
+        )
+    )
     try:
         return _extract_json(text, schema)
     except (ValidationError, ValueError):
@@ -613,5 +654,12 @@ def structured_invoke[T: BaseModel](
             ),
         ]
         return _extract_json(
-            _text_of(llm.invoke(cast("LanguageModelInput", retry))), schema
+            _text_of(
+                _timed_invoke(
+                    label,
+                    repaired=True,
+                    call=lambda: llm.invoke(cast("LanguageModelInput", retry)),
+                )
+            ),
+            schema,
         )

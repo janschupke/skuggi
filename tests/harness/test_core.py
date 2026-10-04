@@ -51,9 +51,31 @@ def test_turn_yields_a_final_answer(core: AgentCore) -> None:
     finals = [e.text for e in events if e.kind == "final"]
     assert finals
     assert "the answer" in finals[-1]
-    # Planner/critic scaffolding is logged, not streamed as operator events.
-    scaffolding = {"planner", "retriever", "executor", "critic"}
-    assert not [e for e in events if e.kind == "status" and e.node in scaffolding]
+    # Progress is now surfaced as short phase labels so a slow turn shows what it
+    # is doing; the internal plan/critique CONTENT still never streams as an event.
+    labels = {e.text for e in events if e.kind == "status"}
+    assert labels <= {"planning", "working", "reviewing", "revising"}
+    assert "working" in labels  # the full pipeline ran, so the worker was announced
+
+
+def test_turn_records_latency_attribution(core: AgentCore) -> None:
+    list(core.turn("what is exposed?"))
+    latency = core.turn_runner.last_latency
+    assert latency is not None
+    # The full pipeline is planner + worker + critic: at least those round-trips
+    # are timed and attributed to their nodes.
+    assert latency.calls >= 1
+    assert latency.total_s >= 0.0
+    assert latency.by_node  # at least one node accounted for
+    assert set(latency.by_node) <= {"planner", "worker", "critic"}
+
+
+def test_show_latency_reports_the_last_turn(core: AgentCore) -> None:
+    assert "no turn" in dispatch.run_latency(core).lower()
+    list(core.turn("what is exposed?"))
+    out = dispatch.run_latency(core)
+    assert "last turn" in out
+    assert "total" in out
 
 
 def test_turn_errors_are_yielded_not_raised(core: AgentCore) -> None:

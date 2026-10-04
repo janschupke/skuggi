@@ -11,6 +11,7 @@ A sibling sub-component: it reads the graph/ledger/session through ``core``.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -19,6 +20,7 @@ from langchain_core.messages import HumanMessage
 from skuggi.agent.graph import recursion_limit
 from skuggi.agent.protocol import render_answer
 from skuggi.common.logs import get_logger
+from skuggi.common.timing import TurnTiming, collect_turn_timing
 from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import parse_command
 
@@ -49,6 +51,37 @@ class TurnEvent:
     node: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class TurnLatency:
+    """The latency attribution of one completed turn (for ``show latency``).
+
+    ``total_s`` is the whole turn's wall-clock; ``llm_s`` is the part spent inside
+    model calls; ``by_node`` splits the model time across planner/worker/critic;
+    ``calls`` and ``repairs`` count the round-trips (a repair is a doubled call on
+    the tool-less path). The gap between ``total_s`` and ``llm_s`` is the harness's
+    own work (retrieval, scrubbing, the executor).
+    """
+
+    total_s: float
+    llm_s: float
+    by_node: dict[str, float]
+    calls: int
+    repairs: int
+
+    def summary(self) -> str:
+        """A one-line human summary, slowest node first."""
+        parts = ", ".join(
+            f"{node} {secs:.1f}s"
+            for node, secs in sorted(
+                self.by_node.items(), key=lambda kv: kv[1], reverse=True
+            )
+        )
+        tail = f" [{self.repairs} repair(s)]" if self.repairs else ""
+        return f"{self.total_s:.1f}s total, {self.calls} call(s){tail}" + (
+            f" -- {parts}" if parts else ""
+        )
+
+
 class TurnRunner:
     """Runs agent turns and session-audit writes for one session."""
 
@@ -61,11 +94,18 @@ class TurnRunner:
         # (replay/review keep every field) while the terminal gets only the clean
         # answer. Set by ``_turn_updates`` when the worker answers; "" otherwise.
         self._last_full_response: str = ""
+        # The latency attribution of the most recent turn, for ``show latency``.
+        self._last_latency: TurnLatency | None = None
 
     @property
     def current_turn_event_id(self) -> int | None:
         """The ledger event id of the in-flight turn (``None`` between turns)."""
         return self._current_turn_event_id
+
+    @property
+    def last_latency(self) -> TurnLatency | None:
+        """The latency breakdown of the most recent turn (``None`` before any)."""
+        return self._last_latency
 
     # ----- session logging ---------------------------------------------------
 
@@ -147,58 +187,104 @@ class TurnRunner:
         log.info("turn start thread=%s prompt=%r", self._core.thread_id, user_text)
         final_text = ""
         self._last_full_response = ""
-        try:
-            # Build the model on first use. A missing credential raises here and
-            # is caught below, surfacing as a clean, actionable error event
-            # (pointing at /setup) rather than a dead session.
-            self._core.ensure_llm()
-            # Structured output is not token-streamed; each node's state update is
-            # turned into a status/final event as the graph advances.
-            stream: Iterator[Any] = self._core.graph.stream(
-                initial, self._config(), stream_mode="updates"
-            )
-            for payload in stream:
-                for ev in self._turn_updates(cast("dict[str, object]", payload)):
-                    if ev.kind == "final":
-                        final_text = ev.text
-                    yield ev
-            # The turn is answered. Capturing any standing directive it carried is
-            # a GATED write: the front-end runs the memory-capture flow post-turn
-            # (preview + approval), because only it holds the operator round-trip.
-            # The turn loop itself never writes memory.
-        except ConfigError as e:
-            # A config/credential problem is already a full, actionable sentence
-            # (e.g. "No OpenAI API key configured. Run /setup..."); show it as-is
-            # rather than prefixing it with the exception class name.
-            log.warning("turn aborted on config error: %s", e)
-            final_text = f"[error] {e}"
-            yield TurnEvent("status", str(e), node="error")
-        except Exception as e:  # a bad turn must not kill the loop
-            log.exception("turn failed")
-            final_text = f"[error] {type(e).__name__}: {e}"
-            yield TurnEvent("status", f"{type(e).__name__}: {e}", node="error")
-        finally:
-            # Close the turn on the timeline and stop tagging commands with it,
-            # so a later /run proposal is recorded unlinked rather than misattributed.
-            # This runs OUTSIDE the try above: a storage failure here must degrade
-            # to a logged warning, never raise out of `turn` and kill the
-            # front-end loop with the response already delivered.
-            log.info(
-                "turn response thread=%s answer=%r", self._core.thread_id, final_text
-            )
+        self._last_latency = None
+        started = time.perf_counter()
+        with collect_turn_timing() as timing:
             try:
-                self._core.ledger.record_event(
-                    session_id=self._core.session_id,
-                    thread_id=self._core.thread_id,
-                    kind="response",
-                    # Keep the full, labeled render on the timeline so replay/review
-                    # retain every field; the operator only ever saw the clean answer.
-                    text=self._last_full_response or final_text,
+                # Build the model on first use. A missing credential raises here
+                # and is caught below, surfacing as a clean, actionable error event
+                # (pointing at /setup) rather than a dead session.
+                self._core.ensure_llm()
+                # The planner always runs first; announce it up front so the
+                # operator sees "planning..." while the first (silent) model call
+                # is in flight, not a frozen spinner.
+                yield TurnEvent("status", "planning", node="planner")
+                # Structured output is not token-streamed; each node's state update
+                # is turned into a status/final event as the graph advances.
+                stream: Iterator[Any] = self._core.graph.stream(
+                    initial, self._config(), stream_mode="updates"
                 )
-            except Exception:  # closing the timeline must not crash the loop
-                log.exception("failed to record turn-closing response event")
-            self._current_turn_event_id = None
-            self._last_full_response = ""
+                for payload in stream:
+                    for ev in self._turn_updates(cast("dict[str, object]", payload)):
+                        if ev.kind == "final":
+                            final_text = ev.text
+                        yield ev
+                # The turn is answered. Capturing any standing directive it carried
+                # is a GATED write: the front-end runs the memory-capture flow
+                # post-turn (preview + approval), because only it holds the operator
+                # round-trip. The turn loop itself never writes memory.
+            except ConfigError as e:
+                # A config/credential problem is already a full, actionable sentence
+                # (e.g. "No OpenAI API key configured. Run /setup..."); show it as-is
+                # rather than prefixing it with the exception class name.
+                log.warning("turn aborted on config error: %s", e)
+                final_text = f"[error] {e}"
+                yield TurnEvent("status", str(e), node="error")
+            except Exception as e:  # a bad turn must not kill the loop
+                log.exception("turn failed")
+                final_text = f"[error] {type(e).__name__}: {e}"
+                yield TurnEvent("status", f"{type(e).__name__}: {e}", node="error")
+            finally:
+                # Close the turn on the timeline and stop tagging commands with it,
+                # so a later /run proposal is recorded unlinked, not misattributed.
+                # This runs OUTSIDE the try above: a storage failure here must
+                # degrade to a logged warning, never raise out of `turn` and kill
+                # the front-end loop with the response already delivered.
+                self._record_latency(time.perf_counter() - started, timing)
+                log.info(
+                    "turn response thread=%s answer=%r",
+                    self._core.thread_id,
+                    final_text,
+                )
+                try:
+                    self._core.ledger.record_event(
+                        session_id=self._core.session_id,
+                        thread_id=self._core.thread_id,
+                        kind="response",
+                        # Keep the full, labeled render on the timeline so
+                        # replay/review retain every field; the operator only ever
+                        # saw the clean answer.
+                        text=self._last_full_response or final_text,
+                    )
+                except Exception:  # closing the timeline must not crash the loop
+                    log.exception("failed to record turn-closing response event")
+                self._current_turn_event_id = None
+                self._last_full_response = ""
+
+    def _record_latency(self, total_s: float, timing: TurnTiming) -> None:
+        """Summarise the turn's latency: store it, log it, and persist a metric.
+
+        The per-node breakdown is the audit deliverable -- it says where a 20s
+        turn spent its time (which model call, how many, how many repairs). Both
+        the store and the ledger write must never raise out of the turn's
+        ``finally`` (the answer is already delivered), so each is guarded.
+        """
+        latency = TurnLatency(
+            total_s=total_s,
+            llm_s=timing.llm_s,
+            by_node=timing.by_node(),
+            calls=timing.call_count,
+            repairs=timing.repair_count,
+        )
+        self._last_latency = latency
+        log.info("turn latency thread=%s %s", self._core.thread_id, latency.summary())
+        try:
+            self._core.ledger.record_audit(
+                session_id=self._core.session_id,
+                kind="metric",
+                verb="latency",
+                detail=json.dumps(
+                    {
+                        "total_s": round(latency.total_s, 3),
+                        "llm_s": round(latency.llm_s, 3),
+                        "calls": latency.calls,
+                        "repairs": latency.repairs,
+                        "by_node": {k: round(v, 3) for k, v in latency.by_node.items()},
+                    }
+                ),
+            )
+        except Exception:  # a metric write must never crash the loop
+            log.exception("failed to record turn latency metric")
 
     def _planner_events(self, values: dict[str, Any]) -> Iterator[TurnEvent]:
         """Emit the planner superstep's events.
@@ -221,7 +307,9 @@ class TurnRunner:
                 "plan thread=%s steps=%s", self._core.thread_id, json.dumps(steps)
             )
 
-    def _turn_updates(self, payload: dict[str, object]) -> Iterator[TurnEvent]:
+    def _turn_updates(  # noqa: PLR0912 -- one branch per graph node, each mapping a superstep to its event
+        self, payload: dict[str, object]
+    ) -> Iterator[TurnEvent]:
         """Turn one graph superstep into operator events, logging the rest.
 
         Only the worker's answer reaches the terminal (as a ``final`` event); the
@@ -234,6 +322,10 @@ class TurnRunner:
             values = update if isinstance(update, dict) else {}
             if node == "planner":
                 yield from self._planner_events(values)
+                # A plan (not a direct answer) means the worker call is the next
+                # wait; label the spinner for it now rather than after it finishes.
+                if values.get("plan_action") == "plan":
+                    yield TurnEvent("status", "working", node="worker")
             elif node == "retriever":
                 if values.get("context"):
                     log.debug(
@@ -256,6 +348,11 @@ class TurnRunner:
                     draft = str(values["draft"])
                     self._last_full_response = draft
                     yield TurnEvent("final", draft)
+                # The critic vets a command or finding next; a pure advice reply
+                # skips it (see route_after_executor), so only announce a review
+                # that will actually happen rather than flashing a dead label.
+                if worker is not None and (worker.command or worker.findings):
+                    yield TurnEvent("status", "reviewing", node="critic")
             elif node == "executor":
                 commands = values.get("commands") or []
                 if commands:
@@ -275,3 +372,7 @@ class TurnRunner:
                     approved,
                     reason,
                 )
+                # A rejected draft loops back to the planner for another pass;
+                # tell the operator a revision is starting rather than stalling.
+                if approved is False:
+                    yield TurnEvent("status", "revising", node="planner")

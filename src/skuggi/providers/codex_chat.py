@@ -259,6 +259,10 @@ class CodexChatModel(ChatOpenAI):
     """ChatOpenAI pointed at the codex Responses endpoint."""
 
     codex_instructions: str = CODEX_DEFAULT_INSTRUCTIONS
+    # Reasoning depth for this (reasoning) model. The dominant latency lever on the
+    # tool-less path: a turn is three sequential reasoning calls, each paying the
+    # model's full think time. ``None`` leaves the endpoint default untouched.
+    codex_reasoning_effort: str | None = None
 
     @property
     def _llm_type(self) -> str:
@@ -296,6 +300,11 @@ class CodexChatModel(ChatOpenAI):
         payload.setdefault("tool_choice", "auto")
         payload["parallel_tool_calls"] = False
         payload["store"] = False
+        # Set reasoning depth explicitly in the body (the Responses API carries it
+        # here, not as a model kwarg): the single largest latency lever on this
+        # path. Left alone when unset, so the endpoint default stands.
+        if self.codex_reasoning_effort:
+            payload["reasoning"] = {"effort": self.codex_reasoning_effort}
         return payload
 
 
@@ -311,12 +320,13 @@ def _entry_text(entry: dict[str, Any]) -> str:
     return ""
 
 
-def build_codex_chat_model(
+def build_codex_chat_model(  # noqa: PLR0913 -- assembling the client binds the endpoint, auth, reasoning and transport knobs
     model: str,
     *,
     auth_path: Path | None = None,
     responses_base: str = CODEX_RESPONSES_BASE,
     refresh_url: str = CODEX_REFRESH_URL,
+    reasoning_effort: str | None = None,
     http_client: httpx.Client | None = None,
 ) -> CodexChatModel:
     """Assemble a CodexChatModel against the ChatGPT-account endpoint."""
@@ -345,6 +355,7 @@ def build_codex_chat_model(
         base_url=responses_base,
         use_responses_api=True,
         streaming=True,
+        codex_reasoning_effort=reasoning_effort,
         default_headers=headers,
         http_client=client,
     )

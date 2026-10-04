@@ -190,10 +190,11 @@ def test_turn_shows_the_clean_answer_and_logs_the_scaffolding(
     assert "(planner)" not in output
     assert "(critic)" not in output
     assert "You are the worker" not in output, "scaffolding must not render"
-    # It is logged instead -- the structured worker object and the critic verdict.
+    # It is logged instead -- the plan and the structured worker object. (This is
+    # an advice-only reply, so the critic is skipped; see route_after_executor.)
     logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "plan thread=" in logged
     assert "worker thread=" in logged
-    assert "critic thread=" in logged
 
 
 def test_idle_ctrl_c_hints_and_stays_in_the_repl(

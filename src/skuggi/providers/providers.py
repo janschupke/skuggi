@@ -117,6 +117,7 @@ def get_chat_model(settings: Settings, *, model: str | None = None) -> BaseChatM
             auth_path=settings.auth_json(),
             responses_base=settings.codex_responses_base,
             refresh_url=settings.codex_refresh_url,
+            reasoning_effort=settings.reasoning_effort,
         )
 
     if provider == "claude-cli":

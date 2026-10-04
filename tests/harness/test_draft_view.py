@@ -69,12 +69,14 @@ def test_turn_maps_node_updates_to_events(
     finally:
         core.close()
 
-    # Only the worker's clean answer is operator-facing; a reset brackets the passes.
+    # Only the worker's clean answer is operator-facing; a reset brackets each pass.
     assert [e.text for e in events if e.kind == "final"] == ["the final answer"]
-    assert [e.kind for e in events][:3] == ["reset", "reset", "final"]
-    scaffolding = {"planner", "retriever", "executor", "critic"}
-    assert not [e for e in events if e.kind == "status" and e.node in scaffolding]
-    # The scaffolding is logged instead of shown.
+    assert "reset" in [e.kind for e in events]
+    # Progress is surfaced as short phase labels (so a slow turn is legible), but
+    # never the plan steps or critique body -- those stay logged, not shown.
+    labels = {e.text for e in events if e.kind == "status"}
+    assert labels <= {"planning", "working", "reviewing", "revising"}
+    # The scaffolding CONTENT is logged instead of shown.
     logged = "\n".join(r.getMessage() for r in caplog.records)
     assert "recon" in logged  # plan steps
     assert "nmap x" in logged  # executor command brief

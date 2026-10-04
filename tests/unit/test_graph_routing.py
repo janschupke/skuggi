@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from skuggi.agent.executor import _record_findings
+from skuggi.agent.executor import _record_findings, route_after_executor
 from skuggi.agent.graph import (
     GraphDeps,
     needs_pipeline,
@@ -48,6 +48,28 @@ def test_route_after_critic(
         kwargs["approved"] = approved
     state = _state(**kwargs)
     assert route_after_critic(state) == expected
+
+
+def test_route_after_executor_skips_critic_for_advice_only() -> None:
+    # No command, no finding, non-autonomous: nothing high-stakes for the critic
+    # to vet, so answer directly and save one sequential model round-trip.
+    state = _state(worker=WorkerResponse(summary="just advice", advice="try X"))
+    assert route_after_executor(state, GraphDeps()) == "respond"
+
+
+def test_route_after_executor_reviews_a_command() -> None:
+    state = _state(worker=WorkerResponse(command="nmap 10.0.0.5", summary="scan"))
+    assert route_after_executor(state, GraphDeps()) == "critic"
+
+
+def test_route_after_executor_reviews_a_finding() -> None:
+    worker = WorkerResponse(
+        summary="found it",
+        findings=(
+            FindingDraft(title="open port", description="22/tcp", severity="low"),
+        ),
+    )
+    assert route_after_executor(_state(worker=worker), GraphDeps()) == "critic"
 
 
 @pytest.mark.parametrize(
