@@ -203,6 +203,7 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
             "no",  # autonomous (confirm -> yes/no choose)
             "active",  # autonomous_ceiling (choose)
             "no",  # threat model: decline CVSS environmental scoring
+            "no",  # OSINT: decline the reconnaissance scope
         ]
     )
     emitted: list[dict[str, object]] = []

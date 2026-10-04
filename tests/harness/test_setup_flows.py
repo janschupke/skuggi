@@ -23,6 +23,7 @@ from skuggi.agent.core import AgentCore
 from skuggi.common import home, palette
 from skuggi.config.config import Settings
 from skuggi.config.configs import InvalidScopeError, load_scope
+from skuggi.engagement import scope
 from skuggi.engagement.engagement import check_command, parse_command
 from skuggi.engagement.workspace import Workspace
 from skuggi.frontend import setup, wizard
@@ -47,6 +48,7 @@ def _catalog(core: AgentCore) -> wizard.Catalog:
         methodologies=protocol.METHODOLOGIES,
         taxonomies=protocol.TAXONOMIES,
         stances=protocol.STANCES,
+        osint_sources=scope.OSINT_SOURCES,
     )
 
 
@@ -70,7 +72,8 @@ def _wizard_prompter(name: str, notes: list[str] | None = None) -> Prompter:
     chooses = iter(["phases", "cautious", "active"])
     multis: list[list[str]] = [["recon", "scan"], []]  # methods, taxonomies
     multi_it = iter(multis)
-    confirms = iter([False, False])  # autonomous, enable-threat-model
+    # autonomous, enable-threat-model, enable-OSINT (all declined)
+    confirms = iter([False, False, False])
     return Prompter(
         ask=lambda _p: next(asks),
         ask_complete=lambda _p, _c, _d: next(completes),
@@ -296,6 +299,7 @@ def test_attach_wizard_creates_engagement_over_socket(tmp_path: Path) -> None:
             "no",  # autonomous (confirm -> yes/no choose)
             "active",  # autonomous_ceiling (choose)
             "no",  # threat model: decline CVSS environmental scoring
+            "no",  # OSINT: decline the reconnaissance scope
         ]
         frames = _drive_attached(daemon, ["engagement setup", *answers])
         # The wizard asked questions as frames of each kind...

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from skuggi.agent import protocol
 from skuggi.common import palette
+from skuggi.engagement.scope import OSINT_SOURCES
 from skuggi.frontend import (
     cmdflow,
     configflow,
@@ -146,6 +147,7 @@ class ReplFlows:
             methodologies=protocol.METHODOLOGIES,
             taxonomies=protocol.TAXONOMIES,
             stances=protocol.STANCES,
+            osint_sources=OSINT_SOURCES,
         )
 
     def engagement_wizard(self) -> None:

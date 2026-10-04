@@ -3,16 +3,59 @@
   "timezone": "Europe/Helsinki",
   "authorized_start": "2026-09-01T00:00:00+03:00",
   "authorized_end": "2026-12-31T23:59:59+02:00",
-  "daily_windows": [{ "start": "09:00:00", "end": "17:00:00" }],
-  "target_networks": ["192.0.2.0/24", "198.51.100.0/24"],
-  "allowed_hosts": ["scanme.example.com"],
-  "allowed_tools": ["nmap", "nikto", "curl", "gobuster", "sqlmap", "whatweb"],
-  "allowed_methods": ["recon", "scan", "enumerate"],
+  "daily_windows": [
+    {
+      "start": "09:00:00",
+      "end": "17:00:00"
+    }
+  ],
+  "target_networks": [
+    "192.0.2.0/24",
+    "198.51.100.0/24"
+  ],
+  "allowed_hosts": [
+    "scanme.example.com"
+  ],
+  "allowed_tools": [
+    "nmap",
+    "nikto",
+    "curl",
+    "gobuster",
+    "sqlmap",
+    "whatweb"
+  ],
+  "allowed_methods": [
+    "recon",
+    "scan",
+    "enumerate"
+  ],
   "stance": "cautious",
   "autonomous": false,
   "autonomous_ceiling": "active",
   "methodology": "phases",
-  "taxonomies": ["wstg"],
+  "taxonomies": [
+    "wstg"
+  ],
+  "osint": {
+    "organizations": [
+      "Acme Corp"
+    ],
+    "domains": [
+      "acme.example.com"
+    ],
+    "people": [],
+    "github_orgs": [
+      "acme"
+    ],
+    "enabled_sources": [
+      "crtsh",
+      "dns",
+      "github",
+      "websearch"
+    ],
+    "passive_only": true,
+    "autonomous_ceiling": "recon"
+  },
   "threat_model": {
     "confidentiality_requirement": "high",
     "integrity_requirement": "medium",

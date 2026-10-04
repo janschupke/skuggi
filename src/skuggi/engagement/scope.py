@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, time
-from typing import Literal
+from typing import Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
@@ -25,6 +25,16 @@ from pydantic import (
 
 from skuggi.agent.protocol import Methodology, Stance, Taxonomy
 from skuggi.tooling.registry import RiskTier, RiskTierField
+
+# The OSINT reconnaissance sources the agentic OSINT loop can draw on. Each maps
+# to a collector (see skuggi.osint.collectors); authorizing one here is what the
+# OSINT guard checks (a source absent from ``enabled_sources`` is denied). Passive
+# HTTP sources (crt.sh/dns/github/websearch) tier ``recon``; the browser/scraper
+# sources (linkedin/ats/social) tier ``active``. See skuggi.engagement.osint_guard.
+OsintSource = Literal[
+    "crtsh", "dns", "github", "linkedin", "ats", "shodan", "websearch", "social"
+]
+OSINT_SOURCES: tuple[OsintSource, ...] = get_args(OsintSource)
 
 
 class TimeWindow(BaseModel):
@@ -68,6 +78,58 @@ class ThreatModel(BaseModel):
         return {code: value for code, value in pairs.items() if value != "M"}
 
 
+class OsintScope(BaseModel):
+    """The authorized boundary for the agentic OSINT reconnaissance loop.
+
+    A distinct scope dimension from the network/host boundary: OSINT acts on
+    *subjects* (organizations, apex domains, people/usernames, GitHub orgs), not
+    IPs, and queries third-party services *about* them. Present on an engagement
+    means OSINT is enabled; absent (``EngagementConfig.osint is None``) means the
+    ``osint`` loop refuses to run. The guard (``skuggi.engagement.osint_guard``)
+    denies any task whose subject is outside this scope or whose source is not in
+    ``enabled_sources`` -- deny-by-default, exactly like the command guard.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    organizations: frozenset[str] = frozenset()
+    domains: frozenset[str] = frozenset()  # authorized apex domains
+    people: frozenset[str] = frozenset()  # names / usernames
+    github_orgs: frozenset[str] = frozenset()
+    enabled_sources: frozenset[OsintSource] = frozenset()
+    # When True, only passive (``recon``-tier) sources may run; a source whose
+    # collector touches the subject (browser scraping) is held back. Independent
+    # of ``autonomous_ceiling`` -- this is the passive/active boundary, the ceiling
+    # is the auto-run-vs-propose line, and both must pass.
+    passive_only: bool = True
+    # The highest risk tier the OSINT loop runs without asking (mirrors
+    # EngagementConfig.autonomous_ceiling for OSINT). Conservative by default:
+    # passive HTTP recon auto-runs, browser/scraper sources escalate.
+    autonomous_ceiling: RiskTierField = RiskTier.recon
+
+    def subject_in_scope(self, subject: str) -> bool:
+        """Whether ``subject`` is an authorized OSINT subject.
+
+        A domain matches an authorized apex exactly or as a subdomain of it
+        (``mail.acme.com`` under ``acme.com``); an org/person/github handle must
+        be a listed member. Matching is case-insensitive. This is the OSINT
+        analogue of the command guard's ``_target_in_scope`` -- a false allow
+        here is a real authorization bug, so it is kept small and total.
+        """
+        needle = subject.strip().lower()
+        if not needle:
+            return False
+        members = {
+            m.lower() for m in (*self.organizations, *self.people, *self.github_orgs)
+        }
+        if needle in members:
+            return True
+        return any(
+            needle == apex or needle.endswith(f".{apex}")
+            for apex in (d.lower() for d in self.domains)
+        )
+
+
 class EngagementConfig(BaseModel):
     """The authorized boundary for one engagement, loaded from JSON."""
 
@@ -107,6 +169,10 @@ class EngagementConfig(BaseModel):
     methodology: Methodology = "phases"
     taxonomies: frozenset[Taxonomy] = frozenset()
     threat_model: ThreatModel | None = None
+    # The OSINT reconnaissance boundary. Advisory-absent, like ``threat_model``:
+    # ``None`` means the agentic OSINT loop is disabled for this engagement. Never
+    # affects the command guard -- it is its own dimension (see OsintScope).
+    osint: OsintScope | None = None
 
     @field_validator("timezone")
     @classmethod

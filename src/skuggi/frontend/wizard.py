@@ -35,7 +35,7 @@ Apply = Callable[[dict[str, object]], EngagementConfig]
 WIZARD_ARGS = frozenset({"setup", "new", "edit"})
 
 Widget = Literal[
-    "text", "autocomplete", "select", "multiselect", "confirm", "threat_model"
+    "text", "autocomplete", "select", "multiselect", "confirm", "threat_model", "osint"
 ]
 
 # CVSS environmental requirement dimensions, in C-I-A order, and their levels.
@@ -57,6 +57,7 @@ class Catalog:
     methodologies: tuple[str, ...]
     taxonomies: tuple[str, ...]
     stances: tuple[str, ...]
+    osint_sources: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -225,6 +226,10 @@ _SECTIONS: tuple[Section, ...] = (
             Field("threat_model", "threat model", "threat_model"),
         ),
     ),
+    Section(
+        "OSINT",
+        (Field("osint", "OSINT reconnaissance scope", "osint"),),
+    ),
 )
 
 # Every engagement field the wizard owns (for the preserve-on-retry targeting and
@@ -275,6 +280,8 @@ def _ask_field(  # noqa: PLR0911 -- a widget dispatch is one return per widget k
         return None if picks is None else (True, picks)
     if field.widget == "threat_model":
         return _ask_threat_model(prompter, current)
+    if field.widget == "osint":
+        return _ask_osint(prompter, catalog, current)
     # confirm
     answer_bool = prompter.confirm(field.prompt, bool(current))
     return None if answer_bool is None else (True, answer_bool)
@@ -300,6 +307,64 @@ def _ask_threat_model(
             return None
         model[key] = level
     return (True, model)
+
+
+def _ask_osint(  # noqa: PLR0911 -- one abort-return per OSINT sub-prompt
+    prompter: Prompter, catalog: Catalog, current: object
+) -> tuple[bool, object] | None:
+    """Guided OSINT scope: a yes/no, then sources + subjects + the passive bound.
+
+    Mirrors ``_ask_threat_model`` -- one composite field returning a nested dict
+    (or ``None`` when OSINT is left disabled), so the wizard's flat accumulator
+    carries OSINT under the single ``osint`` key and ``EngagementConfig`` validates
+    it in one place.
+    """
+    existing = current if isinstance(current, dict) else None
+    enable = prompter.confirm("enable OSINT reconnaissance?", existing is not None)
+    if enable is None:
+        return None
+    if not enable:
+        return (True, None)
+    sources = list(catalog.osint_sources)
+    preset = [str(s) for s in existing.get("enabled_sources", ())] if existing else []
+    picks = prompter.multiselect("OSINT sources to enable", sources, preset)
+    if picks is None:
+        return None
+    osint: dict[str, object] = {"enabled_sources": picks}
+    for key, label in (
+        ("organizations", "organizations (comma-separated)"),
+        ("domains", "authorized apex domains (comma-separated)"),
+        ("people", "people / usernames (comma-separated)"),
+        ("github_orgs", "GitHub orgs (comma-separated)"),
+    ):
+        shown = ", ".join(existing.get(key, ())) if existing else ""
+        answer = prompter.ask(_label(label, shown))
+        if answer is None:
+            return None
+        osint[key] = (
+            _csv(answer)
+            if answer.strip()
+            else list(existing.get(key, ()))
+            if existing
+            else []
+        )
+    passive_default = existing.get("passive_only", True) if existing else True
+    passive = prompter.confirm("passive sources only?", bool(passive_default))
+    if passive is None:
+        return None
+    osint["passive_only"] = passive
+    ceiling_default = (
+        str(existing.get("autonomous_ceiling", "recon")) if existing else "recon"
+    )
+    ceiling = prompter.choose(
+        "highest OSINT risk tier to run without asking",
+        list(_RISK_TIERS),
+        ceiling_default,
+    )
+    if ceiling is None:
+        return None
+    osint["autonomous_ceiling"] = ceiling
+    return (True, osint)
 
 
 def collect_scope(
