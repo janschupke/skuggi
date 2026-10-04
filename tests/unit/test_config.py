@@ -137,6 +137,25 @@ def test_secrets_are_never_read_from_json(
     assert Settings().openai_api_key is None
 
 
+def test_osint_secrets_are_env_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The OSINT credentials are refused from JSON and read from the env."""
+    with pytest.raises(ValueError, match="secrets are env-only"):
+        write_config(tmp_path / "c.json", {"shodan_api_key": "leaked"})
+    monkeypatch.setenv("SHODAN_API_KEY", "real-key")
+    monkeypatch.setenv("APIFY_TOKEN", "apify-tok")
+    settings = Settings()
+    assert settings.shodan_api_key is not None
+    assert settings.shodan_api_key.get_secret_value() == "real-key"
+    assert settings.apify_token is not None
+
+
+def test_osint_source_config_defaults_to_duckduckgo() -> None:
+    """The out-of-the-box websearch backend needs no API key."""
+    assert Settings().osint_source_config["websearch"]["backend"] == "duckduckgo"
+
+
 def test_example_config_loads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The packaged config.example.json validates against Settings.
 

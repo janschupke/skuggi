@@ -84,7 +84,15 @@ CONFIG_PATH_ENV = "SKUGGI_CONFIG_PATH"
 
 # Field names that must never be sourced from (or written to) the JSON config:
 # credentials belong in the environment only.
-_SECRET_FIELDS = frozenset({"openai_api_key", "anthropic_api_key"})
+_SECRET_FIELDS = frozenset(
+    {
+        "openai_api_key",
+        "anthropic_api_key",
+        "shodan_api_key",
+        "apify_token",
+        "osint_search_api_key",
+    }
+)
 
 log = logs.get_logger(__name__)
 
@@ -341,6 +349,23 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = Field(None, validation_alias="OPENAI_API_KEY")
     anthropic_api_key: SecretStr | None = Field(
         None, validation_alias="ANTHROPIC_API_KEY"
+    )
+
+    # --- OSINT credentials + per-source config ---
+    # Secrets for OSINT collectors. Env-only (see _SECRET_FIELDS), never config.json,
+    # exactly like the provider keys above. A collector is usable only when its
+    # source is authorized in scope AND the credential it needs is present.
+    shodan_api_key: SecretStr | None = Field(None, validation_alias="SHODAN_API_KEY")
+    apify_token: SecretStr | None = Field(None, validation_alias="APIFY_TOKEN")
+    osint_search_api_key: SecretStr | None = Field(
+        None, validation_alias="OSINT_SEARCH_API_KEY"
+    )
+    # Non-secret per-source tuning, keyed by source name (the model_prices
+    # precedent): e.g. the websearch backend + endpoint, a github api base, an
+    # apify actor id. Overridable via config.json or SKUGGI_OSINT_SOURCE_CONFIG.
+    # The default picks the no-key DuckDuckGo HTML backend for websearch.
+    osint_source_config: dict[str, dict[str, str]] = Field(
+        default_factory=lambda: {"websearch": {"backend": "duckduckgo"}}
     )
     ollama_base_url: str = Field(
         OLLAMA_BASE_URL_DEFAULT, validation_alias="OLLAMA_BASE_URL"
