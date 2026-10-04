@@ -74,6 +74,11 @@ class WorkspaceLayout(BaseModel):
     notes: str = "notes"
     recon: str = "recon"
     recon_subdirs: tuple[str, ...] = ("nmap", "dirs", "domains", "web")
+    # The agentic OSINT loop's structured output: one JSON artifact per
+    # (subject, source) under ``osint/<subject>/<source>.json``. Separate from
+    # ``recon`` (active network output) because OSINT is passive, subject-keyed,
+    # and machine-readable. See skuggi.osint.store.
+    osint: str = "osint"
     reports: str = "reports"
     scripts: str = "scripts"
     tests: str = "tests"
@@ -95,6 +100,7 @@ class WorkspaceLayout(BaseModel):
             self.notes,
             self.recon,
             *recon_subs,
+            self.osint,
             self.reports,
             self.scripts,
             self.tests,
@@ -153,6 +159,11 @@ class Workspace:
     def recon_dir(self) -> Path:
         """The working directory for autonomously executed recon commands."""
         return self.root / self.layout.recon
+
+    @property
+    def osint_dir(self) -> Path:
+        """Where the OSINT loop writes its structured JSON artifacts."""
+        return self.root / self.layout.osint
 
     @property
     def notes_dir(self) -> Path:
