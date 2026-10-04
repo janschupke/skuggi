@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 
 from skuggi.engagement.scope import OsintSource
-from skuggi.osint.collectors.base import (
+from skuggi.intel.collectors.base import (
     CollectContext,
     HttpRequest,
     empty_result,

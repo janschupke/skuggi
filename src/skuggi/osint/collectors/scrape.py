@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from skuggi.common.logs import get_logger
 from skuggi.engagement.scope import OsintSource
-from skuggi.osint.collectors.base import CollectContext
+from skuggi.intel.collectors.base import CollectContext
 from skuggi.osint.schema import OsintItem
 
 log = get_logger(__name__)

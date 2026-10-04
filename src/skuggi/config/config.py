@@ -91,6 +91,7 @@ _SECRET_FIELDS = frozenset(
         "shodan_api_key",
         "apify_token",
         "osint_search_api_key",
+        "nvd_api_key",
     }
 )
 
@@ -372,6 +373,17 @@ class Settings(BaseSettings):
     # graph's recursion limit (see skuggi.osint.graph.osint_recursion_limit).
     osint_max_tasks: int = 12
     osint_max_replans: int = 2
+    # The public-source research loop (engagement-independent). Its CVE collector
+    # uses the keyless NVD API by default; a key raises the rate limit (env-only,
+    # see _SECRET_FIELDS). ``research_source_config`` tunes its sources the same way
+    # ``osint_source_config`` does (e.g. a websearch backend, endoflife.date product
+    # aliases). The bounds size the research graph's recursion limit.
+    nvd_api_key: SecretStr | None = Field(None, validation_alias="NVD_API_KEY")
+    research_source_config: dict[str, dict[str, str]] = Field(
+        default_factory=lambda: {"websearch": {"backend": "duckduckgo"}}
+    )
+    research_max_tasks: int = 10
+    research_max_replans: int = 2
     ollama_base_url: str = Field(
         OLLAMA_BASE_URL_DEFAULT, validation_alias="OLLAMA_BASE_URL"
     )

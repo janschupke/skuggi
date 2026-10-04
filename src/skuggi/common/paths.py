@@ -48,3 +48,21 @@ def ensure_dir(path: Path) -> Path:
     expanded = path.expanduser()
     expanded.mkdir(parents=True, exist_ok=True)
     return expanded
+
+
+def confine_under(base: Path, relpath: str) -> Path:
+    """Resolve `relpath` under `base`, refusing any escape from `base`.
+
+    The confinement primitive behind every path the agent can influence: a tool
+    input, an evidence file, or a loop's output artifact named by a relative path.
+    The result is fully resolved (so a symlink pointing out, or a ``..`` climb, is
+    caught) and must stay inside the resolved `base`; otherwise this raises
+    ``ValueError``. A prefix check would be fooled by a sibling like
+    ``<base>-secrets``; ``is_relative_to`` on the resolved paths is not.
+    """
+    base_r = base.resolve()
+    candidate = (base / relpath).resolve()
+    if base_r != candidate and not candidate.is_relative_to(base_r):
+        msg = f"path escapes {base.name!r}: {relpath!r}"
+        raise ValueError(msg)
+    return candidate

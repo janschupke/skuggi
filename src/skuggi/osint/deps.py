@@ -17,8 +17,9 @@ from langchain_core.language_models import BaseChatModel
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.engagement.scope import OsintScope
 from skuggi.engagement.workspace import Workspace
-from skuggi.osint.collectors.base import CollectContext, Collector
+from skuggi.intel.collectors.base import CollectContext, Collector
 from skuggi.osint.prompts import OsintPromptSet, osint_prompt_set
+from skuggi.osint.schema import OsintTask
 from skuggi.persistence.ledger import Ledger
 from skuggi.security.policy import RedactionPolicy
 
@@ -32,7 +33,7 @@ class OsintDeps:
     redaction_policy: RedactionPolicy | None = None
     engagement: EngagementConfig | None = None
     osint: OsintScope | None = None
-    collectors: tuple[Collector, ...] = ()
+    collectors: tuple[Collector[OsintTask], ...] = ()
     collect_context: CollectContext | None = None
     workspace: Workspace | None = None
     ledger: Ledger | None = None

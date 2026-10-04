@@ -1,11 +1,12 @@
 """The strict structured protocol for the OSINT loop.
 
-Kept out of ``agent.protocol`` (near its 700-line cap, and a different subsystem):
-the OSINT planner's todo DAG, a collector's structured result, and the datum type
-inside it. Findings the loop wants on the engagement report are NOT a new type --
-the loop reuses ``agent.protocol.FindingDraft`` and the existing
-``ledger.record_finding`` path, so OSINT findings flow through CVSS scoring,
-review and the report with no parallel reporting code.
+The todo DAG (``OsintTask``/``OsintPlan``) and the verifier's verdict are
+OSINT-specific; the collected corpus is not, so ``OsintItem``/``OsintResult`` are
+the shared :mod:`skuggi.intel.schema` types, aliased here so the OSINT collectors
+and nodes read in their own vocabulary. Findings the loop wants on the engagement
+report are NOT a new type -- the loop reuses ``agent.protocol.FindingDraft`` and
+the existing ``ledger.record_finding`` path, so OSINT findings flow through CVSS
+scoring, review and the report with no parallel reporting code.
 
 Every model is frozen and validates at the boundary, exactly like the turn
 protocol, so ``structured_invoke`` can enforce the planner's schema and a test can
@@ -14,10 +15,16 @@ assert the DAG shape rather than eyeball a string.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from skuggi.agent.protocol import FindingDraft
 from skuggi.engagement.scope import OsintSource
+from skuggi.intel.schema import IntelItem, IntelResult
+
+# The collected corpus is subsystem-agnostic (see skuggi.intel.schema); the OSINT
+# loop reads it under its own names so collectors stay readable.
+OsintItem = IntelItem
+OsintResult = IntelResult
 
 
 class OsintTask(BaseModel):
@@ -46,39 +53,6 @@ class OsintPlan(BaseModel):
 
     tasks: tuple[OsintTask, ...] = ()
     rationale: str = ""
-
-
-class OsintItem(BaseModel):
-    """One datum a collector found (a subdomain, repo, cert, role, email, …).
-
-    Deliberately generic: ``kind`` names the datum type and ``attributes`` carries
-    source-specific detail, so one artifact schema serves every source without a
-    per-source table. The security-relevant subset is promoted to a ``FindingDraft``
-    separately; this is the full machine-readable corpus.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    kind: str
-    value: str
-    attributes: dict[str, str] = Field(default_factory=dict)
-
-
-class OsintResult(BaseModel):
-    """One task's collected output, written as a JSON artifact and fed back.
-
-    ``items`` is the structured corpus; ``note`` is a short free-text summary the
-    verifier and the next planner pass read. An empty ``items`` with a ``note`` is a
-    legitimate "nothing found / source unavailable" result -- never an error.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    task_id: str
-    source: OsintSource
-    subject: str
-    items: tuple[OsintItem, ...] = ()
-    note: str = ""
 
 
 class OsintVerdict(BaseModel):

@@ -10,11 +10,11 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
+from skuggi.intel.collectors.base import CollectContext, Driver
 from skuggi.osint.collectors import apify as apify_mod
 from skuggi.osint.collectors import browser as browser_mod
 from skuggi.osint.collectors import collector_for, default_collectors
 from skuggi.osint.collectors.ats import ATSCollector
-from skuggi.osint.collectors.base import CollectContext, Driver
 from skuggi.osint.collectors.linkedin import LinkedInCollector
 from skuggi.osint.collectors.shodan import ShodanCollector
 from skuggi.osint.collectors.social import SocialCollector

@@ -1,6 +1,6 @@
 """The Playwright-backed rendered-page driver (optional extra).
 
-A :class:`~skuggi.osint.collectors.base.Driver` implementation over Playwright,
+A :class:`~skuggi.intel.collectors.base.Driver` implementation over Playwright,
 imported lazily so the base install (without the ``osint-browser`` extra) still
 imports and runs the HTTP-only loop. ``playwright_available`` gates it via
 ``find_spec`` without importing it; ``default_driver_factory`` returns ``None`` when
@@ -14,7 +14,7 @@ import importlib.util
 from collections.abc import Callable
 
 from skuggi.common.logs import get_logger
-from skuggi.osint.collectors.base import Driver
+from skuggi.intel.collectors.base import Driver
 
 log = get_logger(__name__)
 _NAV_TIMEOUT_MS = 15_000

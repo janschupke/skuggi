@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from skuggi.engagement.scope import OsintSource
-from skuggi.osint.collectors.base import CollectContext, HttpRequest
+from skuggi.intel.collectors.base import CollectContext, HttpRequest
 from skuggi.osint.schema import OsintItem, OsintResult, OsintTask
 
 _DOH_URL = "https://dns.google/resolve"

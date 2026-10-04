@@ -132,6 +132,7 @@ class Tui:
             "remove": self._cmd_remove,
             "cmd": self._cmd_cmd,
             "osint": self._cmd_osint,
+            "research": self._cmd_research,
             "engagement": self._cmd_engagement,
             "login": self._flows.login,
             "doctor": self._cmd_doctor,
@@ -587,6 +588,28 @@ class Tui:
             view = DraftView(live)
             try:
                 for ev in self.core.osint_turn(request):
+                    if ev.kind == "status":
+                        self._status(ev.node, ev.text)
+                    elif ev.kind == "final":
+                        view.show(ev.text)
+            except KeyboardInterrupt:
+                view.reset()
+                self.console.print("[dim]cancelled -- type exit to leave[/dim]")
+
+    def _cmd_research(self, arg: str) -> None:
+        """Run a public-source research loop, streaming node status + the summary."""
+        request = arg.strip()
+        if not request:
+            self.console.print("usage: /research <subject or instruction>")
+            return
+        with Live(
+            Spinner("dots", "researching..."),
+            console=self.console,
+            refresh_per_second=20,
+        ) as live:
+            view = DraftView(live)
+            try:
+                for ev in self.core.research_turn(request):
                     if ev.kind == "status":
                         self._status(ev.node, ev.text)
                     elif ev.kind == "final":

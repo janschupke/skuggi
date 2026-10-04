@@ -13,7 +13,7 @@ import importlib.util
 from collections.abc import Mapping
 
 from skuggi.common.logs import get_logger
-from skuggi.osint.collectors.base import ApifyRun
+from skuggi.intel.collectors.base import ApifyRun
 
 log = get_logger(__name__)
 

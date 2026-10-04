@@ -26,6 +26,7 @@ from collections.abc import Callable, Iterator
 from typing import cast
 
 from skuggi.agent.core import AgentCore
+from skuggi.agent.turn_runner import TurnEvent
 from skuggi.common.logs import get_logger
 from skuggi.frontend import (
     attach,
@@ -285,13 +286,10 @@ class Daemon:
                 self.core.memory.propose_capture(text), hint=self._cmd("add memory")
             )
 
-    def _osint(self, text: str) -> Iterator[str]:
-        """Stream an autonomous OSINT run (a status per node, then the summary)."""
-        if not text:
-            yield "usage: osint <request>\n"
-            return
+    def _stream_turn(self, events: Iterator[TurnEvent]) -> Iterator[str]:
+        """Render a loop's event stream: a line per node status, then the final."""
         final = ""
-        for ev in self.core.osint_turn(text):
+        for ev in events:
             if ev.kind == "status" and ev.text:
                 if ev.node == "error":
                     yield f"({ev.node}) {ev.text}\n"
@@ -302,10 +300,25 @@ class Daemon:
                 final = ev.text
         yield (final or "(no answer)") + "\n"
 
+    def _osint(self, text: str) -> Iterator[str]:
+        """Stream an autonomous OSINT run (a status per node, then the summary)."""
+        if not text:
+            yield "usage: osint <request>\n"
+            return
+        yield from self._stream_turn(self.core.osint_turn(text))
+
+    def _research(self, text: str) -> Iterator[str]:
+        """Stream a public-source research run (a status per node, then the summary)."""
+        if not text:
+            yield "usage: research <subject or instruction>\n"
+            return
+        yield from self._stream_turn(self.core.research_turn(text))
+
     def _control(self, verb: str, arg: str) -> Iterator[str]:
         handler = {
             "cmd": self._cheat,
             "osint": self._osint,
+            "research": self._research,
             "add": self._add,
             "show": self._show,
             "set": self._set,

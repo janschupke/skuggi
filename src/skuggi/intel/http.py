@@ -1,18 +1,16 @@
-"""The collector abstraction: one pluggable handler per OSINT source.
+"""The injectable HTTP / collection-context seam shared by every collector.
 
-Every source -- a first-party HTTP lookup (crt.sh/DNS/GitHub/websearch), a
-browser-driven scrape (LinkedIn/ATS), or an Apify actor -- implements the same
-:class:`Collector` protocol, so the OSINT loop dispatches on ``task.source``
-without knowing which kind backs it. The dependencies a collector needs (an HTTP
-fetch, a browser driver factory, secrets, the redactor, per-source config) are
-bundled in a :class:`CollectContext` and injected, so the whole set is
-offline-testable with fakes -- the suite never touches the network, exactly like
-``tooling.websearch``'s injectable ``Fetch``.
+The dependencies a collector needs -- an HTTP fetch, a browser driver factory,
+secrets, the session redactor, per-source config -- are bundled in a
+:class:`CollectContext` and injected, so the whole collector set is offline-
+testable with fakes; the suite never touches the network. Result-agnostic on
+purpose (it knows nothing of ``IntelResult``), so it sits below both the OSINT
+and research schemas.
 
-Discipline copied from ``tooling.websearch``: the default HTTP fetch imports httpx
-lazily, is best-effort, and never raises (any error/non-200 -> ``None``); a
-collector turns ``None`` into an empty result with a note, never an exception, so a
-dead source degrades to a coverage gap the verifier can see.
+Discipline: the default HTTP fetch imports httpx lazily, is best-effort, and
+never raises (any error/non-200 -> ``None``); a collector turns ``None`` into an
+empty result with a note, never an exception, so a dead source degrades to a
+coverage gap the verifier can see.
 """
 
 from __future__ import annotations
@@ -20,9 +18,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
-
-from skuggi.engagement.scope import OsintSource
-from skuggi.osint.schema import OsintResult, OsintTask
 
 _TIMEOUT_S = 10.0
 
@@ -71,24 +66,9 @@ class CollectContext:
     apify_run: ApifyRun | None = None
     source_config: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
-    def config_for(self, source: OsintSource) -> Mapping[str, str]:
+    def config_for(self, source: str) -> Mapping[str, str]:
         """The non-secret config block for one source (empty when unset)."""
         return self.source_config.get(source, {})
-
-
-@runtime_checkable
-class Collector(Protocol):
-    """One OSINT source handler. The loop dispatches on ``source``."""
-
-    source: OsintSource
-
-    def available(self, ctx: CollectContext) -> bool:
-        """Whether this collector can run now (deps importable + creds present)."""
-        ...
-
-    def collect(self, task: OsintTask, ctx: CollectContext) -> OsintResult:
-        """Run the task and return its structured result (never raises)."""
-        ...
 
 
 def default_fetch(request: HttpRequest) -> str | None:
@@ -115,10 +95,3 @@ def default_fetch(request: HttpRequest) -> str | None:
     if resp.status_code != 200:  # noqa: PLR2004 -- any non-OK is just "no data"
         return None
     return resp.text
-
-
-def empty_result(task: OsintTask, note: str) -> OsintResult:
-    """A no-data result for a task (dead source, nothing found) -- never an error."""
-    return OsintResult(
-        task_id=task.id, source=task.source, subject=task.subject, note=note
-    )

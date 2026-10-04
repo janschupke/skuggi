@@ -10,12 +10,12 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 
+from skuggi.intel.collectors.base import CollectContext, HttpRequest
+from skuggi.intel.collectors.github import GitHubCollector
+from skuggi.intel.collectors.websearch import WebSearchCollector
 from skuggi.osint.collectors import collector_for, default_collectors
-from skuggi.osint.collectors.base import CollectContext, HttpRequest
 from skuggi.osint.collectors.crtsh import CrtShCollector
 from skuggi.osint.collectors.dns import DnsCollector
-from skuggi.osint.collectors.github import GitHubCollector
-from skuggi.osint.collectors.websearch import WebSearchCollector
 from skuggi.osint.schema import OsintTask
 
 Responder = Callable[[HttpRequest], str | None]

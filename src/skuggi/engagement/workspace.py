@@ -83,6 +83,12 @@ class WorkspaceLayout(BaseModel):
     # ``recon`` (active network output) because OSINT is passive, subject-keyed,
     # and machine-readable. See skuggi.osint.store.
     osint: str = "osint"
+    # The public-source research loop's output: a structured Markdown briefing plus
+    # one JSON artifact per (subject, source) under ``research/``. Engagement-
+    # independent, so research also writes here when run inside an engagement; a
+    # run with no engagement falls back to ``./research`` in the cwd. See
+    # skuggi.research.report / skuggi.intel.store.
+    research: str = "research"
     reports: str = "reports"
     scripts: str = "scripts"
     tests: str = "tests"
@@ -105,6 +111,7 @@ class WorkspaceLayout(BaseModel):
             self.recon,
             *recon_subs,
             self.osint,
+            self.research,
             self.reports,
             self.scripts,
             self.tests,
@@ -173,6 +180,11 @@ class Workspace:
     def osint_dir(self) -> Path:
         """Where the OSINT loop writes its structured JSON artifacts."""
         return self.root / self.layout.osint
+
+    @property
+    def research_dir(self) -> Path:
+        """Where the public-source research loop writes reports + JSON artifacts."""
+        return self.root / self.layout.research
 
     @property
     def notes_dir(self) -> Path:

@@ -16,8 +16,15 @@ SQLite ledger.
 
 - `agent/` — `core` (the hub), `graph`, `state`, `protocol`, `prompts`, `modes`,
   `requests` (the shared request/`ask` seam), `executor`
-- `osint/` — the agentic OSINT loop (its own graph): `deps`, `state`, `prompts`,
-  `scheduler`, `nodes`, `graph`, `runner`, `schema`, `store`, `collectors/`
+- `intel/` — shared core for both intelligence loops: `schema`, `http`,
+  `scheduler` (DAG), `store`, `collectors/` (the `Collector` protocol + shared
+  web-search/GitHub handlers)
+- `osint/` — the agentic OSINT loop (its own graph, built on `intel/`): `deps`,
+  `state`, `prompts`, `scheduler`, `nodes`, `graph`, `runner`, `schema`, `store`,
+  `collectors/`
+- `research/` — the agentic public-source research loop (its own graph, built on
+  `intel/`): `deps`, `state`, `prompts`, `scope`, `nodes`, `graph`, `runner`,
+  `schema`, `report`, `collectors/` (CVE/Exploit-DB/versions + local tools)
 - `frontend/` — `tui`, `daemon`, `shell`, `client` + dispatch (`verbs`,
   `commands`, `configflow`, `cmdflow`, `setup`, `wizard`, `menu`)
 - `config/` — `config` (typed `Settings`), `configs` (JSON loaders)

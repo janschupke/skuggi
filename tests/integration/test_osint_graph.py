@@ -24,8 +24,8 @@ from pydantic import Field
 from skuggi.agent.protocol import FindingDraft
 from skuggi.engagement.scope import OsintScope
 from skuggi.engagement.workspace import Workspace
+from skuggi.intel.collectors.base import CollectContext, HttpRequest
 from skuggi.osint.collectors import default_collectors
-from skuggi.osint.collectors.base import CollectContext, HttpRequest
 from skuggi.osint.deps import OsintDeps
 from skuggi.osint.graph import build_osint_graph, osint_recursion_limit
 from skuggi.osint.schema import OsintPlan, OsintTask, OsintVerdict

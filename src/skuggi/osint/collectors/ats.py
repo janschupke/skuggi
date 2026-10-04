@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 
 from skuggi.engagement.scope import OsintSource
+from skuggi.intel.collectors.base import CollectContext, empty_result
 from skuggi.osint.collectors import scrape
-from skuggi.osint.collectors.base import CollectContext, empty_result
 from skuggi.osint.schema import OsintItem, OsintResult, OsintTask
 
 # Careers-page anchors that look like a job posting link (href + visible title).

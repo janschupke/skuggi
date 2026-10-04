@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 
 from skuggi.engagement.scope import OsintSource
+from skuggi.intel.collectors.base import CollectContext, empty_result
 from skuggi.osint.collectors import scrape
-from skuggi.osint.collectors.base import CollectContext, empty_result
 from skuggi.osint.schema import OsintItem, OsintResult, OsintTask
 
 # A compact, high-signal tech vocabulary scanned out of role text -- enough to

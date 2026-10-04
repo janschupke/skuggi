@@ -1,18 +1,25 @@
-"""GitHub public-repository collector (passive, keyless by default).
+"""GitHub public-repository collector (passive, keyless by default, shared).
 
 Lists an organization's (or user's) public repositories via the GitHub REST API --
-names, languages, descriptions, stars -- the public side of an org's footprint and
-tech stack. Unauthenticated by default (rate-limited); a token in the source config
-raises the limit. Best-effort: any failure yields an empty result.
+names, languages, descriptions, stars -- the public side of a subject's footprint
+and tech stack. Shared by both loops: OSINT uses it for an org's footprint,
+research for a project's language/stack. Unauthenticated by default (rate-limited);
+a token in the source config raises the limit. Best-effort: any failure yields an
+empty result.
 """
 
 from __future__ import annotations
 
 import json
 
-from skuggi.engagement.scope import OsintSource
-from skuggi.osint.collectors.base import CollectContext, HttpRequest, empty_result
-from skuggi.osint.schema import OsintItem, OsintResult, OsintTask
+from skuggi.intel.collectors.base import (
+    CollectContext,
+    CollectTask,
+    HttpRequest,
+    IntelItem,
+    IntelResult,
+    empty_result,
+)
 
 _API = "https://api.github.com"
 
@@ -20,13 +27,13 @@ _API = "https://api.github.com"
 class GitHubCollector:
     """Public repositories (and their languages) for an org or user."""
 
-    source: OsintSource = "github"
+    source: str = "github"
 
     def available(self, ctx: CollectContext) -> bool:  # noqa: ARG002 -- protocol shape
         """Always available: the public API works unauthenticated."""
         return True
 
-    def collect(self, task: OsintTask, ctx: CollectContext) -> OsintResult:
+    def collect(self, task: CollectTask, ctx: CollectContext) -> IntelResult:
         """List the subject org's public repositories (falling back to a user)."""
         headers = {"Accept": "application/vnd.github+json"}
         token = ctx.config_for("github").get("token")
@@ -44,7 +51,7 @@ class GitHubCollector:
         return _parse(task, body)
 
 
-def _parse(task: OsintTask, body: str) -> OsintResult:
+def _parse(task: CollectTask, body: str) -> IntelResult:
     """Turn a GitHub repos JSON array into repo items."""
     try:
         repos = json.loads(body)
@@ -53,7 +60,7 @@ def _parse(task: OsintTask, body: str) -> OsintResult:
     if not isinstance(repos, list):
         return empty_result(task, "github response was not a list")
     items = tuple(
-        OsintItem(
+        IntelItem(
             kind="repo",
             value=str(r.get("full_name", "")),
             attributes={
@@ -65,7 +72,7 @@ def _parse(task: OsintTask, body: str) -> OsintResult:
         for r in repos
         if isinstance(r, dict) and r.get("full_name")
     )
-    return OsintResult(
+    return IntelResult(
         task_id=task.id,
         source="github",
         subject=task.subject,

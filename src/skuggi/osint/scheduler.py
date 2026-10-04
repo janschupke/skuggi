@@ -1,57 +1,29 @@
-"""Pure DAG logic for the OSINT loop: dependency-aware task selection.
+"""OSINT scheduling: the shared DAG walk plus the OSINT coverage floor.
 
-All the branchy scheduling lives here as total, side-effect-free functions so the
-graph nodes stay thin and this is exhaustively unit-testable (the branch-coverage
-strategy). Nothing here touches the LLM, the network, or disk.
+The dependency-aware task selection (``remaining``/``select_ready``/``is_blocked``)
+is subsystem-agnostic and lives in :mod:`skuggi.intel.scheduler`; it is re-exported
+here so the OSINT nodes keep importing it from one place. ``coverage_gaps`` is the
+OSINT-specific backstop -- it maps the generic source-coverage floor onto the OSINT
+scope's enabled sources.
 """
 
 from __future__ import annotations
 
 from skuggi.engagement.scope import OsintScope, OsintSource
-from skuggi.osint.schema import OsintResult, OsintTask
+from skuggi.intel.scheduler import coverage_gaps as _intel_coverage_gaps
+from skuggi.intel.scheduler import is_blocked, remaining, select_ready
+from skuggi.osint.schema import OsintResult
 
-
-def remaining(plan: list[OsintTask], completed: list[str]) -> list[OsintTask]:
-    """Tasks not yet completed, order preserved."""
-    done = set(completed)
-    return [task for task in plan if task.id not in done]
-
-
-def select_ready(plan: list[OsintTask], completed: list[str]) -> list[OsintTask]:
-    """Incomplete tasks whose every dependency is already completed.
-
-    A dependency on an id not present in the plan is unsatisfiable, so such a task
-    is never ready -- which ``is_blocked`` then surfaces rather than looping.
-    """
-    done = set(completed)
-    ids = {task.id for task in plan}
-    ready: list[OsintTask] = []
-    for task in plan:
-        if task.id in done:
-            continue
-        deps = set(task.depends_on)
-        if deps <= done and deps <= ids | done:
-            ready.append(task)
-    return ready
-
-
-def is_blocked(plan: list[OsintTask], completed: list[str]) -> bool:
-    """True when work remains but nothing is runnable (a cycle or a missing dep).
-
-    The deterministic stop that keeps a malformed plan from spinning: the scheduler
-    routes a blocked state to the verifier instead of back to the collector.
-    """
-    return bool(remaining(plan, completed)) and not select_ready(plan, completed)
+__all__ = ["coverage_gaps", "is_blocked", "remaining", "select_ready"]
 
 
 def coverage_gaps(results: list[OsintResult], osint: OsintScope) -> list[OsintSource]:
-    """Enabled sources that produced no data yet (a deterministic coverage floor).
+    """Enabled OSINT sources that produced no data yet (deterministic floor).
 
-    The verifier (an LLM) judges semantic completeness; this is the backstop it is
-    handed so an enabled source that was never run, or returned nothing, is visible
-    as a gap regardless of the model's judgement.
+    A thin OSINT wrapper over ``intel.scheduler.coverage_gaps``: it passes the
+    scope's ``enabled_sources`` and narrows the generic source names back to
+    ``OsintSource`` for the verifier request block.
     """
-    produced = {result.source for result in results if result.items}
-    return [
-        source for source in sorted(osint.enabled_sources) if source not in produced
-    ]
+    enabled = {str(s): s for s in osint.enabled_sources}
+    gaps = _intel_coverage_gaps(list(results), list(enabled))
+    return [enabled[name] for name in gaps]

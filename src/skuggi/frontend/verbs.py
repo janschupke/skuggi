@@ -178,6 +178,13 @@ VERBS: tuple[Verb, ...] = (
         group="agent",
     ),
     Verb(
+        "research",
+        "research a service / tech / app / company from public sources",
+        "<subject or instruction>",
+        category="control",
+        group="agent",
+    ),
+    Verb(
         "engagement",
         "run the setup wizard, or set the threat model",
         "<setup|threat-model>",

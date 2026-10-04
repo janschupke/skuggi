@@ -17,9 +17,9 @@ from skuggi.agent.requests import ask
 from skuggi.common.text import join_blocks, labeled
 from skuggi.engagement.osint_guard import check_osint_task
 from skuggi.engagement.scope import OsintScope
+from skuggi.intel.collectors.base import empty_result
 from skuggi.osint import store
 from skuggi.osint.collectors import collector_for
-from skuggi.osint.collectors.base import empty_result
 from skuggi.osint.deps import OsintDeps
 from skuggi.osint.scheduler import coverage_gaps, select_ready
 from skuggi.osint.schema import OsintPlan, OsintResult, OsintTask, OsintVerdict

@@ -11,8 +11,8 @@ reference: [docs/architecture.md](../../docs/architecture.md).
   holds no rendering. `graph.py` is the planner→retriever→worker↔executor→critic
   graph; `state.py` its channels; `protocol.py`/`prompts.py` the structured
   exchange (see [protocol.md](protocol.md)). `requests.py` is the shared
-  request-assembly + structured-`ask` egress seam, reused by the OSINT graph so it
-  never imports the turn graph.
+  request-assembly + structured-`ask` egress seam, reused by the OSINT and research
+  graphs so neither imports the turn graph.
 - **`frontend/`** — the two renderers and dispatch. `tui.py` (Rich REPL),
   `daemon.py` + `shell.py` (wrapped-shell daemon), `client.py`. Dispatch is
   **verb-first** and every known verb comes from the one registry `verbs.py` —
@@ -24,6 +24,20 @@ reference: [docs/architecture.md](../../docs/architecture.md).
   Playwright/Apify). It reuses the request seam (`agent/requests.py`) and the
   finding/report path, and imports *down* into `agent`/`engagement` — never the
   reverse. Driven by `AgentCore.osint_turn`; scoped by `engagement/osint_guard.py`.
+- **`intel/`** — the shared core both intelligence loops build on: `schema`
+  (`IntelItem`/`IntelResult`/`CollectTask`), `http` (the injectable fetch/collect-
+  context seam), `scheduler` (pure dependency-DAG logic), `store` (the confined,
+  redacted JSON writer), and `collectors/` (the `Collector` protocol + the two
+  source handlers both loops share — web search and GitHub). A leaf under the two
+  loops; it imports only `engagement`/`security`, never `osint`/`research`.
+- **`research/`** — the agentic public-source research loop: a third compiled
+  graph (planner→collector↔scheduler→verifier→re-plan|respond) built on `intel/`,
+  with its own `deps`, `state`, `prompts`, `scope` (public-sources-only guard),
+  `nodes`, `graph`, `runner`, `schema`, `report`, and a `collectors/` registry
+  (CVE/Exploit-DB/versions + optional local searchsploit/metasploit). Engagement-
+  *independent* and report-only (no ledger findings): it writes a structured
+  briefing to the engagement's `research/` dir, or `./research` when none is
+  loaded. Driven by `AgentCore.research_turn`.
 - **`config/`** `config.py` (typed `Settings`, no import-time singleton) +
   `configs.py` (JSON loaders). **`engagement/`** the scope boundary + workspace,
   plus `osint_guard.py` (the OSINT subject/source guard).

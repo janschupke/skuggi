@@ -54,10 +54,10 @@ from skuggi.engagement.workspace import (
 )
 from skuggi.install import configdiff, reconcile
 from skuggi.install import update as updater
+from skuggi.intel.collectors.base import CollectContext
+from skuggi.intel.collectors.base import default_fetch as osint_fetch
 from skuggi.osint.collectors import default_collectors
 from skuggi.osint.collectors.apify import make_apify_run
-from skuggi.osint.collectors.base import CollectContext
-from skuggi.osint.collectors.base import default_fetch as osint_fetch
 from skuggi.osint.collectors.browser import default_driver_factory
 from skuggi.osint.deps import OsintDeps
 from skuggi.osint.graph import build_osint_graph
@@ -66,6 +66,11 @@ from skuggi.osint.state import OsintState
 from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence import memory, preferences
 from skuggi.persistence.vectorstore import Store
+from skuggi.research.collectors import default_research_collectors
+from skuggi.research.deps import ResearchDeps
+from skuggi.research.graph import build_research_graph
+from skuggi.research.runner import ResearchRunner
+from skuggi.research.state import ResearchState
 from skuggi.security.policy import RedactionPolicy
 from skuggi.security.redaction import redact
 from skuggi.security.vault import SecretVault
@@ -134,6 +139,7 @@ class AgentCore:
         self.reconciler = ReconcileController(self)
         self.installer = InstallResearcher(self)
         self.osint_runner = OsintRunner(self)
+        self.research_runner = ResearchRunner(self)
 
     # ----- engagement plane (delegated to EngagementManager) -----------------
 
@@ -319,28 +325,44 @@ class AgentCore:
     def _build(self) -> CompiledStateGraph[AgentState]:
         return build_graph(self._deps(), self.saver)
 
-    def _osint_secrets(self) -> dict[str, str]:
-        """The OSINT collector credentials present in settings (empty when unset)."""
+    def _collect_secrets(self) -> dict[str, str]:
+        """Every intel-collector credential present in settings (empty when unset).
+
+        Shared by the OSINT and research collection contexts: a collector reads
+        only the keys it needs (``osint_search_api_key`` for websearch,
+        ``nvd_api_key`` for CVE), so one secrets dict serves both loops.
+        """
         out: dict[str, str] = {}
-        for name in ("shodan_api_key", "apify_token", "osint_search_api_key"):
+        names = ("shodan_api_key", "apify_token", "osint_search_api_key", "nvd_api_key")
+        for name in names:
             value = getattr(self.settings, name)
             if value is not None:
                 out[name] = value.get_secret_value()
         return out
 
-    def _osint_collect_context(self) -> CollectContext:
-        """The injected collection context (fetch/driver/apify/secrets/redactor)."""
+    def _collect_context(
+        self, source_config: dict[str, dict[str, str]]
+    ) -> CollectContext:
+        """The injected collection context (fetch/driver/apify/secrets/redactor).
+
+        Shared by both intel loops; only the per-source config differs (OSINT vs
+        research source tuning).
+        """
         policy = self.redaction_policy()
         vault = self.vault
-        secrets = self._osint_secrets()
+        secrets = self._collect_secrets()
         return CollectContext(
             fetch=osint_fetch,
             clean=lambda text: redact(text, policy, vault),
             secrets=secrets,
             driver_factory=default_driver_factory(),
             apify_run=make_apify_run(secrets.get("apify_token", "")),
-            source_config=self.settings.osint_source_config,
+            source_config=source_config,
         )
+
+    def _osint_collect_context(self) -> CollectContext:
+        """The OSINT collection context (OSINT source tuning)."""
+        return self._collect_context(self.settings.osint_source_config)
 
     def _osint_deps(self) -> OsintDeps:
         return OsintDeps(
@@ -361,6 +383,34 @@ class AgentCore:
     def _build_osint(self) -> CompiledStateGraph[OsintState]:
         return build_osint_graph(self._osint_deps(), self.saver)
 
+    def _research_output_root(self) -> Path:
+        """Where research artifacts go: the engagement's research dir, else ./research.
+
+        Research is engagement-independent, so it never refuses: with an engagement
+        loaded it writes under the workspace, otherwise it falls back to a
+        ``research`` directory in the current working directory (the runner warns).
+        """
+        workspace = self.workspace
+        if workspace is not None:
+            return workspace.research_dir
+        return Path.cwd() / "research"
+
+    def _research_deps(self) -> ResearchDeps:
+        return ResearchDeps(
+            llm=self.llm,
+            native_structured=self.settings.supports_structured_output(),
+            redaction_policy=self.redaction_policy(),
+            collectors=default_research_collectors(),
+            collect_context=self._collect_context(self.settings.research_source_config),
+            output_root=self._research_output_root(),
+            session_id=self.session_id,
+            max_tasks=self.settings.research_max_tasks,
+            max_replans=self.settings.research_max_replans,
+        )
+
+    def _build_research(self) -> CompiledStateGraph[ResearchState]:
+        return build_research_graph(self._research_deps(), self.saver)
+
     def rebuild_graph(self) -> None:
         """Recompile both graphs so their deps pick up changed state.
 
@@ -369,10 +419,11 @@ class AgentCore:
         rebuild. This is the one public seam for that: the core calls it itself
         after a session control, and a sub-component (e.g. the preference book)
         calls it after mutating state the deps capture. Both the conversational
-        turn graph and the OSINT loop are rebuilt together.
+        turn graph, the OSINT loop and the research loop are rebuilt together.
         """
         self.graph = self._build()
         self.osint_graph = self._build_osint()
+        self.research_graph = self._build_research()
 
     def close(self) -> None:
         """Close the ledger, vault, preferences and checkpointer connections."""
@@ -493,3 +544,7 @@ class AgentCore:
     def osint_turn(self, request: str) -> Iterator[TurnEvent]:
         """Run one autonomous OSINT loop, yielding events (delegated)."""
         yield from self.osint_runner.osint_turn(request)
+
+    def research_turn(self, request: str) -> Iterator[TurnEvent]:
+        """Run one public-source research loop, yielding events (delegated)."""
+        yield from self.research_runner.research_turn(request)
