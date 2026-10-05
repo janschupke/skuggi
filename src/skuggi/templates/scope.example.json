@@ -60,5 +60,24 @@
     "confidentiality_requirement": "high",
     "integrity_requirement": "medium",
     "availability_requirement": "medium"
+  },
+  "rules_of_engagement": {
+    "authorized_by": "Jane Client, CISO",
+    "point_of_contact": "soc@client.example",
+    "authorization_reference": "SOW-2026-014 (signed)",
+    "prohibited_actions": [
+      "denial of service",
+      "social engineering of staff"
+    ],
+    "excluded_networks": [
+      "10.0.0.0/30"
+    ],
+    "excluded_hosts": [
+      "prod-db.client.example"
+    ],
+    "max_scan_rate": "100/s",
+    "max_concurrency": 4,
+    "attack_source": "203.0.113.10 (tester VPN egress)",
+    "stealth": false
   }
 }

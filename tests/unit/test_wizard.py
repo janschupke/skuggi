@@ -98,8 +98,8 @@ def _full_script(**over: object) -> _Script:
         # methodology, stance, autonomous_ceiling, then the threat-model C/I/A dropdowns
         chooses=["ptes", "cautious", "active", "high", "medium", "low"],
         multis=[["recon", "scan"], ["wstg"]],  # allowed_methods, taxonomies
-        # autonomous, enable-threat-model, enable-OSINT (declined by default)
-        confirms=[True, True, False],
+        # autonomous, enable-threat-model, enable-OSINT, enable-RoE (last two off)
+        confirms=[True, True, False, False],
     )
     for key, value in over.items():
         setattr(base, key, value)
@@ -128,7 +128,9 @@ def test_collect_scope_shapes_answers_into_valid_scope() -> None:
 
 
 def test_threat_model_declined_is_none() -> None:
-    script = _full_script(confirms=[True, False, False])  # autonomous, tm, osint
+    script = _full_script(
+        confirms=[True, False, False, False]
+    )  # autonomous, tm, osint, roe
     raw = collect_scope(script.prompter(), _CATALOG)
     assert raw is not None
     assert raw.get("threat_model") is None
@@ -158,13 +160,14 @@ def test_step_bar_ticks_once_per_section() -> None:
     script = _full_script()
     collect_scope(script.prompter(), _CATALOG)
     assert script.steps == [
-        (1, 7, "Identity"),
-        (2, 7, "Authorization"),
-        (3, 7, "Schedule"),
-        (4, 7, "Targets"),
-        (5, 7, "Capabilities"),
-        (6, 7, "Approach"),
-        (7, 7, "OSINT"),
+        (1, 8, "Identity"),
+        (2, 8, "Authorization"),
+        (3, 8, "Schedule"),
+        (4, 8, "Targets"),
+        (5, 8, "Capabilities"),
+        (6, 8, "Approach"),
+        (7, 8, "OSINT"),
+        (8, 8, "Rules of engagement"),
     ]
 
 
@@ -179,7 +182,7 @@ def test_collect_scope_edit_keeps_existing_on_blank() -> None:
         completes=["", ""],
         chooses=["phases", "cautious", "active"],  # methodology, stance, ceiling
         multis=[[], []],
-        confirms=[False, False, False],  # autonomous, threat-model, osint (declined)
+        confirms=[False, False, False, False],  # autonomous, tm, osint, roe (declined)
     )
     raw = collect_scope(script.prompter(), _CATALOG, existing=_VALID)
     assert raw is not None
@@ -217,7 +220,7 @@ def test_run_wizard_preserves_answers_and_reasks_only_failed_field() -> None:
     assert len(reask_labels) == 2  # once per pass; the retry asked just this one
     assert calls[1]["authorized_end"] == "2027-01-01T00:00:00+00:00"
     # The retry's step bar showed only the Authorization section.
-    assert script.steps[-1] == (2, 7, "Authorization")
+    assert script.steps[-1] == (2, 8, "Authorization")
 
 
 def test_run_wizard_cancelled_on_abort() -> None:
@@ -239,7 +242,7 @@ def test_osint_enabled_collects_a_nested_scope() -> None:
     # Append the OSINT sub-prompts after the base pass: sources (multi),
     # four subject asks, passive-only (confirm), ceiling (choose).
     script = _full_script(
-        confirms=[True, True, True, True],  # autonomous, tm, osint-enable, passive
+        confirms=[True, True, True, True, False],  # autonomous, tm, osint, passive, roe
     )
     script.multis.append(["crtsh", "github"])  # OSINT sources
     script.asks += ["Acme Corp", "acme.com", "", "acme"]  # orgs/domains/people/github

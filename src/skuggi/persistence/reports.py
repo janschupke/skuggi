@@ -241,6 +241,32 @@ def _coverage_block(coverage: list[CoverageRow], enabled: tuple[str, ...]) -> st
     return "\n".join(lines)
 
 
+def _roe_block(engagement: EngagementConfig | None) -> str:
+    """The rules-of-engagement / authorization header for the report (E13/E14)."""
+    roe = engagement.rules_of_engagement if engagement is not None else None
+    if roe is None or roe.is_empty():
+        return ""
+    lines: list[str] = []
+    if roe.authorized_by:
+        lines.append(f"- **Authorized by:** {roe.authorized_by}")
+    if roe.point_of_contact:
+        lines.append(f"- **Point of contact:** {roe.point_of_contact}")
+    if roe.authorization_reference:
+        lines.append(f"- **Authorization ref:** {roe.authorization_reference}")
+    if roe.attack_source:
+        lines.append(f"- **Attack source:** {roe.attack_source}")
+    if roe.max_scan_rate:
+        lines.append(f"- **Max scan rate:** {roe.max_scan_rate}")
+    if roe.stealth:
+        lines.append("- **Stealth posture:** enabled")
+    if roe.prohibited_actions:
+        lines.append(f"- **Prohibited:** {', '.join(roe.prohibited_actions)}")
+    excl = [str(n) for n in roe.excluded_networks] + sorted(roe.excluded_hosts)
+    if excl:
+        lines.append(f"- **Excluded (out of scope):** {', '.join(excl)}")
+    return "\n".join(lines)
+
+
 def render_report(  # noqa: PLR0913 -- a report is composed from its ledger parts
     session: SessionRow,
     commands: list[CommandRow],
@@ -289,6 +315,7 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
         header,
         labeled("Summary", _severity_summary(findings), heading=True),
         labeled("Scope", f"```\n{scope}\n```" if scope else "", heading=True),
+        labeled("Rules of engagement", _roe_block(engagement), heading=True),
         labeled("Methodology & limitations", _LIMITATIONS, heading=True),
         labeled(
             "Findings",
@@ -352,6 +379,7 @@ def render_engagement_report(  # noqa: PLR0913 -- a report is composed from its 
         header,
         labeled("Executive summary", _severity_summary(findings), heading=True),
         labeled("Scope", f"```\n{scope}\n```" if scope else "", heading=True),
+        labeled("Rules of engagement", _roe_block(engagement), heading=True),
         labeled("Methodology & limitations", _LIMITATIONS, heading=True),
         labeled("Affected assets", _affected_table(findings), heading=True),
         labeled(

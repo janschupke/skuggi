@@ -130,6 +130,49 @@ class OsintScope(BaseModel):
         )
 
 
+class RulesOfEngagement(BaseModel):
+    """Authorization metadata and operational controls for an engagement (E13/E14).
+
+    Authorization is the paper trail a professional engagement must carry (who
+    authorized it, the point of contact, the signed-auth reference, explicitly
+    prohibited actions); the operational block records testing constraints (an
+    out-of-scope exclusion deny-list, a scan-rate / concurrency / stealth posture,
+    and the attack-source identity). Exclusions are the one part the guard ENFORCES
+    (an excluded host is denied even if it also matches scope); the rest is advisory
+    metadata rendered in the report header and surfaced to the operator.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    authorized_by: str = ""
+    point_of_contact: str = ""
+    authorization_reference: str = ""
+    prohibited_actions: tuple[str, ...] = ()
+    # Out-of-scope exclusions, checked BEFORE the allow-list (deny wins).
+    excluded_networks: tuple[IPvAnyNetwork, ...] = ()
+    excluded_hosts: frozenset[str] = frozenset()
+    # Operational posture (advisory metadata unless a tool flag maps cleanly).
+    max_scan_rate: str = ""
+    max_concurrency: int | None = None
+    attack_source: str = ""
+    stealth: bool = False
+
+    def is_empty(self) -> bool:
+        """Whether nothing was recorded (so the report omits the RoE header)."""
+        return not (
+            self.authorized_by
+            or self.point_of_contact
+            or self.authorization_reference
+            or self.prohibited_actions
+            or self.excluded_networks
+            or self.excluded_hosts
+            or self.max_scan_rate
+            or self.max_concurrency
+            or self.attack_source
+            or self.stealth
+        )
+
+
 class EngagementConfig(BaseModel):
     """The authorized boundary for one engagement, loaded from JSON."""
 
@@ -169,6 +212,10 @@ class EngagementConfig(BaseModel):
     # ``None`` means the agentic OSINT loop is disabled for this engagement. Never
     # affects the command guard -- it is its own dimension (see OsintScope).
     osint: OsintScope | None = None
+    # Rules of engagement: authorization metadata + operational controls
+    # (E13/E14). Only the exclusion deny-list is enforced by the guard; the rest
+    # is advisory metadata for the report header. None means none recorded.
+    rules_of_engagement: RulesOfEngagement | None = None
 
     @field_validator("timezone")
     @classmethod

@@ -383,3 +383,39 @@ def test_engagement_report_renders_without_findings() -> None:
     body = render_engagement_report("empty eng", [])
     assert "# Engagement report: empty eng" in body
     assert "No approved findings." in body
+
+
+def test_report_renders_the_rules_of_engagement_header(tmp_path: Path) -> None:
+    """Authorization metadata + exclusions render in the report header (E13/E14)."""
+    eng = EngagementConfig.model_validate(
+        {
+            "name": "acme ext",
+            "timezone": "UTC",
+            "authorized_start": datetime(2026, 1, 1, tzinfo=UTC),
+            "authorized_end": datetime(2026, 12, 31, tzinfo=UTC),
+            "rules_of_engagement": {
+                "authorized_by": "Jane Client",
+                "authorization_reference": "SOW-9",
+                "prohibited_actions": ["DoS"],
+                "excluded_hosts": ["prod-db"],
+            },
+        }
+    )
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme ext", mode="pentest")
+        session = led.session("s1")
+        assert session is not None
+        report = render_report(session, [], [], engagement=eng)
+    assert "## Rules of engagement" in report
+    assert "Jane Client" in report
+    assert "SOW-9" in report
+    assert "prod-db" in report
+
+
+def test_report_omits_rules_of_engagement_when_absent(tmp_path: Path) -> None:
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        session = led.session("s1")
+        assert session is not None
+        report = render_report(session, [], [], engagement=None)
+    assert "## Rules of engagement" not in report

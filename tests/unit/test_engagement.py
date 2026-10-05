@@ -606,3 +606,31 @@ def test_hex_encoded_ip_is_scope_checked() -> None:
         parse_command("nmap 0x7f000001", REGISTRY), _engagement(), now=NOW
     )
     assert not verdict.allowed
+
+
+# --- E13: the out-of-scope exclusion deny-list (deny wins over allow) --------
+
+
+def test_excluded_host_is_denied_even_when_in_scope() -> None:
+    """An RoE exclusion denies a target that otherwise matches the allow-list."""
+    eng = _engagement(
+        rules_of_engagement={"excluded_networks": ["10.0.0.0/30"]},
+    )
+    verdict = check_command(parse_command("nmap 10.0.0.1", REGISTRY), eng, now=NOW)
+    assert not verdict.allowed
+    assert "exclusion" in verdict.reason
+    # a sibling host outside the exclusion but in scope is still allowed
+    ok = check_command(parse_command("nmap 10.0.0.9", REGISTRY), eng, now=NOW)
+    assert ok.allowed
+
+
+def test_excluded_hostname_is_denied() -> None:
+    eng = _engagement(
+        allowed_hosts=frozenset({"scanme.example.com", "db.example.com"}),
+        rules_of_engagement={"excluded_hosts": ["db.example.com"]},
+    )
+    verdict = check_command(
+        parse_command("nmap db.example.com", REGISTRY), eng, now=NOW
+    )
+    assert not verdict.allowed
+    assert "exclusion" in verdict.reason

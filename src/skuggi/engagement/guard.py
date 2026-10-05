@@ -394,11 +394,38 @@ def _target_verdict(
             False, "no in-scope target could be identified in the command"
         )
     for target in cmd.targets:
+        if _target_excluded(target, engagement):
+            return GuardVerdict(
+                False, f"target {target!r} is on the out-of-scope exclusion list"
+            )
         if not _target_in_scope(target, engagement):
             return GuardVerdict(
                 False, f"target {target!r} is outside the authorized scope"
             )
     return None
+
+
+def _target_excluded(target: str, engagement: EngagementConfig) -> bool:
+    """Whether a target is on the RoE exclusion deny-list (checked before allow).
+
+    Deny wins over allow: an excluded host is refused even when it also matches the
+    scope allow-list (audit E13). Mirrors ``_target_in_scope``: an IP is excluded
+    when it falls in an excluded network, a bare name when it is listed exactly.
+    """
+    roe = engagement.rules_of_engagement
+    if roe is None:
+        return False
+    try:
+        net = ipaddress.ip_network(target, strict=False)
+    except ValueError:
+        return target in roe.excluded_hosts
+    for blocked in roe.excluded_networks:
+        try:
+            if net.subnet_of(blocked):  # type: ignore[arg-type]
+                return True
+        except TypeError:
+            continue  # v4 vs v6 mismatch
+    return str(net.network_address) in roe.excluded_hosts
 
 
 def check_command(  # noqa: PLR0913 -- a guard reads over many engagement inputs

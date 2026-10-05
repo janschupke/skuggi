@@ -35,7 +35,14 @@ Apply = Callable[[dict[str, object]], EngagementConfig]
 WIZARD_ARGS = frozenset({"setup", "new", "edit"})
 
 Widget = Literal[
-    "text", "autocomplete", "select", "multiselect", "confirm", "threat_model", "osint"
+    "text",
+    "autocomplete",
+    "select",
+    "multiselect",
+    "confirm",
+    "threat_model",
+    "osint",
+    "roe",
 ]
 
 # CVSS environmental requirement dimensions, in C-I-A order, and their levels.
@@ -230,6 +237,10 @@ _SECTIONS: tuple[Section, ...] = (
         "OSINT",
         (Field("osint", "OSINT reconnaissance scope", "osint"),),
     ),
+    Section(
+        "Rules of engagement",
+        (Field("rules_of_engagement", "rules of engagement", "roe"),),
+    ),
 )
 
 # Every engagement field the wizard owns (for the preserve-on-retry targeting and
@@ -239,7 +250,7 @@ KNOWN_KEYS: frozenset[str] = frozenset(
 )
 
 
-def _ask_field(  # noqa: PLR0911 -- a widget dispatch is one return per widget kind
+def _ask_field(  # noqa: PLR0911, PLR0912 -- a widget dispatch is one return/branch per widget
     prompter: Prompter, catalog: Catalog, field: Field, current: object
 ) -> tuple[bool, object] | None:
     """Collect one field. Returns (changed, value), or ``None`` on abort.
@@ -282,6 +293,8 @@ def _ask_field(  # noqa: PLR0911 -- a widget dispatch is one return per widget k
         return _ask_threat_model(prompter, current)
     if field.widget == "osint":
         return _ask_osint(prompter, catalog, current)
+    if field.widget == "roe":
+        return _ask_roe(prompter, current)
     # confirm
     answer_bool = prompter.confirm(field.prompt, bool(current))
     return None if answer_bool is None else (True, answer_bool)
@@ -365,6 +378,61 @@ def _ask_osint(  # noqa: PLR0911 -- one abort-return per OSINT sub-prompt
         return None
     osint["autonomous_ceiling"] = ceiling
     return (True, osint)
+
+
+def _ask_roe(prompter: Prompter, current: object) -> tuple[bool, object] | None:
+    """Guided rules of engagement: a yes/no, then authorization + operational fields.
+
+    One composite field returning a nested dict (or ``None`` when skipped), so the
+    wizard's flat accumulator carries the whole RoE under ``rules_of_engagement``
+    and ``EngagementConfig`` validates it in one place (mirrors ``_ask_osint``).
+    """
+    existing = current if isinstance(current, dict) else None
+    enable = prompter.confirm(
+        "record rules of engagement (authorization, exclusions, limits)?",
+        existing is not None,
+    )
+    if enable is None:
+        return None
+    if not enable:
+        return (True, None)
+    roe: dict[str, object] = {}
+    for key, label in (
+        ("authorized_by", "authorized by"),
+        ("point_of_contact", "point of contact"),
+        ("authorization_reference", "authorization reference (ticket / signed doc)"),
+        ("attack_source", "attack-source identity (IP / hostname)"),
+        ("max_scan_rate", "max scan rate (free-form, e.g. 100/s)"),
+    ):
+        shown = str(existing.get(key, "")) if existing else ""
+        answer = prompter.ask(_label(label, shown))
+        if answer is None:
+            return None
+        roe[key] = answer.strip() or (existing.get(key, "") if existing else "")
+    for key, label in (
+        ("prohibited_actions", "prohibited actions (comma-separated)"),
+        ("excluded_networks", "excluded networks/IPs (comma-separated)"),
+        ("excluded_hosts", "excluded hostnames (comma-separated)"),
+    ):
+        shown = ", ".join(existing.get(key, ())) if existing else ""
+        answer = prompter.ask(_label(label, shown))
+        if answer is None:
+            return None
+        roe[key] = (
+            _csv(answer)
+            if answer.strip()
+            else list(existing.get(key, ()))
+            if existing
+            else []
+        )
+    stealth = prompter.confirm(
+        "stealth posture (rate-limit / evasive)?",
+        bool(existing.get("stealth", False)) if existing else False,
+    )
+    if stealth is None:
+        return None
+    roe["stealth"] = stealth
+    return (True, roe)
 
 
 def collect_scope(
