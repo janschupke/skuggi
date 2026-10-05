@@ -29,6 +29,7 @@ from skuggi.forensics.analyzers import (
     magic,
     ocr,
     pcap,
+    registry,
     strings,
 )
 from skuggi.forensics.analyzers.base import sha256_of
@@ -109,6 +110,9 @@ def _battery(
         yield "pcap", "in-process", _run("pcap", lambda: pcap.analyze(path))
         yield "strings", "in-process", _run("strings", lambda: strings.analyze(path))
         yield "hexdump", "in-process", _run("hexdump", lambda: hexview.analyze(path))
+    elif media_type == "application/x-ms-registry":
+        yield "registry", "in-process", _run("registry", lambda: registry.analyze(path))
+        yield "strings", "in-process", _run("strings", lambda: strings.analyze(path))
     else:
         exe = _run("executable", lambda: executable.analyze(path))
         if exe:  # a recognized ELF/PE/Mach-O header -> structured format observation

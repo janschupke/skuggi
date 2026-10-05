@@ -31,6 +31,8 @@ _SIGNATURES: tuple[tuple[bytes, str, str], ...] = (
     (b"\xd4\xc3\xb2\xa1", "application/vnd.tcpdump.pcap", "pcap capture"),
     (b"\x0a\x0d\x0d\x0a", "application/x-pcapng", "pcapng capture"),
     (b"SQLite format 3\x00", "application/x-sqlite3", "SQLite database"),
+    (b"regf", "application/x-ms-registry", "Windows registry hive"),
+    (b"ElfFile\x00", "application/x-ms-evtx", "Windows event log (evtx)"),
 )
 
 
