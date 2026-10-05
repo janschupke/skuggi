@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from skuggi.agent.grants import SessionGrants
 from skuggi.agent.protocol import ScopeEdit
-from skuggi.frontend.confirm import SESSION, Choose
+from skuggi.frontend.confirm import Choose
 from skuggi.frontend.scopeflow import run_scope_request
 
 _EDIT = ScopeEdit(field="allowed_tools", action="add", value="nikto")
@@ -96,15 +96,19 @@ def test_confirming_applies_and_shows_the_diff() -> None:
     assert any("allowed_tools: nmap -> nmap, nikto" in n for n in notes)
 
 
-def test_session_grant_is_recorded() -> None:
+def test_scope_edit_does_not_record_a_session_grant() -> None:
+    # Scope edits are authorization changes: approving applies the edit but never
+    # records a standing grant, so the next edit is confirmed again (audit C4).
     grants = SessionGrants()
+    app = _Apply()
     run_scope_request(
         "x",
-        choose=_choose(SESSION),
+        choose=_choose("approve"),
         notify=lambda _m: None,
         propose=lambda _r: [_EDIT],
         preview=lambda _e: _ROWS,
-        apply=_Apply(),
+        apply=app,
         grants=grants,
     )
-    assert grants.granted("scope-edit")
+    assert app.calls == [[_EDIT]]
+    assert not grants.granted("scope-edit")

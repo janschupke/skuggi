@@ -77,3 +77,29 @@ def test_confirm_auto_applies_under_a_grant_and_announces() -> None:
     assert confirm_write("install", grants=grants, choose=choose, notify=notes.append)
     assert calls == []  # a standing grant must not prompt
     assert any("session grant for install" in n for n in notes)  # never silent
+
+
+def test_scope_edit_is_not_grantable_for_a_session() -> None:
+    # Authorization-boundary edits must be confirmed every time: choosing the
+    # session option applies once but never records a standing grant (audit C4).
+    grants = SessionGrants()
+    assert confirm_write(
+        "scope-edit", grants=grants, choose=_choose("approve"), notify=lambda _m: None
+    )
+    assert not grants.granted("scope-edit")
+
+
+def test_scope_edit_prompts_even_with_a_stale_grant() -> None:
+    grants = SessionGrants()
+    grants.grant("scope-edit")  # a grant must not short-circuit an authorization edit
+    calls: list[int] = []
+
+    def choose(_p: str, options: list[str], _d: str | None) -> str | None:
+        calls.append(1)
+        assert SESSION not in options  # no "approve for session" is offered
+        return "deny"
+
+    assert not confirm_write(
+        "scope-edit", grants=grants, choose=choose, notify=lambda _m: None
+    )
+    assert calls == [1]  # it still prompted

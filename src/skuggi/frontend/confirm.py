@@ -22,6 +22,13 @@ Notify = Callable[[str], None]
 
 SESSION = "approve for session"
 
+# Capabilities governing the AUTHORIZATION boundary (the engagement scope and the
+# autonomous risk ceiling). These are never grantable for a whole session: each
+# edit is confirmed explicitly, because an agent-proposed scope edit is driven by
+# a natural-language request whose context can include injected tool/web output
+# (audit C4). config/install/cmd stay grantable.
+_NON_GRANTABLE = frozenset({"scope-edit"})
+
 
 def confirm_write(  # noqa: PLR0913 -- the capability + keyword-only collaborators and options
     capability: str,
@@ -45,13 +52,15 @@ def confirm_write(  # noqa: PLR0913 -- the capability + keyword-only collaborato
     A standing grant for `capability` auto-applies, but announces itself so the
     operator always sees a write happen.
     """
-    if grants.granted(capability):
+    grantable = capability not in _NON_GRANTABLE
+    if grantable and grants.granted(capability):
         notify(f"(session grant for {capability} active — applying without asking)")
         return True
     if agentic:
         notify("↳ the agent proposes this — approve to apply, deny to reject")
-    choice = choose(prompt, ["approve", SESSION, "deny"], "deny")
-    if choice == SESSION:
+    options = ["approve", SESSION, "deny"] if grantable else ["approve", "deny"]
+    choice = choose(prompt, options, "deny")
+    if grantable and choice == SESSION:
         grants.grant(capability)
         return True
     return choice == "approve"
