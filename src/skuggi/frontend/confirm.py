@@ -26,7 +26,9 @@ SESSION = "approve for session"
 # autonomous risk ceiling). These are never grantable for a whole session: each
 # edit is confirmed explicitly, because an agent-proposed scope edit is driven by
 # a natural-language request whose context can include injected tool/web output
-# (audit C4). config/install/cmd stay grantable.
+# (audit C4). config/install/cmd stay grantable. In the boundary taxonomy
+# (skuggi.security.boundaries) every capability here is GRANTABLE-tier -- the hard,
+# non-overridable boundaries (scope guard + egress gate) live in code, not here.
 _NON_GRANTABLE = frozenset({"scope-edit"})
 
 

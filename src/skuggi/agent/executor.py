@@ -28,6 +28,7 @@ from skuggi.engagement.pivot import Route, select_route, wrap_command
 from skuggi.engagement.risk import risk_tier
 from skuggi.persistence.ledger import FindingEvidenceInput, FindingRefInput, Ledger
 from skuggi.persistence.ledger_schema import FindingAuthor
+from skuggi.security import boundaries
 from skuggi.security.policy import RedactionPolicy
 from skuggi.security.redaction import redact
 from skuggi.tooling.registry import RiskTier
@@ -399,7 +400,12 @@ def _run_or_propose(
             deps, ledger, parsed, command, status="blocked", reason=verdict.reason
         )
         brief = CommandBrief(
-            id=cid, status="blocked", command=command, summary=verdict.reason
+            id=cid,
+            status="blocked",
+            command=command,
+            summary=boundaries.label(
+                boundaries.BoundaryKind.HARD_BLOCK, verdict.reason
+            ),
         )
         return cid, brief, False
     # Reachability: is the target reachable directly, or only through a registered
@@ -419,7 +425,10 @@ def _run_or_propose(
         tier = max(tier, RiskTier.intrusive)
     ceiling = deps.engagement.autonomous_ceiling
     if not deps.engagement.autonomous or tier > ceiling:
-        summary = _proposed_reason(deps.engagement.autonomous, tier, ceiling, route)
+        summary = boundaries.label(
+            boundaries.BoundaryKind.ESCALATION,
+            _proposed_reason(deps.engagement.autonomous, tier, ceiling, route),
+        )
         cid = _record_command(
             deps, ledger, parsed, command, status="proposed", risk_tier=tier.name
         )
