@@ -97,3 +97,51 @@ def test_unknown_tier_name_is_rejected() -> None:
         ToolSpec.model_validate(
             {"name": "t", "binary": "t", "method": "recon", "risk": "nuclear"}
         )
+
+
+def _bin(name: str, method: str) -> ToolSpec:
+    return ToolSpec(name=name, binary=name, method=method)
+
+
+def test_nmap_vuln_script_is_intrusive() -> None:
+    got = risk_tier(_bin("nmap", "scan"), ["nmap", "--script", "vuln", "h"])
+    assert got == RiskTier.intrusive
+
+
+def test_nmap_exploit_script_is_destructive() -> None:
+    assert risk_tier(_bin("nmap", "scan"), ["nmap", "--script=exploit", "h"]) == (
+        RiskTier.destructive
+    )
+
+
+def test_nmap_plain_scan_stays_active() -> None:
+    assert risk_tier(_bin("nmap", "scan"), ["nmap", "-sV", "h"]) == RiskTier.active
+    assert risk_tier(_bin("nmap", "scan"), ["nmap", "--script=default", "h"]) == (
+        RiskTier.active
+    )
+
+
+def test_curl_write_requests_are_intrusive() -> None:
+    curl = _bin("curl", "recon")
+    assert risk_tier(curl, ["curl", "-X", "POST", "http://h"]) == RiskTier.intrusive
+    assert risk_tier(curl, ["curl", "--data", "a=b", "http://h"]) == RiskTier.intrusive
+    assert risk_tier(curl, ["curl", "-T", "f", "http://h"]) == RiskTier.intrusive
+
+
+def test_curl_get_stays_recon() -> None:
+    got = risk_tier(_bin("curl", "recon"), ["curl", "http://h/x"])
+    assert got == RiskTier.recon
+
+
+def test_sqlmap_and_nikto_baseline_are_intrusive() -> None:
+    sqlmap = risk_tier(_bin("sqlmap", "enumerate"), ["sqlmap", "-u", "http://h"])
+    assert sqlmap == RiskTier.intrusive
+    nikto = risk_tier(_bin("nikto", "scan"), ["nikto", "-h", "http://h"])
+    assert nikto == RiskTier.intrusive
+
+
+def test_explicit_risk_still_wins_over_binary_base() -> None:
+    spec = ToolSpec(
+        name="sqlmap", binary="sqlmap", method="enumerate", risk=RiskTier.active
+    )
+    assert risk_tier(spec, ["sqlmap", "-u", "http://h"]) == RiskTier.active

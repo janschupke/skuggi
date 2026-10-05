@@ -85,6 +85,39 @@ class GuardVerdict(NamedTuple):
     reason: str
 
 
+# The largest value a bare decimal could be a port rather than an integer-encoded
+# IPv4 address: at or below this a lone number is treated as a port (ignored, not
+# a target); above it a number can only be an encoded host, so it is decoded and
+# scope-checked. nmap and friends accept ``2130706433`` (= 127.0.0.1).
+_MAX_PORT = 65535
+_MAX_IPV4_INT = 0xFFFFFFFF
+
+
+def _decode_int_ip(token: str) -> str | None:
+    """Decode an integer/hex-encoded IPv4 (``2130706433``/``0x7f000001``), else None.
+
+    A bare decimal is only decoded when it is too large to be a port, so a real
+    port number (``80``) is never mistaken for a host. The decoded dotted-quad is
+    then scope-checked like any other target -- closing the hole where an encoded
+    out-of-scope IP rode alongside an in-scope one undetected.
+    """
+    lowered = token.lower()
+    try:
+        if lowered.startswith("0x"):
+            value = int(token, 16)
+        elif token.isdigit():
+            value = int(token)
+            if value <= _MAX_PORT:
+                return None  # a plausible port, not an encoded IP
+        else:
+            return None
+    except ValueError:
+        return None
+    if 0 <= value <= _MAX_IPV4_INT:
+        return str(ipaddress.ip_address(value))
+    return None
+
+
 def _as_target(token: str) -> str | None:
     """Interpret a token as a target host, or None if it is not one."""
     if "://" in token:
@@ -92,6 +125,9 @@ def _as_target(token: str) -> str | None:
     try:
         ipaddress.ip_network(token, strict=False)
     except ValueError:
+        decoded = _decode_int_ip(token)
+        if decoded is not None:
+            return decoded
         return token if _HOSTNAME.match(token) else None
     return token
 

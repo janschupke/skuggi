@@ -590,3 +590,19 @@ def test_parent_relative_path_binary_is_denied() -> None:
 def test_binary_is_path_flag_distinguishes_bare_from_pathed() -> None:
     assert parse_command("nmap 10.0.0.5", REGISTRY).binary_is_path is False
     assert parse_command("/usr/bin/nmap 10.0.0.5", REGISTRY).binary_is_path is True
+
+
+def test_decimal_encoded_ip_is_scope_checked_not_ignored() -> None:
+    """An integer-encoded out-of-scope IP must be denied, not ignored (C6)."""
+    verdict = check_command(
+        parse_command("nmap 10.0.0.5 2130706433", REGISTRY), _engagement(), now=NOW
+    )
+    assert not verdict.allowed
+    assert "outside the authorized scope" in verdict.reason
+
+
+def test_hex_encoded_ip_is_scope_checked() -> None:
+    verdict = check_command(
+        parse_command("nmap 0x7f000001", REGISTRY), _engagement(), now=NOW
+    )
+    assert not verdict.allowed
