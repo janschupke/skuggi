@@ -246,6 +246,13 @@ class AddedCredential:
 
 
 @dataclass(frozen=True, slots=True)
+class AddedFoothold:
+    """A pivot foothold was registered; names the host for the echo (pivot/P3)."""
+
+    host: str
+
+
+@dataclass(frozen=True, slots=True)
 class BadSeverity:
     """The finding severity was not one of `allowed`."""
 
@@ -266,6 +273,7 @@ AddOutcome = (
     | AddedNote
     | AddedLoot
     | AddedCredential
+    | AddedFoothold
     | BadSeverity
     | FindingRecorded
 )

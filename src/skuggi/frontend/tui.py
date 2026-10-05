@@ -172,6 +172,7 @@ class Tui:
             "note": self._styled(control.add_record_for("note")),
             "loot": self._styled(control.add_record_for("loot")),
             "cred": self._styled(control.add_record_for("cred")),
+            "foothold": self._styled(control.add_record_for("foothold")),
             "finding": self._styled(control.add_record_for("finding")),
             "memory": self._styled(control.add_memory),
         }

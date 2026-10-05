@@ -94,6 +94,13 @@ def show_creds(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.S
     return presenters_journal.present_credentials(core.journal.credentials())
 
 
+def show_footholds(
+    core: AgentCore, _rest: str, _surface: verbs.Surface
+) -> render.Styled:
+    """Registered pivot footholds; any secret stays a masked vault placeholder."""
+    return presenters_journal.present_footholds(core.journal.footholds())
+
+
 def show_coverage(
     core: AgentCore, _rest: str, _surface: verbs.Surface
 ) -> render.Styled:
@@ -268,6 +275,14 @@ def remove_grants(
     return presenters.present_grants_revoked(core.grants.revoke_all())
 
 
+def remove_footholds(
+    core: AgentCore, _rest: str, _surface: verbs.Surface
+) -> render.Styled:
+    """Drop every registered pivot foothold for this session (pivot/P3)."""
+    count = core.journal.clear_footholds()
+    return [render.success(f"dropped {count} foothold(s)")]
+
+
 # ----- verb-level actions (no noun) ------------------------------------------
 
 
@@ -312,6 +327,7 @@ SHOW_ACTIONS: dict[str, Action] = {
     "findings": show_findings,
     "coverage": show_coverage,
     "creds": show_creds,
+    "footholds": show_footholds,
     "env": show_env,
     "case": show_case,
 }
@@ -329,4 +345,5 @@ SET_ACTIONS: dict[str, Action] = {
 REMOVE_ACTIONS: dict[str, Action] = {
     "memory": remove_memory,
     "grants": remove_grants,
+    "foothold": remove_footholds,
 }

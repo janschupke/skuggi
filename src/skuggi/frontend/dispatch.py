@@ -25,6 +25,7 @@ from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import ThreatModel
 from skuggi.frontend.outcomes import (
     AddedCredential,
+    AddedFoothold,
     AddedLoot,
     AddedNote,
     AddOutcome,
@@ -339,12 +340,32 @@ def run_add(core: AgentCore, arg: str) -> AddOutcome:  # noqa: PLR0911 -- one br
         return AddedLoot(path) if path is not None else NoEngagement("loot")
     if sub == "cred":
         return _run_add_cred(core, rest)
+    if sub == "foothold":
+        return _run_add_foothold(core, rest)
     if sub == "finding":
         return _run_add_finding(core, rest)
     return AddUsage(
         "note <text> | loot <text> | cred <host> <service> <user> <secret>"
+        " | foothold <host> <command|tunnel> <reach,csv> <template>"
         " | finding <severity> <title>"
     )
+
+
+def _run_add_foothold(core: AgentCore, rest: str) -> AddOutcome:
+    """Register a pivot foothold (``add foothold <host> <transport> <reach> <tmpl>``).
+
+    See the verb registry for the full argument grammar.
+    """
+    parts = rest.split(maxsplit=3)
+    if len(parts) < 4:  # noqa: PLR2004 -- host, transport, reachable, template
+        return AddUsage("foothold <host> <command|tunnel> <reach,csv> <template>")
+    host, transport, reachable, template = parts
+    if transport not in ("command", "tunnel"):
+        return AddUsage("foothold <host> <command|tunnel> <reach,csv> <template>")
+    fid = core.journal.add_foothold(
+        host=host, transport=transport, template=template, reachable=reachable
+    )
+    return AddedFoothold(host) if fid is not None else NoEngagement("foothold")
 
 
 def _run_add_cred(core: AgentCore, rest: str) -> AddOutcome:

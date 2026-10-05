@@ -130,6 +130,7 @@ VERBS: tuple[Verb, ...] = (
             Noun("findings", "recorded findings"),
             Noun("coverage", "exercised WSTG/ATT&CK ids vs the enabled taxonomy"),
             Noun("creds", "captured credentials (secrets masked)"),
+            Noun("footholds", "registered pivot footholds (secrets masked)"),
             Noun("history", "recent messages on this thread", "[n]"),
             Noun("trace", "the worker's tool calls on this thread"),
             Noun("threads", "conversation threads"),
@@ -183,6 +184,11 @@ VERBS: tuple[Verb, ...] = (
                 "store a captured credential (secret goes to the vault)",
                 "<host> <service> <user> <secret>",
             ),
+            Noun(
+                "foothold",
+                "register a pivot foothold (reachable-host commands route through it)",
+                "<host> <command|tunnel> <reach,csv> <template>",
+            ),
             Noun("finding", "record a finding", "<severity|CVSS> <title>"),
             Noun("memory", "remember an operator preference", "<entry>"),
         ),
@@ -195,6 +201,7 @@ VERBS: tuple[Verb, ...] = (
         nouns=(
             Noun("memory", "forget a preference, or all of them", "<id> | all"),
             Noun("grants", "revoke all session approval grants"),
+            Noun("foothold", "drop all registered pivot footholds"),
         ),
     ),
     Verb(

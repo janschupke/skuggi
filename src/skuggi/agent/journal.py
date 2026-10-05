@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from skuggi.agent.core import AgentCore
-    from skuggi.persistence.ledger import CredentialRow, FindingRow
+    from skuggi.persistence.ledger import CredentialRow, FindingRow, FootholdRow
 
 
 class Journal:
@@ -185,6 +185,43 @@ class Journal:
         """The captured credentials for this session (E8/E9)."""
         return self._core.ledger.credentials_for(self._core.session_id)
 
+    def add_foothold(
+        self,
+        *,
+        host: str,
+        transport: str = "command",
+        template: str = "",
+        reachable: str = "",
+    ) -> int | None:
+        """Register a pivot foothold for this session; return its id (pivot/P3).
+
+        ``reachable`` is a comma-separated mix of CIDRs and hostnames the foothold
+        can reach, split here into the two ledger columns the router reads. Any
+        secret belongs in ``template`` as a ``«CRED:id»`` vault placeholder (from a
+        prior ``add cred``), rehydrated at exec by the executor -- never plaintext.
+        Returns ``None`` when no engagement is loaded (nothing to pivot within).
+        """
+        core = self._core
+        if core.engagement is None:
+            return None
+        networks, hosts = _split_reachable(reachable)
+        return core.ledger.record_foothold(
+            session_id=core.session_id,
+            host=host,
+            transport=transport,
+            template=template,
+            reachable_networks=networks,
+            reachable_hosts=hosts,
+        )
+
+    def footholds(self) -> list[FootholdRow]:
+        """The registered pivot footholds for this session (pivot/P3)."""
+        return self._core.ledger.footholds_for(self._core.session_id)
+
+    def clear_footholds(self) -> int:
+        """Drop every registered foothold for this session; return how many."""
+        return self._core.ledger.clear_footholds(self._core.session_id)
+
     def write_report(self, *, pdf: bool = False) -> Path | tuple[Path, Path]:
         """Write the session's Markdown report and return its path.
 
@@ -250,3 +287,25 @@ class Journal:
             engagement_name=core.engagement.name if core.engagement else None,
             current_target=core.effective_target(),
         )
+
+
+def _split_reachable(reachable: str) -> tuple[str, str]:
+    """Split a comma-separated reach list into (networks_csv, hosts_csv) (pivot/P3).
+
+    A token that parses as an IP network goes to the networks column; anything else
+    is treated as a hostname. Order within each column is preserved.
+    """
+    import ipaddress  # noqa: PLC0415 -- local to this small helper
+
+    networks: list[str] = []
+    hosts: list[str] = []
+    for token in (part.strip() for part in reachable.split(",")):
+        if not token:
+            continue
+        try:
+            ipaddress.ip_network(token, strict=False)
+        except ValueError:
+            hosts.append(token)
+        else:
+            networks.append(token)
+    return ",".join(networks), ",".join(hosts)

@@ -642,7 +642,7 @@ class Daemon:
                 control.add_memory(self.core, rest.strip(), self._surface())
             )
             return
-        if noun in {"note", "loot", "cred", "finding"}:
+        if noun in {"note", "loot", "cred", "foothold", "finding"}:
             yield from self._styled(control.add_record_for(noun))(rest.strip())
             return
         options = " | ".join(n.name for n in verbs.nouns_of("add"))

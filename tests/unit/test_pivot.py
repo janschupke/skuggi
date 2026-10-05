@@ -14,6 +14,7 @@ from skuggi.agent.graph import GraphDeps
 from skuggi.common import execution
 from skuggi.engagement.pivot import route_for
 from skuggi.engagement.scope import EngagementConfig
+from skuggi.frontend import presenters_journal
 from skuggi.persistence.ledger import Ledger, open_ledger
 from skuggi.persistence.ledger_schema import FootholdRow
 from skuggi.tooling.registry import RiskTier, ToolRegistry, ToolSpec
@@ -210,3 +211,20 @@ def test_direct_command_is_unwrapped(
     assert ran is True
     assert captured["argv"] == ["nmap", "10.9.0.10"]
     assert "[via foothold" not in brief.summary
+
+
+# --- P3: foothold presenter + dispatch -------------------------------------
+
+
+def test_present_footholds_masks_and_lists() -> None:
+    empty = presenters_journal.present_footholds([])
+    assert empty  # a non-empty "no footholds" line
+    rows = [
+        _foothold(template="sshpass -p «CRED:ab12» ssh root@portal -- {cmd}"),
+    ]
+    out = presenters_journal.present_footholds(rows)
+    text = " ".join(str(s) for s in out)
+    assert "portal.bastion.lab" in text
+    assert "admin.internal" in text
+    # the placeholder is shown (masked), never a plaintext secret
+    assert "«CRED:ab12»" in text

@@ -41,8 +41,15 @@ def test_grouping_verbs_carry_nouns() -> None:
         "wordlist",
         "thread",
     }
-    assert verbs.noun_names("add") == {"note", "loot", "cred", "finding", "memory"}
-    assert verbs.noun_names("remove") == {"memory", "grants"}
+    assert verbs.noun_names("add") == {
+        "note",
+        "loot",
+        "cred",
+        "foothold",
+        "finding",
+        "memory",
+    }
+    assert verbs.noun_names("remove") == {"memory", "grants", "foothold"}
 
 
 def test_plain_verb_has_no_nouns() -> None:

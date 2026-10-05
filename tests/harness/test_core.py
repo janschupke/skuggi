@@ -22,6 +22,7 @@ from skuggi.config.config import config_path
 from skuggi.config.configs import ConfigError, load_commands
 from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.frontend import dispatch
+from skuggi.frontend.outcomes import AddedFoothold, AddUsage
 from skuggi.install import update as update_mod
 from skuggi.tooling import probe as probe_mod
 from skuggi.tooling.commands import CommandAlias, CommandRegistry
@@ -664,3 +665,35 @@ def test_add_credential_vaults_the_secret_and_lists_it(core: AgentCore) -> None:
     ws = core.workspace
     assert ws is not None
     assert b"hunter2" not in ws.ledger_path.read_bytes()
+
+
+def test_foothold_verbs_register_list_and_clear(core: AgentCore) -> None:
+    """add/show/remove foothold round-trip through the journal + ledger (pivot/P3)."""
+    fid = core.journal.add_foothold(
+        host="portal.bastion.lab",
+        transport="command",
+        template="ssh root@portal -- {cmd}",
+        reachable="10.9.0.0/24,admin.internal",
+    )
+    assert fid is not None
+    [fh] = core.journal.footholds()
+    assert fh.host == "portal.bastion.lab"
+    # the reach list is split into the two columns the router reads
+    assert fh.reachable_networks == "10.9.0.0/24"
+    assert fh.reachable_hosts == "admin.internal"
+    assert core.journal.clear_footholds() == 1
+    assert core.journal.footholds() == []
+
+
+def test_add_foothold_dispatch_parses_and_validates(core: AgentCore) -> None:
+    """The `add foothold` dispatch path: usage, bad transport, success (pivot/P3)."""
+    assert isinstance(dispatch.run_add(core, "foothold portal command"), AddUsage)
+    bad = dispatch.run_add(core, "foothold portal ftp 10.0.0.0/8 nc {cmd}")
+    assert isinstance(bad, AddUsage)  # transport must be command|tunnel
+    ok = dispatch.run_add(
+        core, "foothold portal command 10.0.0.0/8 ssh root@portal -- {cmd}"
+    )
+    assert isinstance(ok, AddedFoothold)
+    assert ok.host == "portal"
+    [fh] = core.journal.footholds()
+    assert fh.template == "ssh root@portal -- {cmd}"

@@ -16,6 +16,7 @@ from skuggi.common import palette
 from skuggi.frontend import presenters, render, verbs
 from skuggi.frontend.outcomes import (
     AddedCredential,
+    AddedFoothold,
     AddedLoot,
     AddedNote,
     AddOutcome,
@@ -39,7 +40,12 @@ from skuggi.frontend.render import Styled
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from skuggi.persistence.ledger import CoverageRow, CredentialRow, FindingRow
+    from skuggi.persistence.ledger import (
+        CoverageRow,
+        CredentialRow,
+        FindingRow,
+        FootholdRow,
+    )
 
 
 def present_report(outcome: ReportOutcome, surface: verbs.Surface) -> Styled:
@@ -123,6 +129,24 @@ def present_credentials(rows: Sequence[CredentialRow]) -> Styled:
         mark = "✓" if c.validated else "·"
         held = "secret held" if c.secret_ref else "no secret"
         lines.append(render.info(f"{mark} {who}{svc} — {held} ({c.source or '?'})"))
+    return lines
+
+
+def present_footholds(rows: Sequence[FootholdRow]) -> Styled:
+    """Render ``show footholds``: one line per foothold; secrets stay masked (pivot).
+
+    The template may embed a ``«CRED:id»`` vault placeholder, never a plaintext
+    secret, so this listing is safe to show -- it reports the host, transport, what
+    the foothold reaches, and the (placeholder-form) template.
+    """
+    if not rows:
+        return presenters.empty("footholds")
+    lines: Styled = []
+    for f in rows:
+        reach = ", ".join(p for p in (f.reachable_networks, f.reachable_hosts) if p)
+        lines.append(
+            render.info(f"{f.host} [{f.transport}] → {reach or '—'}  ::  {f.template}")
+        )
     return lines
 
 
@@ -213,5 +237,7 @@ def present_add(outcome: AddOutcome, surface: verbs.Surface) -> Styled:  # noqa:
         case AddedCredential(host, username):
             who = f"{username}@{host}" if host else username
             return [render.success(f"credential stored for {who} (secret vaulted)")]
+        case AddedFoothold(host):
+            return [render.success(f"foothold registered on {host}")]
         case FindingRecorded():  # pragma: no cover -- caller renders findings
             return []
