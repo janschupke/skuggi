@@ -168,6 +168,25 @@ class CommandBrief(BaseModel):
     summary: str = ""
 
 
+class CredentialBrief(BaseModel):
+    """A captured credential's nature, for a request -- never its value.
+
+    Model-facing by construction: ``secret_ref`` is the vault ``«CRED:id»``
+    placeholder, which the worker may put in a command (the executor rehydrates it
+    at exec), so the agent can *use* a credential it has never seen. The plaintext
+    secret is not a field here and lives only in the engagement vault.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    host: str = ""
+    service: str = ""
+    username: str = ""
+    secret_ref: str = ""
+    validated: bool = False
+
+
 class RequestContext(BaseModel):
     """Everything a node's request carries, assembled by the harness.
 
@@ -195,6 +214,7 @@ class RequestContext(BaseModel):
     # so the agent can point a tool at one by path without ever seeing contents.
     data_files: str = ""
     findings: tuple[FindingBrief, ...] = ()
+    credentials: tuple[CredentialBrief, ...] = ()
     recent_commands: tuple[CommandBrief, ...] = ()
     plan: tuple[str, ...] = ()  # planner output, for the worker
     prior_critique: str = ""  # critic output, for the planner's next pass
@@ -485,6 +505,17 @@ def _findings_block(findings: Sequence[FindingBrief]) -> str:
     return "\n".join(lines)
 
 
+def _credentials_block(credentials: Sequence[CredentialBrief]) -> str:
+    lines = []
+    for c in credentials:
+        who = "@".join(p for p in (c.username, c.host) if p) or "(unknown)"
+        svc = f" ({c.service})" if c.service else ""
+        secret = f" secret={c.secret_ref}" if c.secret_ref else ""
+        flag = " [validated]" if c.validated else ""
+        lines.append(f"[{c.id}] {who}{svc}{secret}{flag}")
+    return "\n".join(lines)
+
+
 def _commands_block(commands: Sequence[CommandBrief]) -> str:
     lines = []
     for c in commands:
@@ -530,6 +561,7 @@ def render_request(ctx: RequestContext) -> str:
         labeled("Operator preferences", ctx.preferences),
         labeled("Conversation so far", ctx.history),
         labeled("Prior findings", _findings_block(ctx.findings)),
+        labeled("Captured credentials", _credentials_block(ctx.credentials)),
         labeled("Recent commands", _commands_block(ctx.recent_commands)),
         labeled("Data files", ctx.data_files),
         labeled("Retrieved context", ctx.retrieved_context),

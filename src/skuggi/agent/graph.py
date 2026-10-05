@@ -44,6 +44,7 @@ from skuggi.agent.executor import (
 from skuggi.agent.prompts import PromptSet, prompt_set
 from skuggi.agent.protocol import (
     CommandBrief,
+    CredentialBrief,
     CriticResponse,
     EngagementBrief,
     FindingBrief,
@@ -195,6 +196,36 @@ def _finding_briefs(deps: GraphDeps) -> tuple[FindingBrief, ...]:
             reason=clean(r.review_reason),
         )
         for r in rows
+    )
+
+
+def _credential_briefs(deps: GraphDeps) -> tuple[CredentialBrief, ...]:
+    """The captured credentials for a request -- their nature, never the secret.
+
+    Engagement-scoped like findings (``session_id`` is per-launch, so a session-only
+    view would hide a credential captured on an earlier day), falling back to the
+    session in agent-only mode. No redaction step is needed: a row holds only a
+    vault ``secret_ref`` placeholder, which the worker may reference in a command
+    (rehydrated at exec) without ever seeing the value. Capped like findings.
+    """
+    if deps.ledger is None:
+        return ()
+    if deps.engagement is not None:
+        rows = deps.ledger.credentials_for_engagement(deps.engagement.name)
+    elif deps.session_id:
+        rows = deps.ledger.credentials_for(deps.session_id)
+    else:
+        return ()
+    return tuple(
+        CredentialBrief(
+            id=r.id,
+            host=r.host,
+            service=r.service,
+            username=r.username,
+            secret_ref=r.secret_ref,
+            validated=bool(r.validated),
+        )
+        for r in rows[-deps.findings_limit :]
     )
 
 
@@ -399,6 +430,7 @@ def build_graph(
             data_files=deps.data_files,
             retrieved_context=clean(state.get("context") or ""),
             findings=_finding_briefs(deps),
+            credentials=_credential_briefs(deps),
             recent_commands=tuple(commands),
             **extra,  # type: ignore[arg-type]
         )

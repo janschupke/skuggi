@@ -517,6 +517,38 @@ def test_findings_for_engagement_spans_sessions_and_all_statuses(
         }
 
 
+def test_credentials_for_engagement_spans_sessions_and_dedupes(
+    tmp_path: Path,
+) -> None:
+    """Credential recall spans the engagement's sessions, deduped, others excluded."""
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme", mode="pentest")
+        led.start_session("s2", engagement_name="acme", mode="pentest")
+        led.start_session("o1", engagement_name="other", mode="pentest")
+        # Same credential captured in both sessions -> one row.
+        for sid in ("s1", "s2"):
+            led.record_credential(
+                session_id=sid,
+                host="web01",
+                service="ssh",
+                username="admin",
+                secret_ref="«CRED:aa11»",
+            )
+        led.record_credential(
+            session_id="s2",
+            host="db1",
+            service="psql",
+            username="root",
+            secret_ref="«CRED:bb22»",
+        )
+        led.record_credential(
+            session_id="o1", host="elsewhere", username="x", secret_ref="«CRED:cc33»"
+        )
+
+        rows = led.credentials_for_engagement("acme")
+        assert sorted(c.host for c in rows) == ["db1", "web01"]
+
+
 def test_recording_a_finding_marks_its_refs_exercised(tmp_path: Path) -> None:
     """A finding's framework refs auto-record methodology coverage (audit E7)."""
     with open_ledger(tmp_path / "l.db") as led:

@@ -110,6 +110,36 @@ class ArtifactsLedgerMixin:
             ).fetchall()
         return [CredentialRow(*row) for row in rows]
 
+    def credentials_for_engagement(self, engagement_name: str) -> list[CredentialRow]:
+        """Captured credentials across all of an engagement's sessions, deduped.
+
+        The cross-session analogue of :meth:`credentials_for`, for the agent's
+        recall: ``session_id`` is a fresh UUID each launch, so a session-only view
+        would hide a credential captured on an earlier day of the same engagement.
+        Deduped by (host, service, username, secret_ref) -- the same credential
+        captured twice is one entry. Model-facing-safe by construction: a row holds
+        only a vault ``secret_ref`` placeholder, never a plaintext secret.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                _select_sql(
+                    "credentials c JOIN sessions s ON c.session_id = s.session_id",
+                    tuple(f"c.{col}" for col in _CREDENTIAL_COLS),
+                    "WHERE s.engagement_name = ? ORDER BY s.started_at, c.id",
+                ),
+                (engagement_name,),
+            ).fetchall()
+        out: list[CredentialRow] = []
+        seen: set[tuple[str, str, str, str]] = set()
+        for row in rows:
+            cred = CredentialRow(*row)
+            key = (cred.host, cred.service, cred.username, cred.secret_ref)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(cred)
+        return out
+
     def record_foothold(  # noqa: PLR0913 -- keyword-only ledger columns
         self,
         *,
