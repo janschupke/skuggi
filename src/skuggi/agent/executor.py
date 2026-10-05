@@ -233,6 +233,7 @@ def _run_or_propose(
         timeout=deps.command_timeout_s,
         cwd=work_dir,
         env=execution.safe_env(),
+        display_command=command,
     )
     try:
         cid = _record_command(

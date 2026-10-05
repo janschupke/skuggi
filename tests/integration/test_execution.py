@@ -111,3 +111,17 @@ def test_timeout_still_captures_partial_output(tmp_path: Path) -> None:
     assert result.timed_out
     assert "partial" in result.stdout
     assert "timed out" in result.stderr
+
+
+@pytest.mark.runs_commands
+def test_display_command_is_recorded_not_the_rehydrated_argv(tmp_path: Path) -> None:
+    """Command must be the placeholder form, not the secret argv (audit C2)."""
+    result = run(
+        ["echo", "s3cr3t-password"],
+        timeout=10,
+        cwd=tmp_path,
+        display_command="echo \u00abSECRET:1\u00bb",
+    )
+    assert result.command == "echo \u00abSECRET:1\u00bb"
+    assert "s3cr3t-password" not in result.command
+    assert "s3cr3t-password" in result.stdout  # the real value still ran

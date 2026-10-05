@@ -123,6 +123,7 @@ def run(
     timeout: float,
     cwd: Path,
     env: Mapping[str, str] | None = None,
+    display_command: str | None = None,
 ) -> CommandResult:
     """Execute `argv` directly (no shell), capturing output and timing.
 
@@ -130,7 +131,11 @@ def run(
     command like any other rather than letting it abort the turn.
     """
     started = datetime.now(UTC)
-    command = " ".join(argv)
+    # The rehydrated argv may carry a real secret (a vaulted credential is
+    # rehydrated just before exec); log and record the caller-supplied
+    # placeholder form instead, so the diagnostic log and the ledger never hold
+    # a plaintext secret. Falls back to the argv join when none is given.
+    command = display_command if display_command is not None else " ".join(argv)
     # Spool output to temp files rather than pipes read into memory: a chatty or
     # hostile tool can emit gigabytes within the timeout, and `capture_output`
     # would buffer all of it before `_cap` ever ran. Here only `MAX_CAPTURE_BYTES`
