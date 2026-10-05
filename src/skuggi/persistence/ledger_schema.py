@@ -62,218 +62,6 @@ class AuditKind(StrEnum):
     REVIEW = "review"
 
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS sessions (
-    session_id      TEXT PRIMARY KEY,
-    engagement_name TEXT NOT NULL,
-    mode            TEXT NOT NULL,
-    started_at      TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS commands (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    thread_id   TEXT NOT NULL,
-    command     TEXT NOT NULL,
-    binary      TEXT NOT NULL,
-    method      TEXT,
-    status      TEXT NOT NULL,
-    exit_code   INTEGER,
-    stdout      TEXT NOT NULL DEFAULT '',
-    stderr      TEXT NOT NULL DEFAULT '',
-    reason      TEXT NOT NULL DEFAULT '',
-    started_at  TEXT NOT NULL,
-    finished_at TEXT,
-    turn_event_id INTEGER            -- -> events(id): the prompt that drove it
-);
-CREATE TABLE IF NOT EXISTS findings (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    command_id  INTEGER REFERENCES commands(id),
-    title       TEXT NOT NULL,
-    severity    TEXT NOT NULL,
-    description TEXT NOT NULL,
-    evidence    TEXT NOT NULL DEFAULT '',
-    -- Client-report material (audit E1/E2): the impact, the remediation, and the
-    -- affected asset the finding was proven on (host/port/url/parameter).
-    impact         TEXT NOT NULL DEFAULT '',
-    remediation    TEXT NOT NULL DEFAULT '',
-    affected_host  TEXT NOT NULL DEFAULT '',
-    affected_port  TEXT NOT NULL DEFAULT '',
-    affected_url   TEXT NOT NULL DEFAULT '',
-    affected_param TEXT NOT NULL DEFAULT '',
-    -- CVSS v3.1, stored complete so a score reconstructs from (version, vector)
-    -- alone -- no agent turn, no network. cvss_severity is the band derived from
-    -- the vector; `severity` above stays the display/report value (derived from
-    -- cvss_severity when a vector is present, else set directly for info findings).
-    cvss_version       TEXT,
-    cvss_vector        TEXT,
-    cvss_base          REAL,
-    cvss_temporal      REAL,
-    cvss_environmental REAL,
-    cvss_score         REAL,
-    cvss_severity      TEXT,
-    -- Review lifecycle. Every finding is born 'draft'; only 'approved' reaches a
-    -- report. ``author`` is who recorded it ('agent' | 'operator'); a rejection
-    -- carries its ``review_reason`` (also fed back to the agent so it stops
-    -- re-asserting it), and ``reviewed_at`` stamps the last status change.
-    author       TEXT NOT NULL DEFAULT 'agent',
-    status       TEXT NOT NULL DEFAULT 'draft',
-    review_reason TEXT NOT NULL DEFAULT '',
-    reviewed_at  TEXT,
-    -- Score provenance for the freeze/flag/rescore flow: which threat-model version
-    -- the environmental score was computed under, and when. A finding is "outdated"
-    -- when this version != the engagement's current threat-model version.
-    cvss_tm_version INTEGER,
-    cvss_scored_at  TEXT,
-    created_at  TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS threat_model_versions (
-    version    INTEGER PRIMARY KEY AUTOINCREMENT,
-    snapshot   TEXT NOT NULL,       -- the ThreatModel as JSON, or '' for none
-    note       TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS finding_refs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    finding_id  INTEGER NOT NULL REFERENCES findings(id),
-    framework   TEXT NOT NULL,       -- wstg | attack | ptes
-    ref_id      TEXT NOT NULL,       -- e.g. WSTG-ATHN-01, T1110, PTES-05
-    title       TEXT NOT NULL DEFAULT '',
-    url         TEXT NOT NULL DEFAULT '',
-    is_primary  INTEGER NOT NULL DEFAULT 0   -- the driver framework's id
-);
-CREATE TABLE IF NOT EXISTS finding_evidence (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    finding_id  INTEGER NOT NULL REFERENCES findings(id),
-    kind        TEXT NOT NULL,       -- request | response | screenshot | image | log
-    content     TEXT NOT NULL DEFAULT '',  -- inline text (request/response/log)
-    media_path  TEXT NOT NULL DEFAULT '',  -- workspace-confined path (screenshot/image)
-    created_at  TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS coverage (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    framework   TEXT NOT NULL,       -- wstg | attack | ptes
-    ref_id      TEXT NOT NULL,       -- e.g. WSTG-ATHN-01, T1110
-    status      TEXT NOT NULL DEFAULT 'exercised',  -- exercised | skipped | n/a
-    note        TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL,
-    UNIQUE(session_id, framework, ref_id)
-);
-CREATE TABLE IF NOT EXISTS credentials (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    host        TEXT NOT NULL DEFAULT '',
-    service     TEXT NOT NULL DEFAULT '',
-    username    TEXT NOT NULL DEFAULT '',
-    secret_ref  TEXT NOT NULL DEFAULT '',   -- a vault placeholder, never plaintext
-    source      TEXT NOT NULL DEFAULT '',
-    validated   INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL
-);
--- A compromised/jump host registered as a runtime execution channel (audit: pivot).
--- Scope stays the authorization boundary; a foothold layers reachability on top: it
--- names the networks/hosts it reaches and how a command is run through it (a command
--- template for an RCE/shell, or a proxy spec for a tunnel). Any secret is a vault
--- placeholder, never plaintext -- rehydrated at exec like a credential.
-CREATE TABLE IF NOT EXISTS footholds (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id    TEXT NOT NULL REFERENCES sessions(session_id),
-    host          TEXT NOT NULL,              -- the foothold host (must be in scope)
-    transport     TEXT NOT NULL DEFAULT 'command',  -- command | tunnel
-    template      TEXT NOT NULL DEFAULT '',   -- cmd template ({cmd}) or proxy spec
-    secret_ref    TEXT NOT NULL DEFAULT '',   -- a vault placeholder, never plaintext
-    reachable_networks TEXT NOT NULL DEFAULT '',  -- comma-separated CIDRs
-    reachable_hosts    TEXT NOT NULL DEFAULT '',  -- comma-separated hostnames
-    created_at    TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    thread_id   TEXT,
-    kind        TEXT NOT NULL,       -- prompt | response | command | finding
-    ref_id      INTEGER,             -- -> commands(id) / findings(id) by kind
-    text        TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS audit (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    kind        TEXT NOT NULL,       -- control | cli | review
-    verb        TEXT NOT NULL DEFAULT '',
-    detail      TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL
-);
--- Forensics chain-of-custody. Only the forensics mode writes these (the `mode`
--- column on `sessions` is the discriminator); an offensive engagement ledger just
--- carries them empty. `evidence` is the acquisition record -- one row per evidence
--- artifact, pinned by its sha256; `procedure` is the ordered operation log -- one
--- row per examination step, citing the evidence it touched.
-CREATE TABLE IF NOT EXISTS evidence (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
-    source_path TEXT NOT NULL,       -- path, relative to the case evidence dir
-    sha256      TEXT NOT NULL,       -- content hash at acquisition (integrity pin)
-    size        INTEGER NOT NULL,
-    media_type  TEXT NOT NULL DEFAULT '',
-    acquired_at TEXT NOT NULL,
-    note        TEXT NOT NULL DEFAULT '',
-    -- Tamper-evident chain (audit E20): row_hmac = HMAC(case_key, prev_hash||row);
-    -- prev_hash links to the previous evidence row's row_hmac. Empty when no case
-    -- key was set (an offensive-engagement ledger never writes these rows).
-    prev_hash   TEXT NOT NULL DEFAULT '',
-    row_hmac    TEXT NOT NULL DEFAULT ''
-);
-CREATE TABLE IF NOT EXISTS procedure (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id    TEXT NOT NULL REFERENCES sessions(session_id),
-    step          INTEGER NOT NULL,  -- 1-based order within the session
-    operation     TEXT NOT NULL,     -- e.g. 'hash', 'strings', 'exiftool'
-    actor         TEXT NOT NULL,     -- 'in-process' | 'tool'
-    argv          TEXT NOT NULL DEFAULT '',  -- the exact argv for a tool op, else ''
-    input_sha256  TEXT NOT NULL DEFAULT '',  -- -> evidence.sha256 it operated on
-    output_digest TEXT NOT NULL DEFAULT '',  -- sha256 of the captured output
-    created_at    TEXT NOT NULL,
-    note          TEXT NOT NULL DEFAULT '',
-    -- Provenance (audit E21): who ran the step and the tool version, for the report.
-    examiner      TEXT NOT NULL DEFAULT '',
-    tool_version  TEXT NOT NULL DEFAULT '',
-    -- Tamper-evident chain (audit E20), as on evidence.
-    prev_hash     TEXT NOT NULL DEFAULT '',
-    row_hmac      TEXT NOT NULL DEFAULT ''
-);
--- Chain-of-custody is append-only (audit E20): reject any UPDATE/DELETE on the
--- evidence/procedure tables at the database layer, so a row cannot be silently
--- rewritten even by a direct SQL edit (the HMAC chain would also catch it).
-CREATE TRIGGER IF NOT EXISTS evidence_no_update BEFORE UPDATE ON evidence
-BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
-CREATE TRIGGER IF NOT EXISTS evidence_no_delete BEFORE DELETE ON evidence
-BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
-CREATE TRIGGER IF NOT EXISTS procedure_no_update BEFORE UPDATE ON procedure
-BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
-CREATE TRIGGER IF NOT EXISTS procedure_no_delete BEFORE DELETE ON procedure
-BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
-"""
-
-# Indexes for the hot per-session reads (audit D5): without these the command,
-# finding, event and ref lookups full-scan, so their cost grows with the whole
-# ledger rather than one session. Run AFTER the column migrations (so a finding
-# created before the ``status`` column can be upgraded first), and idempotent.
-_INDEXES = """
-CREATE INDEX IF NOT EXISTS idx_commands_session ON commands(session_id);
-CREATE INDEX IF NOT EXISTS idx_findings_session_status ON findings(session_id, status);
-CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id, id);
-CREATE INDEX IF NOT EXISTS idx_events_thread ON events(thread_id);
-CREATE INDEX IF NOT EXISTS idx_finding_refs_finding ON finding_refs(finding_id);
-CREATE INDEX IF NOT EXISTS idx_finding_evidence_finding ON finding_evidence(finding_id);
-CREATE INDEX IF NOT EXISTS idx_coverage_session ON coverage(session_id);
-CREATE INDEX IF NOT EXISTS idx_credentials_session ON credentials(session_id);
-CREATE INDEX IF NOT EXISTS idx_footholds_session ON footholds(session_id);
-CREATE INDEX IF NOT EXISTS idx_audit_session ON audit(session_id);
-CREATE INDEX IF NOT EXISTS idx_evidence_session ON evidence(session_id);
-CREATE INDEX IF NOT EXISTS idx_procedure_session ON procedure(session_id);
-"""
-
 # Columns added to `commands` after the initial release; each is applied to an
 # already-created table with ADD COLUMN when missing (a fresh DB gets them from
 # the schema above). Kept plain (no REFERENCES) so ADD COLUMN is always legal.
@@ -463,6 +251,45 @@ class FootholdRow:
 
 
 @dataclass(frozen=True, slots=True)
+class LootRow:
+    """One captured loot item -- structured, recallable, secret-safe.
+
+    The looser sibling of a credential: anything worth keeping that is not a clean
+    host/service/user credential (a token, a hash, a key, a lifted file, a config
+    snippet). ``label`` is the redacted description (a secret in it is vaulted and
+    appears as a ``«KIND:id»`` placeholder); ``secret_ref`` is the vault placeholder
+    when the item itself is a single secret. Plaintext is never stored here.
+    """
+
+    id: int
+    session_id: str
+    kind: str
+    host: str
+    label: str
+    secret_ref: str
+    source: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class NoteRow:
+    """One operator/agent note -- a structured, recallable observation.
+
+    ``text`` is the redacted note body (any secret in it is vaulted to a
+    ``«KIND:id»`` placeholder before storage); ``subject`` is a short topic and
+    ``host`` the asset it concerns, if any. Plaintext secrets are never stored here.
+    """
+
+    id: int
+    session_id: str
+    subject: str
+    host: str
+    text: str
+    source: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class CoverageRow:
     """One exercised/skipped methodology id for a session (audit E7)."""
 
@@ -596,6 +423,8 @@ _FINDING_EVIDENCE_COLS = tuple(f.name for f in fields(FindingEvidenceRow))
 _COVERAGE_COLS = tuple(f.name for f in fields(CoverageRow))
 _CREDENTIAL_COLS = tuple(f.name for f in fields(CredentialRow))
 _FOOTHOLD_COLS = tuple(f.name for f in fields(FootholdRow))
+_LOOT_COLS = tuple(f.name for f in fields(LootRow))
+_NOTE_COLS = tuple(f.name for f in fields(NoteRow))
 _TM_VERSION_COLS = tuple(f.name for f in fields(ThreatModelVersionRow))
 _EVENT_COLS = tuple(f.name for f in fields(EventRow))
 _AUDIT_COLS = tuple(f.name for f in fields(AuditRow))

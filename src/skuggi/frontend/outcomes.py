@@ -218,23 +218,26 @@ class AddUsage:
 
 @dataclass(frozen=True, slots=True)
 class NoEngagement:
-    """Notes and loot are workspace files; none is loaded. `kind` is note/loot."""
+    """Notes and loot are engagement records; none is loaded. `kind` is note/loot."""
 
     kind: str
 
 
 @dataclass(frozen=True, slots=True)
 class AddedNote:
-    """A note was appended to the engagement journal at `path`."""
+    """A note was recorded to the ledger; `subject` names it for the echo."""
 
-    path: Path
+    note_id: int
+    subject: str
 
 
 @dataclass(frozen=True, slots=True)
 class AddedLoot:
-    """A loot entry was appended to the engagement journal at `path`."""
+    """A loot item was recorded to the ledger; names kind/host for the echo."""
 
-    path: Path
+    loot_id: int
+    kind: str
+    host: str
 
 
 @dataclass(frozen=True, slots=True)

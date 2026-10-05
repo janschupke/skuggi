@@ -28,6 +28,8 @@ from skuggi.common.clock import now_iso
 from skuggi.common.text import redact_secrets
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from skuggi.engagement.engagement import EngagementConfig
     from skuggi.persistence.ledger import (
         AuditRow,
@@ -35,6 +37,8 @@ if TYPE_CHECKING:
         EventRow,
         FindingRow,
         Ledger,
+        LootRow,
+        NoteRow,
         SessionRow,
     )
     from skuggi.tooling.registry import ToolRegistry
@@ -104,12 +108,40 @@ def _finding_view(row: FindingRow) -> dict[str, Any]:
     }
 
 
+def _loot_body(row: LootRow) -> str:
+    head = f"[{row.kind}] " if row.kind else ""
+    asset = f"{row.host}: " if row.host else ""
+    return f"{head}{asset}{row.label}".strip()
+
+
+def _note_body(row: NoteRow) -> str:
+    head = f"[{row.subject}] " if row.subject else ""
+    asset = f"({row.host}) " if row.host else ""
+    return f"{head}{asset}{row.text}".strip()
+
+
+def loot_to_text(rows: Sequence[LootRow]) -> str:
+    """Render structured loot rows into the timestamped-bullet journal text.
+
+    Loot is structured now, but the dashboard still parses notes/loot from the
+    ``- `<iso>`  <body>`` shape ``add`` used to append to markdown; rendering the
+    rows back into that one shape here keeps the view-model and the operator journal
+    consistent without a second parser. The body is already redacted at storage.
+    """
+    return "\n".join(f"- `{r.created_at}`  {_loot_body(r)}" for r in rows)
+
+
+def notes_to_text(rows: Sequence[NoteRow]) -> str:
+    """Render structured note rows into the timestamped-bullet journal text."""
+    return "\n".join(f"- `{r.created_at}`  {_note_body(r)}" for r in rows)
+
+
 def _journal_views(kind: str, text: str) -> list[dict[str, Any]]:
     """Parse a notes/loot journal into timestamped timeline entries.
 
-    ``journal.append_entry`` writes ``- `<iso>`  <text>`` lines; a line that does
-    not match that shape is kept whole with no timestamp (it still shows, just
-    unplaced on the timeline).
+    ``notes_to_text``/``loot_to_text`` render ``- `<iso>`  <body>`` lines from the
+    structured rows; a line that does not match that shape is kept whole with no
+    timestamp (it still shows, just unplaced on the timeline).
     """
     entries: list[dict[str, Any]] = []
     for raw in text.splitlines():

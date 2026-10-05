@@ -105,11 +105,6 @@ def run_status(core: AgentCore) -> Readiness:
     return readiness.from_core(core)
 
 
-def _count_journal_entries(text: str) -> int:
-    """Count timestamped journal bullets (``- `<iso>` …`` lines) in a journal."""
-    return sum(1 for line in text.splitlines() if line.strip().startswith("- "))
-
-
 def run_session_stats(core: AgentCore) -> SessionStats:
     """Read the current session's activity metrics back from the ledger and journal.
 
@@ -129,8 +124,8 @@ def run_session_stats(core: AgentCore) -> SessionStats:
         turns=sum(1 for ev in events if ev.kind == "prompt"),
         commands=core.ledger.commands_for(core.session_id),
         findings=core.ledger.findings_for(core.session_id),
-        notes=_count_journal_entries(core.journal.notes()),
-        loot=_count_journal_entries(core.journal.loot()),
+        notes=len(core.journal.note_items()),
+        loot=len(core.journal.loot_items()),
     )
 
 
@@ -329,15 +324,25 @@ def run_add(core: AgentCore, arg: str) -> AddOutcome:  # noqa: PLR0911 -- one br
     sub, _, rest = arg.partition(" ")
     sub, rest = sub.strip().lower(), rest.strip()
     if sub == "note":
-        if not rest:
-            return AddUsage("note <text>")
-        path = core.journal.add_note(rest)
-        return AddedNote(path) if path is not None else NoEngagement("note")
+        parts = rest.split(maxsplit=1)
+        if len(parts) < 2:  # noqa: PLR2004 -- subject + body
+            return AddUsage("note <subject> <text>")
+        subject, text = parts[0], parts[1]
+        note_id = core.journal.add_note(subject=subject, text=text)
+        return (
+            AddedNote(note_id, subject) if note_id is not None else NoEngagement("note")
+        )
     if sub == "loot":
-        if not rest:
-            return AddUsage("loot <text>")
-        path = core.journal.add_loot(rest)
-        return AddedLoot(path) if path is not None else NoEngagement("loot")
+        parts = rest.split(maxsplit=2)
+        if len(parts) < 3:  # noqa: PLR2004 -- kind + host + label
+            return AddUsage("loot <kind> <host> <label>  (host '-' for none)")
+        kind, host, label = parts[0], ("" if parts[1] == "-" else parts[1]), parts[2]
+        loot_id = core.journal.add_loot(kind=kind, host=host, label=label)
+        return (
+            AddedLoot(loot_id, kind, host)
+            if loot_id is not None
+            else NoEngagement("loot")
+        )
     if sub == "cred":
         return _run_add_cred(core, rest)
     if sub == "foothold":

@@ -549,6 +549,28 @@ def test_credentials_for_engagement_spans_sessions_and_dedupes(
         assert sorted(c.host for c in rows) == ["db1", "web01"]
 
 
+def test_loot_and_notes_for_engagement_span_sessions_and_dedupe(
+    tmp_path: Path,
+) -> None:
+    """Loot/notes recall spans the engagement's sessions, deduped, others excluded."""
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme", mode="pentest")
+        led.start_session("s2", engagement_name="acme", mode="pentest")
+        led.start_session("o1", engagement_name="other", mode="pentest")
+        for sid in ("s1", "s2"):  # same loot item twice -> one row
+            led.record_loot(session_id=sid, kind="hash", host="web01", label="ntlm")
+        led.record_loot(session_id="s2", kind="key", host="db1", label="id_rsa")
+        led.record_loot(session_id="o1", kind="x", host="z", label="elsewhere")
+        for sid in ("s1", "s2"):  # same note twice -> one row
+            led.record_note(session_id=sid, subject="recon", text="telnet open")
+        led.record_note(session_id="o1", subject="x", text="elsewhere")
+
+        loot = led.loot_for_engagement("acme")
+        assert sorted(item.label for item in loot) == ["id_rsa", "ntlm"]
+        notes = led.notes_for_engagement("acme")
+        assert [n.text for n in notes] == ["telnet open"]
+
+
 def test_recording_a_finding_marks_its_refs_exercised(tmp_path: Path) -> None:
     """A finding's framework refs auto-record methodology coverage (audit E7)."""
     with open_ledger(tmp_path / "l.db") as led:

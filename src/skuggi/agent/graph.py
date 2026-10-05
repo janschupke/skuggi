@@ -48,6 +48,8 @@ from skuggi.agent.protocol import (
     CriticResponse,
     EngagementBrief,
     FindingBrief,
+    LootBrief,
+    NoteBrief,
     PlannerResponse,
     RequestContext,
     WorkerResponse,
@@ -225,6 +227,49 @@ def _credential_briefs(deps: GraphDeps) -> tuple[CredentialBrief, ...]:
             secret_ref=r.secret_ref,
             validated=bool(r.validated),
         )
+        for r in rows[-deps.findings_limit :]
+    )
+
+
+def _loot_briefs(deps: GraphDeps, clean: Callable[[str], str]) -> tuple[LootBrief, ...]:
+    """Captured loot for a request -- its nature, never a raw secret.
+
+    Engagement-scoped like findings. ``label`` is redacted at storage; it is cleaned
+    again here as the egress net (idempotent), and ``secret_ref`` is a vault
+    placeholder, so the brief is safe to show. Capped like findings.
+    """
+    if deps.ledger is None:
+        return ()
+    if deps.engagement is not None:
+        rows = deps.ledger.loot_for_engagement(deps.engagement.name)
+    elif deps.session_id:
+        rows = deps.ledger.loot_for(deps.session_id)
+    else:
+        return ()
+    return tuple(
+        LootBrief(
+            id=r.id,
+            kind=r.kind,
+            host=r.host,
+            label=clean(r.label),
+            secret_ref=r.secret_ref,
+        )
+        for r in rows[-deps.findings_limit :]
+    )
+
+
+def _note_briefs(deps: GraphDeps, clean: Callable[[str], str]) -> tuple[NoteBrief, ...]:
+    """Notes for a request -- subject/asset + redacted body. Engagement-scoped."""
+    if deps.ledger is None:
+        return ()
+    if deps.engagement is not None:
+        rows = deps.ledger.notes_for_engagement(deps.engagement.name)
+    elif deps.session_id:
+        rows = deps.ledger.notes_for(deps.session_id)
+    else:
+        return ()
+    return tuple(
+        NoteBrief(id=r.id, subject=r.subject, host=r.host, text=clean(r.text))
         for r in rows[-deps.findings_limit :]
     )
 
@@ -431,6 +476,8 @@ def build_graph(
             retrieved_context=clean(state.get("context") or ""),
             findings=_finding_briefs(deps),
             credentials=_credential_briefs(deps),
+            loot=_loot_briefs(deps, clean),
+            notes=_note_briefs(deps, clean),
             recent_commands=tuple(commands),
             **extra,  # type: ignore[arg-type]
         )

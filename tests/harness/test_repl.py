@@ -377,18 +377,18 @@ def test_add_and_list_with_engagement(
     )
     wire_offline_core(app.core)
     try:
-        app.dispatch("/add note found a subdomain")
-        app.dispatch("/add loot token abc123")
+        app.dispatch("/add note recon found a subdomain")
+        app.dispatch("/add loot token web01 abc123")
         app.dispatch("/add finding medium open redirect on /go")
         app.dispatch("/show notes")
         app.dispatch("/show loot")
         app.dispatch("/show findings")
         out = _out(buffer)
-        assert "noted" in out
+        assert "note recorded" in out
         assert "loot recorded" in out
         assert "recorded" in out
         assert "found a subdomain" in out
-        assert "token abc123" in out
+        assert "abc123" in out
         assert "open redirect on /go" in out
     finally:
         app.close()

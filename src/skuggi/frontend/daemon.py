@@ -649,18 +649,14 @@ class Daemon:
         yield from self._emit(presenters.usage(f"add <{options}>", self._surface()))
 
     def _notes(self, _arg: str) -> Iterator[str]:
-        text = self.core.journal.notes()
-        if not text.strip():
-            yield "(no notes yet)\n"
-            return
-        yield text if text.endswith("\n") else text + "\n"
+        yield from self._emit(
+            presenters_journal.present_notes(self.core.journal.note_items())
+        )
 
     def _loot(self, _arg: str) -> Iterator[str]:
-        text = self.core.journal.loot()
-        if not text.strip():
-            yield "(no loot yet)\n"
-            return
-        yield text if text.endswith("\n") else text + "\n"
+        yield from self._emit(
+            presenters_journal.present_loot(self.core.journal.loot_items())
+        )
 
     def _findings(self, arg: str) -> Iterator[str]:
         """Review a finding (approve/reject/rescore); listing is `show findings`."""

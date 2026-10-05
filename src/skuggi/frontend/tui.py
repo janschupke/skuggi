@@ -530,18 +530,10 @@ class Tui:
         self.console.print(doctor_table(filtered))
 
     def _show_notes(self, _rest: str) -> None:
-        text = self.core.journal.notes()
-        if not text.strip():
-            self.console.print("[dim](no notes yet)[/dim]")
-            return
-        self.console.print(Markdown(text))
+        self._emit(presenters_journal.present_notes(self.core.journal.note_items()))
 
     def _show_loot(self, _rest: str) -> None:
-        text = self.core.journal.loot()
-        if not text.strip():
-            self.console.print("[dim](no loot yet)[/dim]")
-            return
-        self.console.print(Markdown(text))
+        self._emit(presenters_journal.present_loot(self.core.journal.loot_items()))
 
     def _show_history(self, arg: str) -> None:
         self._emit(

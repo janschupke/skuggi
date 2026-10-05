@@ -45,6 +45,8 @@ if TYPE_CHECKING:
         CredentialRow,
         FindingRow,
         FootholdRow,
+        LootRow,
+        NoteRow,
     )
 
 
@@ -129,6 +131,35 @@ def present_credentials(rows: Sequence[CredentialRow]) -> Styled:
         mark = "✓" if c.validated else "·"
         held = "secret held" if c.secret_ref else "no secret"
         lines.append(render.info(f"{mark} {who}{svc} — {held} ({c.source or '?'})"))
+    return lines
+
+
+def present_loot(rows: Sequence[LootRow]) -> Styled:
+    """Render ``show loot``: one line per structured loot item, secrets masked.
+
+    ``label`` is stored already redacted and ``secret_ref`` is a vault placeholder,
+    so this listing never shows a plaintext secret.
+    """
+    if not rows:
+        return presenters.empty("loot")
+    lines: Styled = []
+    for item in rows:
+        kind = f"[{item.kind}] " if item.kind else ""
+        where = f"{item.host}: " if item.host else ""
+        secret = " (secret held)" if item.secret_ref else ""
+        lines.append(render.info(f"{kind}{where}{item.label}{secret}"))
+    return lines
+
+
+def present_notes(rows: Sequence[NoteRow]) -> Styled:
+    """Render ``show notes``: one line per structured note (body already redacted)."""
+    if not rows:
+        return presenters.empty("notes")
+    lines: Styled = []
+    for n in rows:
+        subject = f"[{n.subject}] " if n.subject else ""
+        where = f"({n.host}) " if n.host else ""
+        lines.append(render.info(f"{subject}{where}{n.text}"))
     return lines
 
 
@@ -230,10 +261,13 @@ def present_add(outcome: AddOutcome, surface: verbs.Surface) -> Styled:  # noqa:
             return [
                 render.danger(f"unknown severity {value!r}; choose one of: {choices}")
             ]
-        case AddedNote(path):
-            return [render.success(f"noted {path}")]
-        case AddedLoot(path):
-            return [render.success(f"loot recorded {path}")]
+        case AddedNote(note_id, subject):
+            label = f" ({subject})" if subject else ""
+            return [render.success(f"note recorded [{note_id}]{label}")]
+        case AddedLoot(loot_id, kind, host):
+            kindtxt = f" {kind}" if kind else ""
+            where = f" on {host}" if host else ""
+            return [render.success(f"loot recorded [{loot_id}]{kindtxt}{where}")]
         case AddedCredential(host, username):
             who = f"{username}@{host}" if host else username
             return [render.success(f"credential stored for {who} (secret vaulted)")]

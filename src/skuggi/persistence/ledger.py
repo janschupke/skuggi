@@ -44,6 +44,7 @@ from skuggi.persistence.custody import (
     CustodyVerdict,
     load_or_create_custody_key,
 )
+from skuggi.persistence.ledger_ddl import _INDEXES, _SCHEMA
 from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
     _COMMAND_COLS,
@@ -54,9 +55,7 @@ from skuggi.persistence.ledger_schema import (
     _FINDING_EVIDENCE_COLS,
     _FINDING_MIGRATIONS,
     _FINDING_REF_COLS,
-    _INDEXES,
     _PROCEDURE_MIGRATIONS,
-    _SCHEMA,
     _SESSION_COLS,
     _TM_VERSION_COLS,
     AuditKind,
@@ -76,6 +75,8 @@ from skuggi.persistence.ledger_schema import (
     FindingRow,
     FindingStatus,
     FootholdRow,
+    LootRow,
+    NoteRow,
     ProcedureRow,
     SessionRow,
     ThreadSummary,
@@ -109,6 +110,8 @@ __all__ = [
     "FindingStatus",
     "FootholdRow",
     "Ledger",
+    "LootRow",
+    "NoteRow",
     "ProcedureRow",
     "SessionRow",
     "ThreadSummary",

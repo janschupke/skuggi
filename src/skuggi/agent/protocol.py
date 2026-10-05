@@ -187,6 +187,34 @@ class CredentialBrief(BaseModel):
     validated: bool = False
 
 
+class LootBrief(BaseModel):
+    """A captured loot item's nature, for a request -- never a raw secret.
+
+    ``label`` is already redacted (any secret appears as a ``«KIND:id»``
+    placeholder); ``secret_ref`` is a vault placeholder when the item is a bare
+    secret. The plaintext value is not a field here.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    kind: str = ""
+    host: str = ""
+    label: str = ""
+    secret_ref: str = ""
+
+
+class NoteBrief(BaseModel):
+    """An operator/agent note's nature, for a request -- body already redacted."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    subject: str = ""
+    host: str = ""
+    text: str = ""
+
+
 class RequestContext(BaseModel):
     """Everything a node's request carries, assembled by the harness.
 
@@ -215,6 +243,8 @@ class RequestContext(BaseModel):
     data_files: str = ""
     findings: tuple[FindingBrief, ...] = ()
     credentials: tuple[CredentialBrief, ...] = ()
+    loot: tuple[LootBrief, ...] = ()
+    notes: tuple[NoteBrief, ...] = ()
     recent_commands: tuple[CommandBrief, ...] = ()
     plan: tuple[str, ...] = ()  # planner output, for the worker
     prior_critique: str = ""  # critic output, for the planner's next pass
@@ -516,6 +546,25 @@ def _credentials_block(credentials: Sequence[CredentialBrief]) -> str:
     return "\n".join(lines)
 
 
+def _loot_block(loot: Sequence[LootBrief]) -> str:
+    lines = []
+    for item in loot:
+        kind = f"[{item.kind}] " if item.kind else ""
+        where = f"{item.host}: " if item.host else ""
+        secret = f" secret={item.secret_ref}" if item.secret_ref else ""
+        lines.append(f"[{item.id}] {kind}{where}{item.label}{secret}")
+    return "\n".join(lines)
+
+
+def _notes_block(notes: Sequence[NoteBrief]) -> str:
+    lines = []
+    for n in notes:
+        subject = f"[{n.subject}] " if n.subject else ""
+        where = f"({n.host}) " if n.host else ""
+        lines.append(f"[{n.id}] {subject}{where}{n.text}")
+    return "\n".join(lines)
+
+
 def _commands_block(commands: Sequence[CommandBrief]) -> str:
     lines = []
     for c in commands:
@@ -562,6 +611,8 @@ def render_request(ctx: RequestContext) -> str:
         labeled("Conversation so far", ctx.history),
         labeled("Prior findings", _findings_block(ctx.findings)),
         labeled("Captured credentials", _credentials_block(ctx.credentials)),
+        labeled("Captured loot", _loot_block(ctx.loot)),
+        labeled("Notes", _notes_block(ctx.notes)),
         labeled("Recent commands", _commands_block(ctx.recent_commands)),
         labeled("Data files", ctx.data_files),
         labeled("Retrieved context", ctx.retrieved_context),

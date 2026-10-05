@@ -169,28 +169,28 @@ def test_record_finding_and_journals(core: AgentCore) -> None:
     assert core.journal.record_finding("spicy", "nope") is None
     assert len(core.journal.findings()) == 1
 
-    # The notes journal is a workspace file, empty until written.
-    assert core.journal.notes() == ""
-    note_path = core.journal.add_note("port 8080 open")
-    assert note_path is not None
-    assert note_path.is_file()
-    assert "port 8080 open" in core.journal.notes()
+    # Notes are structured ledger records, empty until written.
+    assert core.journal.note_items() == []
+    assert core.journal.add_note(subject="recon", text="port 8080 open") is not None
+    assert [n.text for n in core.journal.note_items()] == ["port 8080 open"]
 
-    # The loot journal behaves the same way.
-    assert core.journal.loot() == ""
-    assert core.journal.add_loot("cred admin:hunter2") is not None
-    assert "hunter2" in core.journal.loot()
+    # Loot is structured too; a secret in the label is vaulted, not stored raw.
+    secret = "ghp_1234567890abcdefABCDEF1234567890abcd"
+    assert core.journal.add_loot(kind="token", host="web01", label=secret) is not None
+    item = core.journal.loot_items()[0]
+    assert (item.kind, item.host) == ("token", "web01")
+    assert secret not in item.label  # secret vaulted to a placeholder
 
 
 def test_journals_need_an_engagement_but_findings_do_not(tmp_path: Path) -> None:
     core = _build_core(tmp_path)
     try:
         assert core.workspace is None
-        # No workspace -> no notes/loot file to write.
-        assert core.journal.add_note("x") is None
-        assert core.journal.notes() == ""
-        assert core.journal.add_loot("y") is None
-        assert core.journal.loot() == ""
+        # No engagement -> nowhere to record a note/loot item.
+        assert core.journal.add_note(subject="s", text="x") is None
+        assert core.journal.note_items() == []
+        assert core.journal.add_loot(kind="k", host="h", label="y") is None
+        assert core.journal.loot_items() == []
         # Findings still record against the fallback ledger.
         assert core.journal.record_finding("low", "info leak") is not None
     finally:

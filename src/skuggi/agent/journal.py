@@ -1,11 +1,13 @@
 """The engagement record and its outputs (``core.journal``).
 
 A sub-component of :class:`~skuggi.agent.core.AgentCore` covering the operator's
-engagement record: ledger findings, the notes/loot journals, the client-facing
-Markdown/PDF report and the internal HTML dashboard. It reads the live ledger,
-workspace, engagement and registry off the core each call (the ledger is
-hot-swapped by ``adopt_engagement``), so nothing is cached. The notes/loot file
-I/O lives in :mod:`skuggi.engagement.journal`, imported here as ``journal_io``.
+engagement record: ledger findings, the structured notes/loot records, the
+client-facing Markdown/PDF report and the internal HTML dashboard. It reads the
+live ledger, workspace, engagement and registry off the core each call (the ledger
+is hot-swapped by ``adopt_engagement``), so nothing is cached. Notes and loot are
+structured, redacted ledger records (recalled into the agent's context by nature,
+never value); the dashboard still consumes them as journal text, rendered from the
+rows by ``notes_to_text``/``loot_to_text``.
 """
 
 from __future__ import annotations
@@ -14,15 +16,22 @@ from typing import TYPE_CHECKING, get_args
 
 from skuggi.agent.protocol import Severity
 from skuggi.common import logs
-from skuggi.engagement import journal as journal_io
 from skuggi.frameworks import cvss
 from skuggi.persistence import reports, visualize
+from skuggi.persistence.visualize_model import loot_to_text, notes_to_text
+from skuggi.security.redaction import redact
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from skuggi.agent.core import AgentCore
-    from skuggi.persistence.ledger import CredentialRow, FindingRow, FootholdRow
+    from skuggi.persistence.ledger import (
+        CredentialRow,
+        FindingRow,
+        FootholdRow,
+        LootRow,
+        NoteRow,
+    )
 
 
 class Journal:
@@ -120,35 +129,69 @@ class Journal:
         core.ledger.set_finding_status(finding_id, status, reason=reason)
         return core.ledger.finding(finding_id)
 
-    def add_note(self, text: str) -> Path | None:
-        """Append a timestamped note to the journal (``None`` with no engagement)."""
-        ws = self._core.workspace
-        if ws is None:
+    def add_note(
+        self, *, subject: str, text: str, host: str = "", source: str = "operator"
+    ) -> int | None:
+        """Record a structured note; the body is redacted before storage.
+
+        Returns the note id, or ``None`` with no engagement. Any secret in ``text``
+        is vaulted to a ``«KIND:id»`` placeholder first, so plaintext never reaches
+        the ledger or a recall brief.
+        """
+        core = self._core
+        if core.workspace is None:
             return None
-        journal_io.append_entry(ws.notes_file, text)
-        return ws.notes_file
+        body = redact(text, core.redaction_policy(), core.vault)
+        return core.ledger.record_note(
+            session_id=core.session_id,
+            subject=subject,
+            host=host,
+            text=body,
+            source=source,
+        )
+
+    def note_items(self) -> list[NoteRow]:
+        """The engagement's notes (every session), for show/dashboard/recall."""
+        core = self._core
+        if core.engagement is not None:
+            return core.ledger.notes_for_engagement(core.engagement.name)
+        return core.ledger.notes_for(core.session_id)
 
     def notes(self) -> str:
-        """The engagement's notes journal (``""`` when none / no engagement)."""
-        ws = self._core.workspace
-        if ws is None:
-            return ""
-        return journal_io.read_entries(ws.notes_file)
+        """The notes journal rendered as timestamped bullets (dashboard input)."""
+        return notes_to_text(self.note_items())
 
-    def add_loot(self, text: str) -> Path | None:
-        """Append a timestamped loot entry to the journal (``None`` if unscoped)."""
-        ws = self._core.workspace
-        if ws is None:
+    def add_loot(
+        self, *, kind: str, host: str, label: str, source: str = "operator"
+    ) -> int | None:
+        """Record a structured loot item; the label is redacted before storage.
+
+        Returns the loot id, or ``None`` with no engagement. A secret in ``label``
+        is vaulted to a placeholder first -- loot never lands as plaintext on disk,
+        in a brief or in the model's context.
+        """
+        core = self._core
+        if core.workspace is None:
             return None
-        journal_io.append_entry(ws.loot_file, text)
-        return ws.loot_file
+        clean_label = redact(label, core.redaction_policy(), core.vault)
+        return core.ledger.record_loot(
+            session_id=core.session_id,
+            kind=kind,
+            host=host,
+            label=clean_label,
+            source=source,
+        )
+
+    def loot_items(self) -> list[LootRow]:
+        """The engagement's loot (every session), for show/dashboard/recall."""
+        core = self._core
+        if core.engagement is not None:
+            return core.ledger.loot_for_engagement(core.engagement.name)
+        return core.ledger.loot_for(core.session_id)
 
     def loot(self) -> str:
-        """The engagement's loot journal (``""`` when none / no engagement)."""
-        ws = self._core.workspace
-        if ws is None:
-            return ""
-        return journal_io.read_entries(ws.loot_file)
+        """The loot journal rendered as timestamped bullets (dashboard input)."""
+        return loot_to_text(self.loot_items())
 
     def add_credential(  # noqa: PLR0913 -- a credential is several named fields
         self,

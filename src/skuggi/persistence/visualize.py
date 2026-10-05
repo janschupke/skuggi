@@ -28,7 +28,11 @@ from typing import TYPE_CHECKING, Any
 from skuggi.common.clock import file_stamp
 from skuggi.common.paths import ensure_dir, packaged_template
 from skuggi.common.text import slug
-from skuggi.persistence.visualize_model import collect_engagement
+from skuggi.persistence.visualize_model import (
+    collect_engagement,
+    loot_to_text,
+    notes_to_text,
+)
 
 if TYPE_CHECKING:
     from skuggi.engagement.engagement import EngagementConfig
@@ -130,7 +134,6 @@ def main(argv: list[str] | None = None) -> int:
         load_registry,
         load_scope,
     )
-    from skuggi.engagement.journal import read_entries
     from skuggi.engagement.runtime_env import EngagementEnv
     from skuggi.engagement.workspace import Workspace
     from skuggi.persistence.ledger import open_ledger
@@ -191,16 +194,17 @@ def main(argv: list[str] | None = None) -> int:
         for key in (settings.openai_api_key, settings.anthropic_api_key)
         if key is not None
     )
+    eng_name = scope.name if scope is not None else workspace.root.name
     with open_ledger(workspace.ledger_path) as ledger:
         path = write_visualization(
             ledger,
             out_dir,
             engagement=scope,
             registry=registry,
-            notes_text=read_entries(workspace.notes_file),
-            loot_text=read_entries(workspace.loot_file),
+            notes_text=notes_to_text(ledger.notes_for_engagement(eng_name)),
+            loot_text=loot_to_text(ledger.loot_for_engagement(eng_name)),
             log_text=log_text,
-            engagement_name=scope.name if scope is not None else workspace.root.name,
+            engagement_name=eng_name,
             current_target=current_target,
             secrets=secrets,
         )

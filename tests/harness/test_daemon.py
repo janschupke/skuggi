@@ -70,13 +70,16 @@ def test_slash_findings_lists_findings(daemon: Daemon) -> None:
 
 def test_slash_add_note_and_list(daemon: Daemon) -> None:
     assert "no notes yet" in chunks(daemon, {"op": "input", "text": "/show notes"})
-    assert "noted" in chunks(daemon, {"op": "input", "text": "/add note recon done"})
-    assert "recon done" in chunks(daemon, {"op": "input", "text": "/show notes"})
+    added = chunks(daemon, {"op": "input", "text": "/add note recon all ports open"})
+    assert "note recorded" in added
+    assert "all ports open" in chunks(daemon, {"op": "input", "text": "/show notes"})
 
 
 def test_slash_add_loot_and_list(daemon: Daemon) -> None:
     assert "no loot yet" in chunks(daemon, {"op": "input", "text": "/show loot"})
-    added = chunks(daemon, {"op": "input", "text": "/add loot cred admin:hunter2"})
+    added = chunks(
+        daemon, {"op": "input", "text": "/add loot cred web01 admin:hunter2"}
+    )
     assert "loot recorded" in added
     assert "hunter2" in chunks(daemon, {"op": "input", "text": "/show loot"})
 
