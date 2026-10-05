@@ -190,6 +190,11 @@ class EngagementConfig(BaseModel):
     allowed_hosts: frozenset[str] = frozenset()
     allowed_tools: frozenset[str] = frozenset()
     allowed_methods: frozenset[str] = frozenset()
+    # The authorized TCP/UDP ports. Empty = unset = every port allowed (the
+    # backward-compatible default); when non-empty the guard denies a command
+    # naming a port outside the set (via a tool's ``port_flags``). A command that
+    # names no port is unaffected -- it uses the tool's own defaults.
+    allowed_ports: frozenset[int] = frozenset()
     autonomous: bool = False
     # The highest risk tier autonomous mode runs without asking. A command above
     # it is recorded ``proposed`` for the operator to run by hand, even when

@@ -56,7 +56,7 @@ def _catalog(core: AgentCore) -> wizard.Catalog:
 # queue per widget kind, matching the field order in wizard._SECTIONS.
 def _wizard_prompter(name: str, notes: list[str] | None = None) -> Prompter:
     sink = notes if notes is not None else []
-    # ask: name, start, end, daily, networks, hosts
+    # ask: name, start, end, daily, networks, hosts, ports
     asks = iter(
         [
             name,
@@ -64,6 +64,7 @@ def _wizard_prompter(name: str, notes: list[str] | None = None) -> Prompter:
             "2999-12-31T23:59:59+00:00",
             "",
             "10.0.0.0/8",
+            "",
             "",
         ]
     )
@@ -291,6 +292,7 @@ def test_attach_wizard_creates_engagement_over_socket(tmp_path: Path) -> None:
             "",  # daily windows
             "10.0.0.0/8",  # target networks
             "",  # allowed hosts
+            "",  # allowed ports (blank = any)
             "*",  # allowed tools (wildcard = all)
             '["recon", "scan"]',  # allowed methods (multiselect -> JSON list)
             "phases",  # methodology (choose)

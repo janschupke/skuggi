@@ -85,13 +85,14 @@ class _Script:
 def _full_script(**over: object) -> _Script:
     """A complete, valid pass. Keyword overrides replace a widget queue."""
     base = _Script(
-        # name, start, end, daily, networks, hosts
+        # name, start, end, daily, networks, hosts, ports
         asks=[
             "acme",
             "2026-01-01T00:00:00+00:00",
             "2026-12-31T23:59:59+00:00",
             "",
             "192.0.2.0/24",
+            "",
             "",
         ],
         completes=["UTC", "nmap, curl"],  # timezone, allowed_tools
@@ -145,7 +146,7 @@ def test_star_allows_all_tools() -> None:
 
 def test_blank_time_bounds_leave_no_window() -> None:
     script = _full_script(
-        asks=["acme", "", "", "", "", ""]  # blank start/end + the rest
+        asks=["acme", "", "", "", "", "", ""]  # blank start/end + the rest
     )
     raw = collect_scope(script.prompter(), _CATALOG)
     assert raw is not None
@@ -178,7 +179,7 @@ def test_collect_scope_aborts_when_a_widget_returns_none() -> None:
 
 def test_collect_scope_edit_keeps_existing_on_blank() -> None:
     script = _Script(
-        asks=["", "", "", "", "", ""],
+        asks=["", "", "", "", "", "", ""],
         completes=["", ""],
         chooses=["phases", "cautious", "active"],  # methodology, stance, ceiling
         multis=[[], []],

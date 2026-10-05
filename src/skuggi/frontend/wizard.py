@@ -92,6 +92,19 @@ def _csv(answer: str) -> list[str]:
     return [item.strip() for item in answer.split(",") if item.strip()]
 
 
+def _ports(answer: str) -> list[int]:
+    """Parse ``80,443,8000-8010`` (nmap ``T:``/``U:`` prefixes tolerated) to ints."""
+    out: list[int] = []
+    for item in _csv(answer):
+        token = item.split(":", 1)[1] if ":" in item else item
+        lo, sep, hi = token.partition("-")
+        if sep and lo.isdigit() and hi.isdigit():
+            out.extend(range(int(lo), int(hi) + 1))
+        elif token.isdigit():
+            out.append(int(token))
+    return out
+
+
 def _windows(answer: str) -> list[dict[str, str]]:
     """Parse ``HH:MM-HH:MM`` clock ranges (comma-separated) into scope dicts."""
     windows: list[dict[str, str]] = []
@@ -177,6 +190,12 @@ _SECTIONS: tuple[Section, ...] = (
                 "allowed hosts (comma-separated; blank = any)",
                 "text",
                 transform=_csv,
+            ),
+            Field(
+                "allowed_ports",
+                "allowed ports (comma-sep, ranges ok; blank = any)",
+                "text",
+                transform=_ports,
             ),
         ),
     ),

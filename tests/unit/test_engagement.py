@@ -25,7 +25,13 @@ from skuggi.tooling.registry import ToolRegistry, ToolSpec
 
 REGISTRY = ToolRegistry(
     tools=(
-        ToolSpec(name="nmap", binary="nmap", method="scan", target_file_flags=("-iL",)),
+        ToolSpec(
+            name="nmap",
+            binary="nmap",
+            method="scan",
+            target_file_flags=("-iL",),
+            port_flags=("-p", "--ports"),
+        ),
         ToolSpec(name="curl", binary="curl", method="recon"),
         ToolSpec(name="nikto", binary="nikto", method="scan", target_flags=("-h",)),
         ToolSpec(

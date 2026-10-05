@@ -109,6 +109,12 @@ class ToolSpec(BaseModel):
     # (inputs/evidence/loot), so a wordlist reaches the tool by path while its
     # contents never enter the model's context. See ``engagement.check_command``.
     input_file_flags: tuple[str, ...] = ()
+    # Argv flags whose value is a *port* specification (nmap ``-p``/``--ports``,
+    # masscan ``-p``/``--ports``). When the engagement sets ``allowed_ports`` the
+    # guard parses these and denies a command naming a port outside the set, so a
+    # scan stays within the authorized ports. Unset here (or no ``allowed_ports``)
+    # leaves port scoping off. See ``engagement.check_command``.
+    port_flags: tuple[str, ...] = ()
     # A read-only forensic tool that takes the artifact under examination as a bare
     # *positional* argument (``strings sample.bin``, ``file sample.bin``). The guard
     # confines every positional path that resolves to an existing file to the case

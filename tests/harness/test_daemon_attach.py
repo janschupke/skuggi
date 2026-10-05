@@ -195,6 +195,7 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
             "",  # daily windows -> any
             "10.0.0.0/24",  # target networks
             "",  # hosts
+            "",  # allowed ports (blank = any)
             "nmap",  # allowed tools
             '["scan"]',  # allowed methods (multiselect -> JSON list)
             "ptes",  # methodology (choose)
@@ -210,7 +211,7 @@ def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
     asks = [f["ask"] for f in emitted if "ask" in f]
-    assert len(asks) == 8  # the text + (degraded) autocomplete fields
+    assert len(asks) == 9  # the text + (degraded) autocomplete fields
     assert any("multiselect" in f for f in emitted)  # the checklists
     assert any("choose" in f for f in emitted)  # methodology/stance/confirm
     assert daemon.core.engagement is not None

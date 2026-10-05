@@ -18,7 +18,11 @@
       },
       "output_flag": "-oA",
       "output_dir": "recon/nmap",
-      "output_kind": "prefix"
+      "output_kind": "prefix",
+      "port_flags": [
+        "-p",
+        "--ports"
+      ]
     },
     {
       "name": "nikto",

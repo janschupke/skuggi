@@ -76,6 +76,14 @@ class ParsedCommand:
     # bare tool name. Authorization is keyed on the basename, so a pathed argv[0]
     # would run an arbitrary binary under a registered tool's authority -- denied.
     binary_is_path: bool = False
+    # Ports the command names via the spec's ``port_flags``, expanded from the
+    # spec string (``80,443,1-1000``). Checked against ``allowed_ports`` only when
+    # the engagement sets it.
+    ports: tuple[int, ...] = ()
+    # A port spec that could not be parsed (an open-ended ``-`` range, a bad
+    # number) -- the guard denies it when ports are scoped, like an unresolvable
+    # target: a port it cannot enumerate is one it cannot prove in scope.
+    ports_unresolved: bool = False
     # A transport/pivot tool (ssh/proxychains/…). Denied when invoked directly --
     # its payload is unconstrainable; pivoting goes through a foothold (see guard
     # ``_authorization_verdict`` and ``engagement.pivot``).
@@ -281,7 +289,9 @@ def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
     target_flags = spec.target_flags if spec else ()
     target_file_flags = spec.target_file_flags if spec else ()
     input_file_flags = spec.input_file_flags if spec else ()
+    port_flags = spec.port_flags if spec else ()
     targets = _extract_targets(argv, target_flags)
+    ports, ports_unresolved = _parse_ports(_flag_values(argv, port_flags))
     return ParsedCommand(
         raw=raw,
         argv=argv,
@@ -294,7 +304,58 @@ def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
         input_files=_flag_values(argv, input_file_flags),
         binary_is_path=Path(argv[0]).name != argv[0],
         transport=spec.transport if spec else False,
+        ports=ports,
+        ports_unresolved=ports_unresolved,
     )
+
+
+def _parse_ports(values: tuple[str, ...]) -> tuple[tuple[int, ...], bool]:
+    """Expand port-spec flag values (``80,443,1-1000``, nmap ``T:22,U:53``).
+
+    Returns the concrete ports and whether any token defied parsing -- an
+    open-ended range (``1-``), a non-numeric or out-of-range value -- which the
+    guard treats as unresolved and denies when ports are scoped. A proto prefix
+    (``T:``/``U:``) is stripped; the port itself is what scope cares about.
+    """
+    found: list[int] = []
+    unresolved = False
+    for value in values:
+        for item in value.split(","):
+            token = item.strip()
+            if not token:
+                continue
+            if ":" in token:  # strip an nmap T:/U: protocol prefix
+                token = token.split(":", 1)[1]
+            lo, sep, hi = token.partition("-")
+            if sep:
+                expanded = _port_range(lo, hi)
+                if expanded is None:
+                    unresolved = True
+                else:
+                    found.extend(expanded)
+            else:
+                port = _as_port(token)
+                if port is None:
+                    unresolved = True
+                else:
+                    found.append(port)
+    return tuple(dict.fromkeys(found)), unresolved
+
+
+def _as_port(token: str) -> int | None:
+    """A token as a valid TCP/UDP port (0-65535), or None."""
+    if not token.isdigit():
+        return None
+    value = int(token)
+    return value if 0 <= value <= _MAX_PORT else None
+
+
+def _port_range(lo: str, hi: str) -> list[int] | None:
+    """Expand ``lo-hi`` to each port, or None for an open/invalid/backwards range."""
+    low, high = _as_port(lo), _as_port(hi)
+    if low is None or high is None or low > high:
+        return None
+    return list(range(low, high + 1))
 
 
 def _target_in_scope(target: str, engagement: EngagementConfig) -> bool:
@@ -462,6 +523,30 @@ def check_command(  # noqa: PLR0913 -- a guard reads over many engagement inputs
         _authorization_verdict(cmd, engagement)
         or _time_window_verdict(engagement, now)
         or _target_verdict(cmd, engagement)
+        or _port_verdict(cmd, engagement)
         or _datafiles_in_scope(cmd, workspace, cwd, wordlist_roots)
         or GuardVerdict(True, "in scope")
     )
+
+
+def _port_verdict(
+    cmd: ParsedCommand, engagement: EngagementConfig
+) -> GuardVerdict | None:
+    """Deny when the command names a port outside the authorized port scope.
+
+    Off unless the engagement sets ``allowed_ports`` (empty = every port). A port
+    spec that could not be parsed is denied like an unresolvable target; a command
+    that names no port passes (it uses the tool's own defaults).
+    """
+    if not engagement.allowed_ports:
+        return None
+    if cmd.ports_unresolved:
+        return GuardVerdict(
+            False, "port specification could not be resolved for scope checking"
+        )
+    out_of_scope = sorted(p for p in cmd.ports if p not in engagement.allowed_ports)
+    if out_of_scope:
+        return GuardVerdict(
+            False, f"port(s) {out_of_scope} outside the authorized port scope"
+        )
+    return None
