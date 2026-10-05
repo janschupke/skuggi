@@ -38,18 +38,17 @@ from skuggi.common.execution import CommandResult
 from skuggi.common.paths import ensure_parent
 from skuggi.common.sqlitedb import harden
 from skuggi.frameworks import cvss
+from skuggi.persistence.custody import CustodyLedgerMixin
 from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
     _COMMAND_COLS,
     _COMMAND_MIGRATIONS,
     _EVENT_COLS,
-    _EVIDENCE_COLS,
     _FINDING_COLS,
     _FINDING_EVIDENCE_COLS,
     _FINDING_MIGRATIONS,
     _FINDING_REF_COLS,
     _INDEXES,
-    _PROCEDURE_COLS,
     _SCHEMA,
     _SESSION_COLS,
     _TM_VERSION_COLS,
@@ -74,6 +73,7 @@ from skuggi.persistence.ledger_schema import (
     _insert_sql,
     _ref_display,
     _select_sql,
+    dedup_findings,
 )
 
 # The row types and status/kind vocabularies live in ``ledger_schema`` (a pure,
@@ -115,7 +115,7 @@ def _effective_score(
     return cvss.score(effective)
 
 
-class Ledger:
+class Ledger(CustodyLedgerMixin):
     """A thin, typed wrapper over the ledger database."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
@@ -361,86 +361,6 @@ class Ledger:
             )
             return int(cur.lastrowid or 0)
 
-    def record_evidence(  # noqa: PLR0913 -- keyword-only ledger columns
-        self,
-        *,
-        session_id: str,
-        source_path: str,
-        sha256: str,
-        size: int,
-        media_type: str = "",
-        note: str = "",
-    ) -> int:
-        """Record one acquired evidence artifact (forensics) and return its id.
-
-        The acquisition record for the chain of custody: ``sha256`` pins the
-        content at examination time so any later report can prove integrity.
-        """
-        with self._lock, self._conn:
-            cur = self._conn.execute(
-                _insert_sql("evidence", _EVIDENCE_COLS[1:]),
-                (session_id, source_path, sha256, size, media_type, now_iso(), note),
-            )
-            return int(cur.lastrowid or 0)
-
-    def record_procedure(  # noqa: PLR0913 -- keyword-only ledger columns
-        self,
-        *,
-        session_id: str,
-        step: int,
-        operation: str,
-        actor: str,
-        argv: str = "",
-        input_sha256: str = "",
-        output_digest: str = "",
-        note: str = "",
-    ) -> int:
-        """Record one examination step in the procedure log (forensics).
-
-        ``actor`` is ``in-process`` (a pure-Python analyzer) or ``tool`` (a gated
-        read-only external utility, whose exact ``argv`` is stored verbatim).
-        """
-        with self._lock, self._conn:
-            cur = self._conn.execute(
-                _insert_sql("procedure", _PROCEDURE_COLS[1:]),
-                (
-                    session_id,
-                    step,
-                    operation,
-                    actor,
-                    argv,
-                    input_sha256,
-                    output_digest,
-                    now_iso(),
-                    note,
-                ),
-            )
-            return int(cur.lastrowid or 0)
-
-    def evidence_for(self, session_id: str) -> list[EvidenceRow]:
-        """Every acquired evidence artifact in the session, in acquisition order."""
-        with self._lock:
-            rows = self._conn.execute(
-                _select_sql(
-                    "evidence", _EVIDENCE_COLS, "WHERE session_id = ? ORDER BY id"
-                ),
-                (session_id,),
-            ).fetchall()
-        return [EvidenceRow(*row) for row in rows]
-
-    def procedure_for(self, session_id: str) -> list[ProcedureRow]:
-        """Every examination step in the session, in step order (the custody log)."""
-        with self._lock:
-            rows = self._conn.execute(
-                _select_sql(
-                    "procedure",
-                    _PROCEDURE_COLS,
-                    "WHERE session_id = ? ORDER BY step, id",
-                ),
-                (session_id,),
-            ).fetchall()
-        return [ProcedureRow(*row) for row in rows]
-
     def latest_command_id(self, session_id: str) -> int | None:
         """The id of the most recently recorded command in this session."""
         with self._lock:
@@ -564,6 +484,26 @@ class Ledger:
         """Only the approved findings -- what a report is allowed to contain."""
         return self.findings_for(session_id, status=FindingStatus.APPROVED)
 
+    def approved_findings_for_engagement(
+        self, engagement_name: str
+    ) -> list[FindingRow]:
+        """Approved findings across all of an engagement's sessions, deduped (E5).
+
+        Joins every session's approved findings (started-at order) and drops
+        duplicates by (title, affected asset, cvss vector); see ``dedup_findings``.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                _select_sql(
+                    "findings f JOIN sessions s ON f.session_id = s.session_id",
+                    tuple(f"f.{c}" for c in _FINDING_COLS),
+                    "WHERE s.engagement_name = ? AND f.status = ?"
+                    " ORDER BY s.started_at, f.id",
+                ),
+                (engagement_name, FindingStatus.APPROVED),
+            ).fetchall()
+        return dedup_findings([FindingRow(*row) for row in rows])
+
     def set_finding_status(
         self, finding_id: int, status: str, *, reason: str = ""
     ) -> None:
@@ -593,7 +533,7 @@ class Ledger:
         return [FindingRefRow(*row) for row in rows]
 
     def finding_evidence_for(self, finding_id: int) -> list[FindingEvidenceRow]:
-        """The structured evidence items attached to a finding, in insert order (E4)."""
+        """A finding's structured evidence items, in insert order (audit E4)."""
         with self._lock:
             rows = self._conn.execute(
                 _select_sql(

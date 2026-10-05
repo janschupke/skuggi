@@ -443,3 +443,38 @@ def test_record_finding_rolls_back_on_a_mid_write_failure(
                 ],
             )
         assert led.findings_for("s1") == []  # fully rolled back, not half-written
+
+
+def test_approved_findings_for_engagement_aggregates_and_dedupes(
+    tmp_path: Path,
+) -> None:
+    """Approved findings join across an engagement's sessions, deduped (E5)."""
+    with open_ledger(tmp_path / "l.db") as led:
+        for sid in ("s1", "s2"):
+            led.start_session(sid, engagement_name="acme", mode="pentest")
+        # same issue proven in both sessions -> one row; a distinct one -> kept.
+        for sid in ("s1", "s2"):
+            dup = led.record_finding(
+                session_id=sid,
+                title="Weak TLS",
+                severity="medium",
+                description="d",
+                affected_host="web01",
+            )
+            led.set_finding_status(dup, "approved")
+        other = led.record_finding(
+            session_id="s2",
+            title="Open redirect",
+            severity="low",
+            description="d",
+            affected_host="web02",
+        )
+        led.set_finding_status(other, "approved")
+        # a draft in another session is excluded (not approved).
+        led.record_finding(
+            session_id="s1", title="Draft only", severity="low", description="d"
+        )
+
+        rolled = led.approved_findings_for_engagement("acme")
+        titles = sorted(f.title for f in rolled)
+        assert titles == ["Open redirect", "Weak TLS"]  # dup collapsed, draft excluded

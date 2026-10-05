@@ -501,3 +501,28 @@ def _ref_display(framework: str, ref_id: str) -> tuple[str, str]:
         number = ref_id.upper().removeprefix("CWE-")
         return ("", f"https://cwe.mitre.org/data/definitions/{number}.html")
     return ("", "")
+
+
+def dedup_findings(findings: list[FindingRow]) -> list[FindingRow]:
+    """Drop duplicate findings by (title, affected asset, cvss vector) -- audit E5.
+
+    The engagement-level report aggregates approved findings from every session; the
+    same issue proven twice should appear once. The first occurrence (callers pass
+    rows in started-at order) wins, so the original instance is kept.
+    """
+    seen: set[tuple[str, str, str, str, str, str]] = set()
+    deduped: list[FindingRow] = []
+    for f in findings:
+        key = (
+            f.title.strip().lower(),
+            f.affected_host,
+            f.affected_port,
+            f.affected_url,
+            f.affected_param,
+            f.cvss_vector or "",
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(f)
+    return deduped

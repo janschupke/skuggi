@@ -23,7 +23,9 @@ from skuggi.persistence.reports import (
     _image_data_uri,
     _local_stamp,
     append_changelog,
+    render_engagement_report,
     render_report,
+    write_engagement_report,
     write_report,
 )
 
@@ -352,3 +354,32 @@ def test_image_evidence_embeds_a_data_uri_when_confined(tmp_path: Path) -> None:
     assert _image_data_uri("../secret.png", media) == ""
     # a missing file yields nothing
     assert _image_data_uri("evidence/absent.png", media) == ""
+
+
+def test_engagement_report_aggregates_and_lists_affected_assets(tmp_path: Path) -> None:
+    """The engagement report rolls up sessions with an affected-asset table (E5)."""
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme ext", mode="pentest")
+        fid = led.record_finding(
+            session_id="s1",
+            title="SQLi",
+            severity="high",
+            description="union",
+            affected_host="web01",
+            affected_url="https://web01/item?id=1",
+        )
+        led.set_finding_status(fid, "approved")
+        out = write_engagement_report("acme ext", led, tmp_path / "reports")
+    assert isinstance(out, Path)
+    body = out.read_text(encoding="utf-8")
+    assert "# Engagement report: acme ext" in body
+    assert "## Executive summary" in body
+    assert "## Affected assets" in body
+    assert "web01" in body
+    assert "SQLi" in body
+
+
+def test_engagement_report_renders_without_findings() -> None:
+    body = render_engagement_report("empty eng", [])
+    assert "# Engagement report: empty eng" in body
+    assert "No approved findings." in body

@@ -227,8 +227,8 @@ VERBS: tuple[Verb, ...] = (
     ),
     Verb(
         "report",
-        "write an engagement report, or add a changelog note",
-        "[pdf | note <text>]",
+        "write a session or engagement report, or add a changelog note",
+        "[pdf | engagement [pdf] | note <text>]",
         group="review",
     ),
     Verb(

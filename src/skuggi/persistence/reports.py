@@ -279,6 +279,59 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
     )
 
 
+def _affected_table(findings: list[FindingRow]) -> str:
+    """A finding-to-affected-asset table for the engagement report (audit E5)."""
+    rows = [(f, _affected(f)) for f in findings]
+    rows = [(f, a) for f, a in rows if a]
+    if not rows:
+        return ""
+    lines = ["| ID | Severity | Finding | Affected |", "| --- | --- | --- | --- |"]
+    lines += [f"| {f.id} | {f.severity.upper()} | {f.title} | {a} |" for f, a in rows]
+    return "\n".join(lines)
+
+
+def render_engagement_report(  # noqa: PLR0913 -- a report is composed from its ledger parts
+    engagement_name: str,
+    findings: list[FindingRow],
+    *,
+    engagement: EngagementConfig | None = None,
+    generated_label: str | None = None,
+    refs: _Refs | None = None,
+    evidence: _Evidence | None = None,
+    media_root: Path | None = None,
+    session_count: int = 0,
+) -> str:
+    """Compose the cross-session, deduplicated engagement report (audit E5).
+
+    Unlike the per-session report, this aggregates every session's approved findings
+    (already deduped by the caller) into one client deliverable: an executive
+    severity summary, the authorized scope and limitations, an affected-asset table,
+    and the full per-finding detail. There is no single command log (the report
+    spans sessions), so it is omitted.
+    """
+    if generated_label is None:
+        generated_label = _local_stamp(now_iso(), engagement)
+    zone = engagement.timezone if engagement is not None else "UTC"
+    header = (
+        f"# Engagement report: {engagement_name}\n\n"
+        f"- Scope: all sessions ({session_count})\n"
+        f"- Generated: {generated_label}\n"
+        f"- Times shown in: {zone}\n"
+        f"- Approved findings (deduped): {len(findings)}"
+    )
+    scope = engagement.describe() if engagement is not None else ""
+    return join_blocks(
+        header,
+        labeled("Executive summary", _severity_summary(findings), heading=True),
+        labeled("Scope", f"```\n{scope}\n```" if scope else "", heading=True),
+        labeled("Methodology & limitations", _LIMITATIONS, heading=True),
+        labeled("Affected assets", _affected_table(findings), heading=True),
+        labeled(
+            "Findings", _findings(findings, refs, evidence, media_root), heading=True
+        ),
+    )
+
+
 def write_report(  # noqa: PLR0913 -- a report write is composed from its ledger parts
     session_id: str,
     ledger: Ledger,
@@ -350,6 +403,58 @@ def write_report(  # noqa: PLR0913 -- a report write is composed from its ledger
         body,
         base.with_suffix(".pdf"),
         title=session.engagement_name,
+        generated_label=f"Generated {generated_label}",
+    )
+    return md_path, pdf_path
+
+
+def write_engagement_report(  # noqa: PLR0913 -- a report write is composed from its ledger parts
+    engagement_name: str,
+    ledger: Ledger,
+    reports_dir: Path,
+    *,
+    engagement: EngagementConfig | None = None,
+    media_root: Path | None = None,
+    pdf: bool = False,
+) -> Path | tuple[Path, Path]:
+    """Write the cross-session, deduplicated engagement report (audit E5).
+
+    Aggregates every session's approved findings for ``engagement_name``, deduped by
+    the ledger, into one client deliverable under ``reports_dir``. Markdown is the
+    canonical artifact; ``pdf=True`` also paints a sibling PDF and returns both.
+    """
+    findings = ledger.approved_findings_for_engagement(engagement_name)
+    refs = {f.id: ledger.finding_refs_for(f.id) for f in findings}
+    evidence = {f.id: ledger.finding_evidence_for(f.id) for f in findings}
+    session_count = sum(
+        1 for s in ledger.sessions() if s.engagement_name == engagement_name
+    )
+    reports_dir = ensure_dir(reports_dir)
+    generated_label = _local_stamp(now_iso(), engagement)
+    body = render_engagement_report(
+        engagement_name,
+        findings,
+        engagement=engagement,
+        generated_label=generated_label,
+        refs=refs,
+        evidence=evidence,
+        media_root=media_root,
+        session_count=session_count,
+    )
+    base = reports_dir / f"{slug(engagement_name)}-engagement-{file_stamp()}"
+    md_path = base.with_suffix(".md")
+    if md_path.exists():  # a second report in the same clock second -- keep both
+        base = reports_dir / f"{slug(engagement_name)}-engagement-{file_stamp()}-b"
+        md_path = base.with_suffix(".md")
+    md_path.write_text(body, encoding="utf-8")
+    if not pdf:
+        return md_path
+    from skuggi.persistence import pdf as pdf_mod
+
+    pdf_path = pdf_mod.markdown_to_pdf(
+        body,
+        base.with_suffix(".pdf"),
+        title=engagement_name,
         generated_label=f"Generated {generated_label}",
     )
     return md_path, pdf_path

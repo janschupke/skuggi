@@ -167,6 +167,24 @@ class Journal:
             pdf=pdf,
         )
 
+    def write_engagement_report(self, *, pdf: bool = False) -> Path | tuple[Path, Path]:
+        """Write the cross-session engagement report; return its path(s) (E5).
+
+        Aggregates every session's approved findings for the loaded engagement into
+        one deduplicated client deliverable.
+        """
+        core = self._core
+        ws = core.workspace
+        name = core.engagement.name if core.engagement else core.session_id
+        return reports.write_engagement_report(
+            name,
+            core.ledger,
+            core.reports_dir,
+            engagement=core.engagement,
+            media_root=ws.root if ws is not None else None,
+            pdf=pdf,
+        )
+
     def add_report_note(self, text: str) -> Path:
         """Append a timestamped note to the report changelog; return its path."""
         return reports.append_changelog(self._core.reports_dir, text)

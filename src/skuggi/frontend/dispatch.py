@@ -501,12 +501,19 @@ def _reconcile_row(core: AgentCore, status: reconcile.FileStatus) -> ReconcileRo
 
 
 def run_report(core: AgentCore, arg: str) -> ReportOutcome:
-    """Add a changelog note, or write a report (``report [note <text> | pdf]``)."""
+    """Add a note, or write a session/engagement report.
+
+    ``report [pdf | engagement [pdf] | note <text>]``.
+    """
     first, _, rest = arg.strip().partition(" ")
     if first.lower() == "note":
         if not rest.strip():
             return ReportNoteUsage()
         return ReportNoteAdded(core.journal.add_report_note(rest))
+    if first.lower() == "engagement":
+        want_pdf = rest.strip().lower() == "pdf"
+        result = core.journal.write_engagement_report(pdf=want_pdf)
+        return ReportWritten(tuple(reports.report_written_lines(result)))
     result = core.journal.write_report(pdf=first.lower() == "pdf")
     return ReportWritten(tuple(reports.report_written_lines(result)))
 
