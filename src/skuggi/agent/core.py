@@ -45,6 +45,7 @@ from skuggi.config.config import (
     Settings,
 )
 from skuggi.engagement.case import CaseConfig, build_case, has_case
+from skuggi.engagement.egress import EgressPolicy
 from skuggi.engagement.engagement import (
     EngagementConfig,
     ThreatModel,
@@ -59,7 +60,7 @@ from skuggi.forensics.runner import ForensicsRunner
 from skuggi.install import configdiff, reconcile
 from skuggi.install import update as updater
 from skuggi.intel.collectors.base import CollectContext
-from skuggi.intel.collectors.base import default_fetch as osint_fetch
+from skuggi.intel.http import make_guarded_fetch
 from skuggi.osint.collectors import default_collectors
 from skuggi.osint.collectors.apify import make_apify_run
 from skuggi.osint.collectors.browser import default_driver_factory
@@ -417,8 +418,14 @@ class AgentCore:
         policy = self.redaction_policy()
         vault = self.vault
         secrets = self._collect_secrets()
+        # OSINT and research are public-source recon: every collector fetch (and
+        # every redirect it would follow) is cleared through a public-only egress
+        # policy, so a model-chosen or scraped URL cannot reach cloud metadata,
+        # loopback or an internal host. The scope-bound posture is for the
+        # engagement graph; recon stays public regardless of the loaded scope.
+        egress = EgressPolicy.public_recon()
         return CollectContext(
-            fetch=osint_fetch,
+            fetch=make_guarded_fetch(egress.allows_url),
             clean=lambda text: redact(text, policy, vault),
             secrets=secrets,
             driver_factory=default_driver_factory(),

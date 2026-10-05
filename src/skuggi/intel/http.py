@@ -139,3 +139,111 @@ def default_fetch(request: HttpRequest) -> str | None:
     if last_error is not None:
         log.info("intel fetch %s failed after retries: %s", request.url, last_error)
     return None
+
+
+# A fetch may be wrapped so every outbound URL -- and every redirect hop -- is
+# cleared by an egress policy before the connection is made (see
+# skuggi.engagement.egress). The guard follows redirects MANUALLY, re-checking
+# each ``Location`` so a 200-on-an-allowed-URL cannot be a 302 into cloud
+# metadata or an internal host.
+EgressCheck = Callable[[str], bool]
+_MAX_REDIRECTS = 5
+_REDIRECT_MIN = 300
+_REDIRECT_MAX = 400
+# Redirect codes that turn the follow-up request into a bodyless GET.
+_GET_REDIRECTS = frozenset({301, 302, 303})
+
+
+@dataclass(frozen=True, slots=True)
+class _Hop:
+    """One HTTP response, pre-redirect-resolution (the monkeypatch seam's shape)."""
+
+    status_code: int
+    text: str
+    location: str | None
+
+
+def _send_once(
+    method: str,
+    url: str,
+    params: Mapping[str, str],
+    headers: Mapping[str, str],
+    data: Mapping[str, str] | None,
+) -> _Hop | None:
+    """One non-redirecting HTTP request; None on any transport error.
+
+    The single real-I/O call in the guarded path, and the seam a test replaces
+    with canned hops so the suite never touches the network.
+    """
+    import httpx  # noqa: PLC0415 -- lazy; keep httpx off the import hot path
+
+    try:
+        resp = httpx.request(
+            method,
+            url,
+            params=dict(params),
+            headers=dict(headers),
+            data=dict(data) if data is not None else None,
+            timeout=_TIMEOUT_S,
+            follow_redirects=False,
+        )
+    except httpx.HTTPError as exc:
+        log.info("intel fetch %s failed: %s", url, exc)
+        return None
+    return _Hop(resp.status_code, resp.text, resp.headers.get("location"))
+
+
+def _attempt(
+    method: str,
+    url: str,
+    params: Mapping[str, str],
+    headers: Mapping[str, str],
+    data: Mapping[str, str] | None,
+) -> _Hop | None:
+    """``_send_once`` with linear-backoff retry on a transient status/error."""
+    hop: _Hop | None = None
+    for attempt in range(_RETRIES + 1):
+        hop = _send_once(method, url, params, headers, data)
+        if hop is not None and hop.status_code not in _RETRY_STATUS:
+            return hop
+        if attempt < _RETRIES:
+            time.sleep(_BACKOFF_S * (attempt + 1))
+    return hop
+
+
+def make_guarded_fetch(allowed: EgressCheck) -> Fetch:
+    """A ``Fetch`` that clears every URL and redirect hop through `allowed`.
+
+    A URL `allowed` refuses -- initially or after a redirect -- yields ``None``
+    (a blocked fetch degrades to an empty result, like any dead source), and the
+    egress policy logs why. Redirects are followed by hand so each hop is checked.
+    """
+
+    def _fetch(request: HttpRequest) -> str | None:
+        url = request.url
+        method = request.method
+        params: Mapping[str, str] = request.params
+        data = request.data
+        headers = {"User-Agent": _USER_AGENT, **dict(request.headers)}
+        for _hop in range(_MAX_REDIRECTS + 1):
+            if not allowed(url):
+                return None
+            resp = _attempt(method, url, params, headers, data)
+            if resp is None:
+                return None
+            if _REDIRECT_MIN <= resp.status_code < _REDIRECT_MAX and resp.location:
+                from urllib.parse import urljoin  # noqa: PLC0415 -- rare path
+
+                url = urljoin(url, resp.location)
+                if resp.status_code in _GET_REDIRECTS:
+                    method, params, data = "GET", {}, None
+                continue
+            if resp.status_code == 200:  # noqa: PLR2004 -- HTTP OK
+                return resp.text
+            level = log.warning if resp.status_code in _BLOCKED_STATUS else log.info
+            level("intel fetch %s returned HTTP %d", request.url, resp.status_code)
+            return None
+        log.info("intel fetch %s exceeded the redirect limit", request.url)
+        return None
+
+    return _fetch
