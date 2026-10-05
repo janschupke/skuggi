@@ -646,3 +646,42 @@ def test_custody_tables_reject_update_and_delete(tmp_path: Path) -> None:
             led._conn.execute("UPDATE evidence SET note = 'x'")
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             led._conn.execute("DELETE FROM evidence")
+
+
+def test_command_records_risk_tier_and_authority(tmp_path: Path) -> None:
+    """Audit completeness: a row persists the tier and the authority it ran under."""
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        cid = led.record_command(
+            session_id="s1",
+            thread_id="t1",
+            command="nmap 10.0.0.5",
+            binary="nmap",
+            method="scan",
+            status="executed",
+            risk_tier="active",
+            authority="autonomous",
+        )
+        row = led.command(cid)
+        assert row is not None
+        assert row.risk_tier == "active"
+        assert row.authority == "autonomous"
+
+
+def test_command_defaults_tier_and_authority_to_empty(tmp_path: Path) -> None:
+    """A blocked/proposed row (or a pre-migration one) reads back blank, not None."""
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        cid = led.record_command(
+            session_id="s1",
+            thread_id="t1",
+            command="sqlmap -u http://10.0.0.5",
+            binary="sqlmap",
+            method="exploit",
+            status="blocked",
+            reason="out of scope",
+        )
+        row = led.command(cid)
+        assert row is not None
+        assert row.risk_tier == ""
+        assert row.authority == ""

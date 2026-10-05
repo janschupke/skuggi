@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from langchain_core.messages import HumanMessage
@@ -22,7 +23,8 @@ from skuggi.agent.protocol import render_answer
 from skuggi.common.logs import get_logger
 from skuggi.common.timing import TurnTiming, collect_turn_timing
 from skuggi.config.configs import ConfigError
-from skuggi.engagement.engagement import parse_command
+from skuggi.engagement.engagement import ParsedCommand, check_command, parse_command
+from skuggi.engagement.risk import risk_tier
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -138,6 +140,7 @@ class TurnRunner:
             )
             return
         parsed = parse_command(raw, self._core.registry)
+        reason, tier = self._attest_passthrough(parsed)
         self._core.ledger.record_command(
             session_id=self._core.session_id,
             thread_id=self._core.thread_id,
@@ -145,7 +148,33 @@ class TurnRunner:
             binary=parsed.binary,
             method=parsed.method,
             status="passthrough",
+            reason=reason,
+            risk_tier=tier,
+            authority="passthrough",
         )
+
+    def _attest_passthrough(self, parsed: ParsedCommand) -> tuple[str, str]:
+        """Scope + risk attestation for an operator command (recorded, never blocked).
+
+        The operator's shell is deliberately unguarded, but the trail should still
+        say whether what they ran was in scope and how risky it was. Best-effort:
+        any failure (no engagement loaded, an unknown binary) degrades to an empty
+        note rather than disturbing the record of what actually ran.
+        """
+        engagement = self._core.engagement
+        if engagement is None:
+            return "", ""
+        try:
+            now = datetime.now(engagement.tzinfo())
+            verdict = check_command(parsed, engagement, now=now)
+            reason = (
+                "in scope" if verdict.allowed else f"out of scope: {verdict.reason}"
+            )
+            spec = self._core.registry.spec_for(parsed.binary)
+            return reason, risk_tier(spec, parsed.argv).name
+        except Exception:  # noqa: BLE001 -- attestation must never break recording
+            log.warning("passthrough attestation failed for %r", parsed.binary)
+            return "", ""
 
     # ----- the agent turn ----------------------------------------------------
 

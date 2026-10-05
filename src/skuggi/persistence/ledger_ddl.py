@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS commands (
     reason      TEXT NOT NULL DEFAULT '',
     started_at  TEXT NOT NULL,
     finished_at TEXT,
-    turn_event_id INTEGER            -- -> events(id): the prompt that drove it
+    turn_event_id INTEGER,           -- -> events(id): the prompt that drove it
+    risk_tier   TEXT NOT NULL DEFAULT '',  -- deterministic tier at decision time
+    authority   TEXT NOT NULL DEFAULT ''   -- autonomous | operator | passthrough
 );
 CREATE TABLE IF NOT EXISTS findings (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -18,7 +18,21 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from enum import StrEnum
 
-from skuggi.frameworks import registry
+from skuggi.frameworks import cvss, registry
+
+
+def effective_score(
+    vector: str | None, env_metrics: dict[str, str] | None
+) -> cvss.Score | None:
+    """Score ``vector`` with the threat-model env overlay applied (not baked in).
+
+    A pure CVSS helper with no ``Ledger``/connection dependency, so it lives here
+    beside the row types the ledger builds from a score rather than in ``ledger``.
+    """
+    if not vector:
+        return None
+    effective = cvss.merged(vector, env_metrics) if env_metrics else vector
+    return cvss.score(effective)
 
 
 class CommandStatus(StrEnum):
@@ -65,7 +79,11 @@ class AuditKind(StrEnum):
 # Columns added to `commands` after the initial release; each is applied to an
 # already-created table with ADD COLUMN when missing (a fresh DB gets them from
 # the schema above). Kept plain (no REFERENCES) so ADD COLUMN is always legal.
-_COMMAND_MIGRATIONS = (("turn_event_id", "INTEGER"),)
+_COMMAND_MIGRATIONS = (
+    ("turn_event_id", "INTEGER"),
+    ("risk_tier", "TEXT NOT NULL DEFAULT ''"),
+    ("authority", "TEXT NOT NULL DEFAULT ''"),
+)
 
 # Chain-of-custody columns added to an older case DB (audit E20/E21).
 _EVIDENCE_MIGRATIONS = (
@@ -134,6 +152,14 @@ class CommandRow:
     started_at: str
     finished_at: str | None
     turn_event_id: int | None
+    # Audit completeness: the deterministic risk tier the command was evaluated
+    # at, and who authorized it running -- ``autonomous`` (auto-ran under the
+    # ceiling), ``operator`` (operator-approved), ``passthrough`` (operator typed
+    # it in their own shell), or ``""`` for a blocked/proposed row that never ran.
+    # The trail can then answer "under what authority did this run" without
+    # re-deriving the tier.
+    risk_tier: str = ""
+    authority: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -85,6 +85,7 @@ from skuggi.persistence.ledger_schema import (
     _ref_display,
     _select_sql,
     dedup_findings,
+    effective_score,
 )
 
 # The row types and status/kind vocabularies live in ``ledger_schema`` (a pure,
@@ -123,16 +124,6 @@ __all__ = [
 
 # The column names interpolated below are code-defined dataclass field names
 # (never user input), so the S608 string-building warning does not apply.
-def _effective_score(
-    vector: str | None, env_metrics: dict[str, str] | None
-) -> cvss.Score | None:
-    """Score ``vector`` with the threat-model env overlay applied (not baked in)."""
-    if not vector:
-        return None
-    effective = cvss.merged(vector, env_metrics) if env_metrics else vector
-    return cvss.score(effective)
-
-
 class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
     """A thin, typed wrapper over the ledger database."""
 
@@ -191,6 +182,8 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
         reason: str = "",
         result: CommandResult | None = None,
         turn_event_id: int | None = None,
+        risk_tier: str = "",
+        authority: str = "",
     ) -> int:
         """Insert a command row (plus its timeline event) and return its id.
 
@@ -219,6 +212,8 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
                     started_at,
                     result.finished_at.isoformat() if result else None,
                     turn_event_id,
+                    risk_tier,
+                    authority,
                 ),
             )
             cid = int(cur.lastrowid or 0)
@@ -266,7 +261,7 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
         'operator'. Only an approved finding reaches a report.
         """
         base = cvss.score(cvss_vector) if cvss_vector else None
-        eff = _effective_score(cvss_vector, env_metrics)
+        eff = effective_score(cvss_vector, env_metrics)
         if severity is None:
             if eff is None:
                 msg = "record_finding needs either a severity or a cvss_vector"
@@ -660,7 +655,7 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
         row = self.finding(finding_id)
         if row is None or not row.cvss_vector:
             return False
-        eff = _effective_score(row.cvss_vector, env_metrics)
+        eff = effective_score(row.cvss_vector, env_metrics)
         assert eff is not None  # noqa: S101 -- guaranteed by the vector check above
         with self._lock, self._conn:
             self._conn.execute(

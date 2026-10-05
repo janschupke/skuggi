@@ -330,12 +330,16 @@ def _record_command(  # noqa: PLR0913 -- keyword-only ledger columns
     status: str,
     reason: str = "",
     result: execution.CommandResult | None = None,
+    risk_tier: str = "",
+    authority: str = "",
 ) -> int:
     """Insert one command row, tagged with this turn's session/thread/prompt ids.
 
     The shared tagging (``session_id``/``thread_id``/``turn_event_id``) lives here
     so the blocked, proposed and executed paths cannot drift on how a row is linked
-    back to the turn that drove it.
+    back to the turn that drove it. ``risk_tier``/``authority`` record the
+    deterministic tier the command was evaluated at and under whose authority it
+    ran, so the audit trail does not have to re-derive them.
     """
     return ledger.record_command(
         session_id=deps.session_id,
@@ -347,6 +351,8 @@ def _record_command(  # noqa: PLR0913 -- keyword-only ledger columns
         reason=reason,
         result=result,
         turn_event_id=deps.turn_id(),
+        risk_tier=risk_tier,
+        authority=authority,
     )
 
 
@@ -414,7 +420,9 @@ def _run_or_propose(
     ceiling = deps.engagement.autonomous_ceiling
     if not deps.engagement.autonomous or tier > ceiling:
         summary = _proposed_reason(deps.engagement.autonomous, tier, ceiling, route)
-        cid = _record_command(deps, ledger, parsed, command, status="proposed")
+        cid = _record_command(
+            deps, ledger, parsed, command, status="proposed", risk_tier=tier.name
+        )
         brief = CommandBrief(
             id=cid, status="proposed", command=command, summary=summary
         )
@@ -443,7 +451,14 @@ def _run_or_propose(
     )
     try:
         cid = _record_command(
-            deps, ledger, parsed, command, status="executed", result=result
+            deps,
+            ledger,
+            parsed,
+            command,
+            status="executed",
+            result=result,
+            risk_tier=tier.name,
+            authority="autonomous",
         )
     except Exception:
         # Evidence loss: the command ran but its result did not persist. Make it
