@@ -74,6 +74,17 @@ def show_status(core: AgentCore, _rest: str, surface: verbs.Surface) -> render.S
     )
 
 
+def show_integrity(
+    core: AgentCore, _rest: str, _surface: verbs.Surface
+) -> render.Styled:
+    """Re-walk the engagement timeline + custody hash chains and report the verdict."""
+    return presenters.present_integrity(
+        core.ledger.verify_timeline(core.session_id),
+        core.ledger.verify_custody(core.session_id),
+        keyed=core.ledger.custody_key is not None,
+    )
+
+
 def show_sessions(
     core: AgentCore, _rest: str, _surface: verbs.Surface
 ) -> render.Styled:
@@ -347,6 +358,7 @@ SHOW_ACTIONS: dict[str, Action] = {
     "model": show_model,
     "grants": show_grants,
     "status": show_status,
+    "integrity": show_integrity,
     "sessions": show_sessions,
     "threads": show_threads,
     "memory": show_memory,

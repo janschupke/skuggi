@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS commands (
     finished_at TEXT,
     turn_event_id INTEGER,           -- -> events(id): the prompt that drove it
     risk_tier   TEXT NOT NULL DEFAULT '',  -- deterministic tier at decision time
-    authority   TEXT NOT NULL DEFAULT ''   -- autonomous | operator | passthrough
+    authority   TEXT NOT NULL DEFAULT '',  -- autonomous | operator | passthrough
+    prev_hash   TEXT NOT NULL DEFAULT '',  -- tamper-evidence chain (integrity.py)
+    row_hmac    TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS findings (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +77,9 @@ CREATE TABLE IF NOT EXISTS findings (
     -- when this version != the engagement's current threat-model version.
     cvss_tm_version INTEGER,
     cvss_scored_at  TEXT,
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    prev_hash   TEXT NOT NULL DEFAULT '',  -- tamper-evidence chain (integrity.py)
+    row_hmac    TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS threat_model_versions (
     version    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,7 +167,9 @@ CREATE TABLE IF NOT EXISTS events (
     kind        TEXT NOT NULL,       -- prompt | response | command | finding
     ref_id      INTEGER,             -- -> commands(id) / findings(id) by kind
     text        TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    prev_hash   TEXT NOT NULL DEFAULT '',  -- tamper-evidence chain (integrity.py)
+    row_hmac    TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS audit (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -171,7 +177,9 @@ CREATE TABLE IF NOT EXISTS audit (
     kind        TEXT NOT NULL,       -- control | cli | review
     verb        TEXT NOT NULL DEFAULT '',
     detail      TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    prev_hash   TEXT NOT NULL DEFAULT '',  -- tamper-evidence chain (integrity.py)
+    row_hmac    TEXT NOT NULL DEFAULT ''
 );
 -- Forensics chain-of-custody. Only the forensics mode writes these (the `mode`
 -- column on `sessions` is the discriminator); an offensive engagement ledger just
@@ -222,6 +230,25 @@ CREATE TRIGGER IF NOT EXISTS procedure_no_update BEFORE UPDATE ON procedure
 BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS procedure_no_delete BEFORE DELETE ON procedure
 BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
+-- Engagement timeline is tamper-evident (audit E22): commands/events/audit are
+-- insert-only, so reject any UPDATE/DELETE. findings are DELETE-only-protected --
+-- their review lifecycle (set_finding_status/rescore_finding) needs in-place
+-- UPDATE, and the chain commits only to a finding's immutable substance, so those
+-- edits are legitimate and leave the chain intact.
+CREATE TRIGGER IF NOT EXISTS commands_no_update BEFORE UPDATE ON commands
+BEGIN SELECT RAISE(ABORT, 'command log is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS commands_no_delete BEFORE DELETE ON commands
+BEGIN SELECT RAISE(ABORT, 'command log is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events
+BEGIN SELECT RAISE(ABORT, 'event timeline is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events
+BEGIN SELECT RAISE(ABORT, 'event timeline is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit
+BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit
+BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS findings_no_delete BEFORE DELETE ON findings
+BEGIN SELECT RAISE(ABORT, 'findings are append-only (status changes in place)'); END;
 """
 
 # Indexes for the hot per-session reads (audit D5): without these the command,

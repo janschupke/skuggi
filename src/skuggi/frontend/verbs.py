@@ -121,6 +121,7 @@ VERBS: tuple[Verb, ...] = (
             Noun("case", "forensics case summary"),
             Noun("env", "runtime command vars (target/lhost/lport/wordlist)"),
             Noun("db", "session ledger stats"),
+            Noun("integrity", "verify the timeline + custody tamper-evidence chains"),
             Noun("latency", "last turn's latency breakdown"),
             Noun("sessions", "past sessions with activity counts"),
             Noun("tools", "recognized tools / host status", "[filter]"),

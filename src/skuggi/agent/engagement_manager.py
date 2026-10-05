@@ -64,8 +64,7 @@ class EngagementManager:
         self.env = self._load_env()
         self.registry = self._load_registry()
         self.commands = self._load_commands()
-        self._ledger_ctx = ledger_mod.open_ledger(self._ledger_path())
-        self.ledger = self._ledger_ctx.__enter__()
+        self._open_ledger()
         # The per-engagement secret vault (reversible redaction). Opened with the
         # ledger and torn down with it on a reload; None in agent-only mode.
         self._vault_ctx, self.vault = self._open_vault()
@@ -222,6 +221,23 @@ class EngagementManager:
         if self.workspace is not None:
             return self.workspace.ledger_path
         return self._core.settings.sqlite_path.parent / "ledger.db"
+
+    def _open_ledger(self) -> None:
+        """Open the engagement ledger and key its tamper-evidence chain.
+
+        With a workspace, the ledger's ``custody_key`` is provisioned from the
+        workspace's 0600 ``.custody.key`` sidecar, so commands/findings/events/audit
+        are hash-chained and ``verify_timeline`` can detect a later edit or deletion.
+        In agent-only mode (no workspace) the key stays ``None`` and chaining is
+        inert -- there is no engagement record to protect. One home for both the
+        initial open and the reload-on-``set engagement`` so they cannot drift.
+        """
+        self._ledger_ctx = ledger_mod.open_ledger(self._ledger_path())
+        self.ledger = self._ledger_ctx.__enter__()
+        if self.workspace is not None:
+            self.ledger.custody_key = ledger_mod.load_or_create_custody_key(
+                self.workspace.custody_key_path
+            )
 
     def _open_vault(
         self,
@@ -409,8 +425,7 @@ class EngagementManager:
         self.env = self._load_env()
 
         self._ledger_ctx.__exit__(None, None, None)
-        self._ledger_ctx = ledger_mod.open_ledger(self._ledger_path())
-        self.ledger = self._ledger_ctx.__enter__()
+        self._open_ledger()
         # Swap the vault to the new engagement's, mirroring the ledger reload.
         if self._vault_ctx is not None:
             self._vault_ctx.__exit__(None, None, None)

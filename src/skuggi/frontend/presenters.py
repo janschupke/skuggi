@@ -71,6 +71,7 @@ if TYPE_CHECKING:
 
     from skuggi.agent.protocol import CommandBrief
     from skuggi.agent.readiness import Readiness
+    from skuggi.persistence.custody import CustodyVerdict
     from skuggi.persistence.ledger import ThreadSummary
 
 # ``show history`` renders each message type under a short label; the default
@@ -233,6 +234,36 @@ def present_grants(active: tuple[str, ...]) -> Styled:
     return [render.heading("session grants:")] + [
         render.info(f"  {cap}") for cap in active
     ]
+
+
+def present_integrity(
+    timeline: CustodyVerdict, custody: CustodyVerdict, *, keyed: bool
+) -> Styled:
+    """Render ``show integrity``: the timeline + custody tamper-evidence verdicts."""
+    if not keyed:
+        return [
+            render.warning(
+                "integrity: not keyed (no engagement workspace — the timeline is "
+                "not tamper-evident here)"
+            )
+        ]
+    out: Styled = [render.heading("tamper-evidence (re-walked hash chains):")]
+    for label, verdict in (
+        ("timeline (commands/findings/events/audit)", timeline),
+        ("custody (evidence/procedure)", custody),
+    ):
+        if verdict.ok:
+            out.append(
+                render.success(f"  {label}: OK — {verdict.checked} row(s) verified")
+            )
+        else:
+            out.append(
+                render.danger(
+                    f"  {label}: BROKEN at {verdict.broken_at} "
+                    f"({verdict.checked} checked)"
+                )
+            )
+    return out
 
 
 def present_grants_revoked(count: int) -> Styled:

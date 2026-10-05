@@ -79,11 +79,21 @@ class AuditKind(StrEnum):
 # Columns added to `commands` after the initial release; each is applied to an
 # already-created table with ADD COLUMN when missing (a fresh DB gets them from
 # the schema above). Kept plain (no REFERENCES) so ADD COLUMN is always legal.
+# The tamper-evidence chain columns, added to each timeline table (audit E22).
+# Kept identical so the migration and the integrity mixin agree on the spelling.
+_CHAIN_MIGRATIONS = (
+    ("prev_hash", "TEXT NOT NULL DEFAULT ''"),
+    ("row_hmac", "TEXT NOT NULL DEFAULT ''"),
+)
+
 _COMMAND_MIGRATIONS = (
     ("turn_event_id", "INTEGER"),
     ("risk_tier", "TEXT NOT NULL DEFAULT ''"),
     ("authority", "TEXT NOT NULL DEFAULT ''"),
+    *_CHAIN_MIGRATIONS,
 )
+_EVENT_MIGRATIONS = _CHAIN_MIGRATIONS
+_AUDIT_MIGRATIONS = _CHAIN_MIGRATIONS
 
 # Chain-of-custody columns added to an older case DB (audit E20/E21).
 _EVIDENCE_MIGRATIONS = (
@@ -121,6 +131,7 @@ _FINDING_MIGRATIONS = (
     ("affected_port", "TEXT NOT NULL DEFAULT ''"),
     ("affected_url", "TEXT NOT NULL DEFAULT ''"),
     ("affected_param", "TEXT NOT NULL DEFAULT ''"),
+    *_CHAIN_MIGRATIONS,
 )
 
 
@@ -160,6 +171,11 @@ class CommandRow:
     # re-deriving the tier.
     risk_tier: str = ""
     authority: str = ""
+    # Tamper-evidence chain (engagement timeline): row_hmac = HMAC over this row's
+    # content linked to prev_hash (the prior row's hmac). Empty on an unkeyed
+    # ledger or a pre-key legacy row. See skuggi.persistence.integrity.
+    prev_hash: str = ""
+    row_hmac: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +223,11 @@ class FindingRow:
     affected_url: str
     affected_param: str
     created_at: str
+    # Tamper-evidence chain (see CommandRow) -- over the finding's IMMUTABLE
+    # substance only; the review/rescore fields are excluded so the lifecycle
+    # (set_finding_status/rescore_finding) does not break the chain.
+    prev_hash: str = ""
+    row_hmac: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +393,8 @@ class EventRow:
     ref_id: int | None
     text: str
     created_at: str
+    prev_hash: str = ""  # tamper-evidence chain (see CommandRow)
+    row_hmac: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,6 +407,8 @@ class AuditRow:
     verb: str
     detail: str
     created_at: str
+    prev_hash: str = ""  # tamper-evidence chain (see CommandRow)
+    row_hmac: str = ""
 
 
 @dataclass(frozen=True, slots=True)

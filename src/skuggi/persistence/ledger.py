@@ -44,12 +44,15 @@ from skuggi.persistence.custody import (
     CustodyVerdict,
     load_or_create_custody_key,
 )
+from skuggi.persistence.integrity import TimelineIntegrityMixin
 from skuggi.persistence.ledger_ddl import _INDEXES, _SCHEMA
 from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
+    _AUDIT_MIGRATIONS,
     _COMMAND_COLS,
     _COMMAND_MIGRATIONS,
     _EVENT_COLS,
+    _EVENT_MIGRATIONS,
     _EVIDENCE_MIGRATIONS,
     _FINDING_COLS,
     _FINDING_EVIDENCE_COLS,
@@ -87,6 +90,7 @@ from skuggi.persistence.ledger_schema import (
     dedup_findings,
     effective_score,
 )
+from skuggi.persistence.review import ReviewLedgerMixin
 
 # The row types and status/kind vocabularies live in ``ledger_schema`` (a pure,
 # connection-free module) but ``ledger`` stays their public home: re-export them so
@@ -124,7 +128,9 @@ __all__ = [
 
 # The column names interpolated below are code-defined dataclass field names
 # (never user input), so the S608 string-building warning does not apply.
-class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
+class Ledger(
+    ArtifactsLedgerMixin, CustodyLedgerMixin, TimelineIntegrityMixin, ReviewLedgerMixin
+):
     """A thin, typed wrapper over the ledger database."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
@@ -141,6 +147,8 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
             self._conn.executescript(_SCHEMA)
             self._migrate("commands", _COMMAND_MIGRATIONS)
             self._migrate("findings", _FINDING_MIGRATIONS)
+            self._migrate("events", _EVENT_MIGRATIONS)
+            self._migrate("audit", _AUDIT_MIGRATIONS)
             self._migrate("evidence", _EVIDENCE_MIGRATIONS)
             self._migrate("procedure", _PROCEDURE_MIGRATIONS)
             self._conn.executescript(_INDEXES)
@@ -195,26 +203,28 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
         command always appears on the ordered timeline.
         """
         started_at = result.started_at.isoformat() if result else now_iso()
+        content = (
+            session_id,
+            thread_id,
+            command,
+            binary,
+            method,
+            status,
+            result.exit_code if result else None,
+            result.stdout if result else "",
+            result.stderr if result else "",
+            reason,
+            started_at,
+            result.finished_at.isoformat() if result else None,
+            turn_event_id,
+            risk_tier,
+            authority,
+        )
         with self._lock, self._conn:
+            prev, row_hmac = self._timeline_chain("commands", session_id, content)
             cur = self._conn.execute(
                 _insert_sql("commands", _COMMAND_COLS[1:]),
-                (
-                    session_id,
-                    thread_id,
-                    command,
-                    binary,
-                    method,
-                    status,
-                    result.exit_code if result else None,
-                    result.stdout if result else "",
-                    result.stderr if result else "",
-                    reason,
-                    started_at,
-                    result.finished_at.isoformat() if result else None,
-                    turn_event_id,
-                    risk_tier,
-                    authority,
-                ),
+                (*content, prev, row_hmac),
             )
             cid = int(cur.lastrowid or 0)
             self._event_locked(
@@ -268,37 +278,39 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
                 raise ValueError(msg)
             severity = eff.severity
         created_at = now_iso()
+        content = (
+            session_id,
+            command_id,
+            title,
+            severity,
+            description,
+            evidence,
+            base.version if base else None,
+            base.vector if base else None,
+            base.base if base else None,
+            base.temporal if base else None,
+            eff.environmental if eff else None,
+            eff.overall if eff else None,
+            eff.severity if eff else None,
+            author,
+            FindingStatus.DRAFT,
+            "",
+            None,
+            tm_version if base else None,
+            created_at if base else None,
+            impact,
+            remediation,
+            affected_host,
+            affected_port,
+            affected_url,
+            affected_param,
+            created_at,
+        )
         with self._lock, self._conn:
+            prev, row_hmac = self._timeline_chain("findings", session_id, content)
             cur = self._conn.execute(
                 _insert_sql("findings", _FINDING_COLS[1:]),
-                (
-                    session_id,
-                    command_id,
-                    title,
-                    severity,
-                    description,
-                    evidence,
-                    base.version if base else None,
-                    base.vector if base else None,
-                    base.base if base else None,
-                    base.temporal if base else None,
-                    eff.environmental if eff else None,
-                    eff.overall if eff else None,
-                    eff.severity if eff else None,
-                    author,
-                    FindingStatus.DRAFT,
-                    "",
-                    None,
-                    tm_version if base else None,
-                    created_at if base else None,
-                    impact,
-                    remediation,
-                    affected_host,
-                    affected_port,
-                    affected_url,
-                    affected_param,
-                    created_at,
-                ),
+                (*content, prev, row_hmac),
             )
             fid = int(cur.lastrowid or 0)
             for ref in refs:
@@ -338,9 +350,11 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
         created_at: str | None = None,
     ) -> int:
         """Insert one timeline event. The caller holds the lock and commits."""
+        content = (session_id, thread_id, kind, ref_id, text, created_at or now_iso())
+        prev, row_hmac = self._timeline_chain("events", session_id, content)
         cur = self._conn.execute(
             _insert_sql("events", _EVENT_COLS[1:]),
-            (session_id, thread_id, kind, ref_id, text, created_at or now_iso()),
+            (*content, prev, row_hmac),
         )
         return int(cur.lastrowid or 0)
 
@@ -376,10 +390,12 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
         Separate from the engagement timeline: ``reports.render_report`` never
         reads this table, so nothing here reaches a client-facing report.
         """
+        content = (session_id, kind, verb, detail, now_iso())
         with self._lock, self._conn:
+            prev, row_hmac = self._timeline_chain("audit", session_id, content)
             cur = self._conn.execute(
                 _insert_sql("audit", _AUDIT_COLS[1:]),
-                (session_id, kind, verb, detail, now_iso()),
+                (*content, prev, row_hmac),
             )
             return int(cur.lastrowid or 0)
 
@@ -573,21 +589,6 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
             ).fetchall()
         return dedup_findings([FindingRow(*row) for row in rows])
 
-    def set_finding_status(
-        self, finding_id: int, status: str, *, reason: str = ""
-    ) -> None:
-        """Move a finding to ``status`` ('approved'|'rejected'|'draft'), stamping it.
-
-        A rejection carries its ``reason`` (shown to the operator and fed back to
-        the agent); approving clears any prior reason.
-        """
-        with self._lock, self._conn:
-            self._conn.execute(
-                "UPDATE findings SET status = ?, review_reason = ?, reviewed_at = ?"
-                " WHERE id = ?",
-                (status, reason, now_iso(), finding_id),
-            )
-
     def finding_refs_for(self, finding_id: int) -> list[FindingRefRow]:
         """The framework citations attached to a finding (primary first)."""
         with self._lock:
@@ -643,36 +644,6 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
                 )
             ).fetchall()
         return [ThreatModelVersionRow(*row) for row in rows]
-
-    def rescore_finding(
-        self, finding_id: int, env_metrics: dict[str, str], tm_version: int | None
-    ) -> bool:
-        """Recompute a finding's env/overall score from its stored base vector.
-
-        Deliberate and explicit (the operator runs it) -- a recorded score changes
-        only here. Returns False when the finding has no vector to rescore.
-        """
-        row = self.finding(finding_id)
-        if row is None or not row.cvss_vector:
-            return False
-        eff = effective_score(row.cvss_vector, env_metrics)
-        assert eff is not None  # noqa: S101 -- guaranteed by the vector check above
-        with self._lock, self._conn:
-            self._conn.execute(
-                "UPDATE findings SET cvss_environmental = ?, cvss_score = ?,"
-                " cvss_severity = ?, severity = ?, cvss_tm_version = ?,"
-                " cvss_scored_at = ? WHERE id = ?",
-                (
-                    eff.environmental,
-                    eff.overall,
-                    eff.severity,
-                    eff.severity,
-                    tm_version,
-                    now_iso(),
-                    finding_id,
-                ),
-            )
-        return True
 
 
 @contextmanager
