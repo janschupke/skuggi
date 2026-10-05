@@ -72,6 +72,10 @@ class ParsedCommand:
     # engagement workspace, so the file reaches the tool while its contents stay
     # out of the model's context.
     input_files: tuple[str, ...] = ()
+    # ``argv[0]`` carried a path (``/usr/bin/nmap``, ``./nmap``) rather than a
+    # bare tool name. Authorization is keyed on the basename, so a pathed argv[0]
+    # would run an arbitrary binary under a registered tool's authority -- denied.
+    binary_is_path: bool = False
 
 
 class GuardVerdict(NamedTuple):
@@ -248,6 +252,7 @@ def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
         unresolved=targets.unresolved,
         target_file=any(flag in argv for flag in target_file_flags),
         input_files=_flag_values(argv, input_file_flags),
+        binary_is_path=Path(argv[0]).name != argv[0],
     )
 
 
@@ -296,6 +301,10 @@ def _authorization_verdict(
     """Deny unless the command's tool and method are authorized (or ``*``)."""
     if not cmd.binary:
         return GuardVerdict(False, "empty or unparseable command")
+    if cmd.binary_is_path:
+        return GuardVerdict(
+            False, f"command must be a bare tool name, not a path: {cmd.argv[0]!r}"
+        )
     if cmd.method is None:
         return GuardVerdict(False, f"tool {cmd.binary!r} is not in the tool registry")
     # ``*`` in the allow-list authorizes every tool / method; otherwise the

@@ -247,8 +247,8 @@
       "scope_ref": "lab",
       "command": "/usr/bin/nmap -sV 192.0.2.10",
       "now": "2026-06-01T12:00:00+03:00",
-      "expect_allowed": true,
-      "expect_reason_contains": "in scope"
+      "expect_allowed": false,
+      "expect_reason_contains": "bare tool name"
     },
     {
       "id": "multi-window-gap",

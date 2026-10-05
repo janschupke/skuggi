@@ -562,3 +562,31 @@ def test_a_configured_wordlist_root_is_allowed(tmp_path: Path) -> None:
         wordlist_roots=roots,
     )
     assert verdict.allowed, verdict.reason
+
+
+def test_absolute_path_binary_is_denied() -> None:
+    """A pathed argv[0] would exec an arbitrary binary (audit C1)."""
+    verdict = check_command(
+        parse_command("/opt/evil/nmap 10.0.0.5", REGISTRY), _engagement(), now=NOW
+    )
+    assert not verdict.allowed
+    assert "bare tool name" in verdict.reason
+
+
+def test_relative_path_binary_is_denied() -> None:
+    verdict = check_command(
+        parse_command("./nmap 10.0.0.5", REGISTRY), _engagement(), now=NOW
+    )
+    assert not verdict.allowed
+
+
+def test_parent_relative_path_binary_is_denied() -> None:
+    verdict = check_command(
+        parse_command("../nmap 10.0.0.5", REGISTRY), _engagement(), now=NOW
+    )
+    assert not verdict.allowed
+
+
+def test_binary_is_path_flag_distinguishes_bare_from_pathed() -> None:
+    assert parse_command("nmap 10.0.0.5", REGISTRY).binary_is_path is False
+    assert parse_command("/usr/bin/nmap 10.0.0.5", REGISTRY).binary_is_path is True
