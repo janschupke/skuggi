@@ -2569,6 +2569,12 @@ wheels = [
 ]
 
 [[package]]
+name = "py-tlsh"
+version = "5.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/fb/a1aceafcf0c5196f1cb558319dca5231190f248f27fbec2e4033276db77f/py_tlsh-5.0.0.tar.gz", hash = "sha256:a21cb75eb49e9d9237c8c39d2fb310a5c976b3abc6c35c2e405e16c089abad1b", size = 49020, upload-time = "2026-05-08T04:31:47.377Z" }
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3080,6 +3086,7 @@ documents = [
 forensics = [
     { name = "cryptography" },
     { name = "pillow" },
+    { name = "py-tlsh" },
     { name = "pytesseract" },
 ]
 osint-apify = [
@@ -3129,6 +3136,7 @@ requires-dist = [
     { name = "pillow", marker = "extra == 'forensics'", specifier = ">=10" },
     { name = "playwright", marker = "extra == 'osint-browser'", specifier = ">=1.48" },
     { name = "prompt-toolkit", specifier = ">=3.0.53" },
+    { name = "py-tlsh", marker = "extra == 'forensics'", specifier = ">=4.5" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.15" },
     { name = "pygments", marker = "extra == 'pdf'", specifier = ">=2.17" },

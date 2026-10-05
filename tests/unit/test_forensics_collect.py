@@ -129,3 +129,31 @@ def test_report_integrity_section_flags_a_changed_evidence_file(tmp_path: Path) 
         evidence.write_bytes(b"tampered")
         dirty_block = _integrity_block(_deps(ws, ledger, examiner="Jan"), rows)
         assert "SHA-256 changed since acquisition" in dirty_block
+
+
+def test_a_raising_analyzer_is_isolated_as_a_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One analyzer raising degrades to a note; the file still collects (F0)."""
+
+    def boom(_path: Path) -> list[object]:
+        msg = "malformed input"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr("skuggi.forensics.collect.entropy.analyze", boom)
+    ws = Workspace.at(tmp_path / "case1")
+    ws.ensure_case()
+    (ws.evidence_dir / "blob.bin").write_bytes(b"\x00\x01ELFjunk\xff" * 10)
+    with open_ledger(ws.case_ledger_path) as ledger:
+        ledger.start_session("s1", engagement_name="case:c", mode="forensics")
+        [result] = collect_evidence(_deps(ws, ledger))
+        ops = {p.operation for p in ledger.procedure_for("s1")}
+        # entropy still ran as a recorded step (its failure became a note)...
+        assert "entropy" in ops
+        # ...the other analyzers' observations survived...
+        assert {"hash", "magic", "strings", "hexdump"} <= ops
+        # ...and the failure is a clearly-attributed note in the artifact.
+        assert any(
+            i.kind == "note" and "entropy analyzer failed" in i.value
+            for i in result.items
+        )

@@ -79,6 +79,11 @@ forensics = [
     "pillow>=10",
     "pytesseract>=0.3.10",
     "cryptography>=43",
+    # Fuzzy (similarity) hashing for the forensic battery. py-tlsh ships pure
+    # wheels (cp314 included), so --all-extras stays installable; ssdeep is NOT
+    # here -- its C extension needs the system libfuzzy and has no cp314 wheel, so
+    # the analyzer uses it only when an operator installed it out of band.
+    "py-tlsh>=4.5",
 ]
 # Browser-driven OSINT collectors (LinkedIn/ATS/social). Heavy -- Playwright
 # downloads a Chromium -- so it is opt-in; the collectors gate on availability and
@@ -378,4 +383,10 @@ ignore_missing_imports = true
 # the forensics.analyzers.ocr guard, so a strict run without the extra type-checks.
 [[tool.mypy.overrides]]
 module = ["pytesseract.*"]
+ignore_missing_imports = true
+
+# The forensics fuzzy-hash backends ship no type stubs. Imported lazily inside the
+# forensics.analyzers.fuzzyhash guards, so a strict run without them type-checks.
+[[tool.mypy.overrides]]
+module = ["tlsh.*", "ssdeep.*"]
 ignore_missing_imports = true
