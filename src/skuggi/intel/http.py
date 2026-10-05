@@ -15,11 +15,24 @@ coverage gap the verifier can see.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
+from skuggi.common.logs import get_logger
+
+log = get_logger(__name__)
+
 _TIMEOUT_S = 10.0
+# A plain, honest identifier so a source does not silently 403 an empty UA (many
+# public endpoints reject the default httpx agent), plus a small retry with linear
+# backoff for transient failures (timeouts, 429, 5xx).
+_USER_AGENT = "skuggi-intel/1.0 (+research; contact via operator)"
+_RETRIES = 2
+_BACKOFF_S = 0.5
+_RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+_BLOCKED_STATUS = frozenset({401, 403, 407, 429})
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,22 +89,47 @@ def default_fetch(request: HttpRequest) -> str | None:
 
     Lazy httpx import (kept off the module hot path) and best-effort: a network
     error, a non-200, or a timeout all yield ``None`` so a collector degrades to an
-    empty result. The one place real network I/O happens; tests inject a fake.
+    empty result. Sends an honest User-Agent (an empty one is widely rejected) and
+    retries a transient failure (timeout / 429 / 5xx) with linear backoff. A
+    blocked response (401/403/429) is logged distinctly from "no data", so a
+    Cloudflare/auth wall is diagnosable rather than silently indistinguishable from
+    an empty result. The one place real network I/O happens; tests inject a fake.
     """
     import httpx  # noqa: PLC0415 -- lazy; keep httpx off the import hot path
 
-    try:
-        resp = httpx.request(
-            request.method,
-            request.url,
-            params=dict(request.params),
-            headers=dict(request.headers),
-            data=dict(request.data) if request.data is not None else None,
-            timeout=_TIMEOUT_S,
-            follow_redirects=True,
-        )
-    except httpx.HTTPError:
-        return None
-    if resp.status_code != 200:  # noqa: PLR2004 -- any non-OK is just "no data"
-        return None
-    return resp.text
+    headers = {"User-Agent": _USER_AGENT, **dict(request.headers)}
+    last_error: Exception | None = None
+    for attempt in range(_RETRIES + 1):
+        try:
+            resp = httpx.request(
+                request.method,
+                request.url,
+                params=dict(request.params),
+                headers=headers,
+                data=dict(request.data) if request.data is not None else None,
+                timeout=_TIMEOUT_S,
+                follow_redirects=True,
+            )
+        except httpx.HTTPError as exc:
+            last_error = exc
+        else:
+            if resp.status_code == 200:  # noqa: PLR2004 -- HTTP OK
+                return resp.text
+            if resp.status_code in _RETRY_STATUS and attempt < _RETRIES:
+                time.sleep(_BACKOFF_S * (attempt + 1))
+                continue
+            level = log.warning if resp.status_code in _BLOCKED_STATUS else log.info
+            level(
+                "intel fetch %s returned HTTP %d (%s)",
+                request.url,
+                resp.status_code,
+                "blocked/rate-limited"
+                if resp.status_code in _BLOCKED_STATUS
+                else "no data",
+            )
+            return None
+        if attempt < _RETRIES:
+            time.sleep(_BACKOFF_S * (attempt + 1))
+    if last_error is not None:
+        log.info("intel fetch %s failed after retries: %s", request.url, last_error)
+    return None

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -65,3 +66,27 @@ def test_collect_with_no_evidence_is_empty(tmp_path: Path) -> None:
 
 def test_collect_without_a_workspace_is_empty() -> None:
     assert collect_evidence(ForensicsDeps()) == []
+
+
+def test_vision_is_a_speculative_observation_not_a_custody_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AI-vision stays out of the custody log but still informs the report (E22)."""
+    pil = pytest.importorskip("PIL.Image")
+
+    monkeypatch.setattr("skuggi.agent.vision.vision_available", lambda _p: True)
+    monkeypatch.setattr(
+        "skuggi.agent.vision.describe_image",
+        lambda *_a, **_k: SimpleNamespace(
+            observations=[SimpleNamespace(text="a login screen", speculative=True)]
+        ),
+    )
+    ws = Workspace.at(tmp_path / "case1")
+    ws.ensure_case()
+    pil.new("RGB", (8, 8), "white").save(ws.evidence_dir / "shot.png")
+    with open_ledger(ws.case_ledger_path) as ledger:
+        ledger.start_session("s1", engagement_name="case:c", mode="forensics")
+        [result] = collect_evidence(_deps(ws, ledger, vision=True, provider="openai"))
+        ops = {p.operation for p in ledger.procedure_for("s1")}
+        assert "vision" not in ops  # never a custody row
+        assert any(i.kind == "vision" for i in result.items)  # but kept for the report

@@ -119,6 +119,20 @@ def collect_evidence(deps: ForensicsDeps) -> list[IntelResult]:
         )
         items: list[IntelItem] = []
         for op, actor, observations in _battery(path, media_type, deps):
+            items.extend(
+                IntelItem(
+                    kind=o.kind,
+                    value=o.value,
+                    attributes={**o.attributes, "evidence": eid, "operation": op},
+                )
+                for o in observations
+            )
+            # A non-deterministic AI-vision description is NOT reproducible, so it
+            # never enters the chain-of-custody procedure log (its output_digest
+            # could not be re-derived); it stays only as a clearly-attributed,
+            # speculative observation for the report (audit E22).
+            if actor == "vision":
+                continue
             step += 1
             digest = hashlib.sha256(
                 "\n".join(o.value for o in observations).encode("utf-8")
@@ -131,14 +145,6 @@ def collect_evidence(deps: ForensicsDeps) -> list[IntelResult]:
                 input_sha256=sha,
                 output_digest=digest,
                 note=eid,
-            )
-            items.extend(
-                IntelItem(
-                    kind=o.kind,
-                    value=o.value,
-                    attributes={**o.attributes, "evidence": eid, "operation": op},
-                )
-                for o in observations
             )
         result = IntelResult(
             task_id=eid,

@@ -360,13 +360,14 @@
       }
     },
     {
-      "name": "bloodhound",
-      "binary": "bloodhound",
+      "name": "bloodhound-python",
+      "binary": "bloodhound-python",
       "method": "enumerate",
-      "requires_target": false,
+      "requires_target": true,
+      "target_flags": ["-d"],
       "install": {
-        "brew": "brew install --cask bloodhound",
-        "apt": "apt-get install -y bloodhound"
+        "pip": "pip install bloodhound",
+        "apt": "apt-get install -y bloodhound.py"
       }
     },
     {
@@ -482,6 +483,66 @@
       "install": {
         "brew": "brew install binwalk",
         "apt": "apt-get install -y binwalk"
+      }
+    },
+    {
+      "name": "nuclei",
+      "binary": "nuclei",
+      "method": "scan",
+      "requires_target": true,
+      "target_flags": ["-u"],
+      "version_args": ["-version"],
+      "install": {
+        "brew": "brew install nuclei",
+        "apt": "apt-get install -y nuclei"
+      },
+      "output_flag": "-o",
+      "output_dir": "recon/nuclei",
+      "output_kind": "file"
+    },
+    {
+      "name": "httpx",
+      "binary": "httpx",
+      "method": "recon",
+      "requires_target": true,
+      "target_flags": ["-u"],
+      "install": {
+        "brew": "brew install httpx",
+        "apt": "apt-get install -y httpx-toolkit"
+      }
+    },
+    {
+      "name": "subfinder",
+      "binary": "subfinder",
+      "method": "recon",
+      "requires_target": true,
+      "target_flags": ["-d"],
+      "install": {
+        "brew": "brew install subfinder",
+        "apt": "apt-get install -y subfinder"
+      }
+    },
+    {
+      "name": "feroxbuster",
+      "binary": "feroxbuster",
+      "method": "enumerate",
+      "requires_target": true,
+      "target_flags": ["-u"],
+      "input_file_flags": ["-w"],
+      "install": {
+        "brew": "brew install feroxbuster",
+        "apt": "apt-get install -y feroxbuster"
+      }
+    },
+    {
+      "name": "smbmap",
+      "binary": "smbmap",
+      "method": "enumerate",
+      "requires_target": true,
+      "target_flags": ["-H"],
+      "install": {
+        "pip": "pip install smbmap",
+        "apt": "apt-get install -y smbmap"
       }
     }
   ]

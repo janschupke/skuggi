@@ -58,7 +58,7 @@ def test_invalid_registry_raises_config_error(tmp_path: Path) -> None:
 def test_missing_layout_returns_defaults(tmp_path: Path) -> None:
     layout = load_layout(tmp_path / "absent.json")
     assert layout.scope_file == "scope.json"
-    assert layout.recon_subdirs == ("nmap", "dirs", "domains", "web")
+    assert layout.recon_subdirs == ("nmap", "nuclei", "dirs", "domains", "web")
     assert layout.loot == "loot"
 
 
@@ -91,7 +91,13 @@ def test_example_registry_includes_the_new_tools() -> None:
     assert registry.method_for("cewl") == "recon"
     assert registry.method_for("burpsuite") == "scan"
     assert registry.method_for("wireshark") == "recon"
-    assert registry.method_for("bloodhound") == "enumerate"
+    assert registry.method_for("bloodhound-python") == "enumerate"
+    # Modern recon/AD additions (audit E10/E11).
+    assert registry.method_for("nuclei") == "scan"
+    assert registry.method_for("httpx") == "recon"
+    assert registry.method_for("subfinder") == "recon"
+    assert registry.method_for("feroxbuster") == "enumerate"
+    assert registry.method_for("smbmap") == "enumerate"
     # File/interface tools do not require a network target.
     john = registry.spec_for("john")
     hydra = registry.spec_for("hydra")

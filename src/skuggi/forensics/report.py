@@ -20,8 +20,6 @@ from skuggi.common.text import slug
 from skuggi.forensics.deps import ForensicsDeps
 from skuggi.forensics.schema import ForensicsVerdict
 from skuggi.persistence.ledger_schema import EvidenceRow, FindingRow, ProcedureRow
-from skuggi.security.policy import RedactionPolicy
-from skuggi.security.tripwire import scrub
 
 log = get_logger(__name__)
 
@@ -141,7 +139,6 @@ def write_case_report(
     body = render_report(
         deps.case_name or "case", evidence, procedure, findings, verdict
     )
-    policy = deps.redaction_policy or RedactionPolicy()
     name = f"{slug(deps.case_name or 'case')}-{file_stamp()}.md"
     # The human-facing report goes to the conventional reports/ dir; the per-file
     # JSON artifacts stay under output_root (forensics/).
@@ -150,8 +147,11 @@ def write_case_report(
     )
     path = confine_under(reports_dir, name)
     ensure_parent(path)
-    path.write_text(scrub(body, policy), encoding="utf-8")
-    _maybe_pdf(path, scrub(body, policy), deps.case_name or "case")
+    # The forensic case report preserves IOCs / hashes / strings VERBATIM:
+    # redacting them would destroy the evidence the report exists to present.
+    # It is written into the case directory, not an external deliverable (E22).
+    path.write_text(body, encoding="utf-8")
+    _maybe_pdf(path, body, deps.case_name or "case")
     return path
 
 

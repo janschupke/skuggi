@@ -77,7 +77,7 @@ class WorkspaceLayout(BaseModel):
     findings: str = "findings"
     notes: str = "notes"
     recon: str = "recon"
-    recon_subdirs: tuple[str, ...] = ("nmap", "dirs", "domains", "web")
+    recon_subdirs: tuple[str, ...] = ("nmap", "nuclei", "dirs", "domains", "web")
     # The agentic OSINT loop's structured output: one JSON artifact per
     # (subject, source) under ``osint/<subject>/<source>.json``. Separate from
     # ``recon`` (active network output) because OSINT is passive, subject-keyed,
