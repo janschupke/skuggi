@@ -13,7 +13,6 @@ DNS, Shodan, and the browser/Apify scrapers) are OSINT-specific and live here.
 
 from __future__ import annotations
 
-from skuggi.engagement.scope import OsintSource
 from skuggi.intel.collectors import (
     CollectContext,
     Collector,
@@ -22,6 +21,7 @@ from skuggi.intel.collectors import (
     GitHubCollector,
     HttpRequest,
     WebSearchCollector,
+    collector_for,
     default_fetch,
     empty_result,
 )
@@ -58,10 +58,3 @@ def default_collectors() -> tuple[Collector[OsintTask], ...]:
         ATSCollector(),
         SocialCollector(),
     )
-
-
-def collector_for(
-    source: OsintSource, collectors: tuple[Collector[OsintTask], ...]
-) -> Collector[OsintTask] | None:
-    """The collector handling ``source``, or None when none is registered."""
-    return next((c for c in collectors if c.source == source), None)

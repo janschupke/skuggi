@@ -25,6 +25,7 @@ from skuggi.common.logs import get_logger
 from skuggi.engagement.engagement import ParsedCommand, check_command, parse_command
 from skuggi.engagement.risk import risk_tier
 from skuggi.persistence.ledger import FindingRefInput, Ledger
+from skuggi.persistence.ledger_schema import FindingAuthor
 from skuggi.security.policy import RedactionPolicy
 from skuggi.security.redaction import redact
 
@@ -298,7 +299,7 @@ def record_finding_drafts(
                 env_metrics=env_metrics,
                 tm_version=tm_version,
                 refs=refs,
-                author="agent",
+                author=FindingAuthor.AGENT,
             )
         except Exception:
             # Evidence loss: a finding the agent produced did not persist. This is

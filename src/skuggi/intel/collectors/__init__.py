@@ -19,6 +19,7 @@ from skuggi.intel.collectors.base import (
     HttpRequest,
     IntelItem,
     IntelResult,
+    collector_for,
     default_fetch,
     empty_result,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "IntelItem",
     "IntelResult",
     "WebSearchCollector",
+    "collector_for",
     "default_fetch",
     "empty_result",
 ]

@@ -17,13 +17,14 @@ from skuggi.intel.collectors import (
     Collector,
     GitHubCollector,
     WebSearchCollector,
+    collector_for,
 )
 from skuggi.research.collectors.cve import CveCollector
 from skuggi.research.collectors.exploitdb import ExploitDbCollector
 from skuggi.research.collectors.metasploit import MetasploitCollector
 from skuggi.research.collectors.searchsploit import SearchsploitCollector
 from skuggi.research.collectors.versions import VersionsCollector
-from skuggi.research.schema import ResearchSource, ResearchTask
+from skuggi.research.schema import ResearchTask
 
 __all__ = ["collector_for", "default_research_collectors"]
 
@@ -39,10 +40,3 @@ def default_research_collectors() -> tuple[Collector[ResearchTask], ...]:
         SearchsploitCollector(),
         MetasploitCollector(),
     )
-
-
-def collector_for(
-    source: ResearchSource, collectors: tuple[Collector[ResearchTask], ...]
-) -> Collector[ResearchTask] | None:
-    """The collector handling ``source``, or None when none is registered."""
-    return next((c for c in collectors if c.source == source), None)

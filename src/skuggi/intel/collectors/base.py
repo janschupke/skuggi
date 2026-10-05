@@ -37,6 +37,7 @@ __all__ = [
     "HttpRequest",
     "IntelItem",
     "IntelResult",
+    "collector_for",
     "default_fetch",
     "empty_result",
 ]
@@ -65,3 +66,14 @@ def empty_result(task: CollectTask, note: str) -> IntelResult:
     return IntelResult(
         task_id=task.id, source=task.source, subject=task.subject, note=note
     )
+
+
+def collector_for[TaskT: CollectTask](
+    source: str, collectors: tuple[Collector[TaskT], ...]
+) -> Collector[TaskT] | None:
+    """The collector handling ``source``, or None when none is registered.
+
+    Generic over the task type so both loops share it: a narrower ``Literal``
+    source (``OsintSource``/``ResearchSource``) is a ``str`` and matches here.
+    """
+    return next((c for c in collectors if c.source == source), None)

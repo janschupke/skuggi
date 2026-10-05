@@ -1,11 +1,10 @@
-"""The OSINT loop's graph nodes (thin; the branchy logic lives in scheduler.py).
+"""The OSINT loop's graph nodes (thin bindings over the shared intel machinery).
 
-planner -> (collector loop) -> verifier -> re-plan or respond. The planner emits a
-todo DAG; the collector runs one ready task per superstep (scope-checked, then
-dispatched to a source handler, the result written as a confined artifact); the
-verifier judges coverage, promotes findings, and either re-plans the gaps or ends.
-Every model call goes through the shared ``requests.ask`` seam; findings reuse the
-executor's ``record_finding_drafts``.
+planner -> (collector loop) -> verifier -> re-plan or respond. The planner and
+collector bodies are the shared ``intel.nodes`` steps bound to OSINT's schema,
+guard and artifact sink; only the verifier is OSINT-specific -- it judges coverage
+against the enabled sources, promotes ``FindingDraft``s to the engagement ledger,
+and sets the re-plan gaps. Every model call goes through the shared ``ask`` seam.
 """
 
 from __future__ import annotations
@@ -13,18 +12,18 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 
 from skuggi.agent.executor import record_finding_drafts
-from skuggi.agent.requests import ask
 from skuggi.common.text import join_blocks, labeled
 from skuggi.engagement.osint_guard import check_osint_task
 from skuggi.engagement.scope import OsintScope
 from skuggi.intel.collectors.base import empty_result
+from skuggi.intel.nodes import ask_schema, collect_one_ready, extend_plan, results_block
+from skuggi.intel.schema import IntelResult
 from skuggi.osint import store
 from skuggi.osint.collectors import collector_for
 from skuggi.osint.deps import OsintDeps
-from skuggi.osint.scheduler import coverage_gaps, select_ready
-from skuggi.osint.schema import OsintPlan, OsintResult, OsintTask, OsintVerdict
+from skuggi.osint.scheduler import coverage_gaps
+from skuggi.osint.schema import OsintPlan, OsintTask, OsintVerdict
 from skuggi.osint.state import OsintState
-from skuggi.security.policy import RedactionPolicy
 
 
 def _scope_block(osint: OsintScope) -> str:
@@ -53,47 +52,36 @@ def _plan_request(state: OsintState, deps: OsintDeps) -> str:
     )
 
 
-def _results_block(results: list[OsintResult]) -> str:
-    return "\n".join(
-        f"[{r.source}] {r.subject}: {len(r.items)} items -- {r.note}" for r in results
-    )
-
-
 def _verify_request(state: OsintState, deps: OsintDeps, floor: list[str]) -> str:
     results = state.get("results", [])
     budget = deps.max_replans - state.get("replan_count", 0)
     return join_blocks(
         labeled("Request", state.get("request", "")),
         labeled("OSINT scope", _scope_block(deps.osint) if deps.osint else ""),
-        labeled("Collected results", _results_block(results)),
+        labeled("Collected results", results_block(results)),
         labeled("Sources with no data yet", ", ".join(floor)),
         labeled("Re-plan budget remaining", str(max(budget, 0))),
     )
 
 
-def _policy(deps: OsintDeps) -> RedactionPolicy:
-    return deps.redaction_policy or RedactionPolicy()
-
-
 def plan_node(state: OsintState, deps: OsintDeps) -> dict[str, object]:
     """Ask the planner for a todo DAG; extend the plan, capped and deduped."""
-    resp = ask(
-        deps.llm,
+    resp = ask_schema(
+        deps,
         deps.prompts.planner,
         _plan_request(state, deps),
         OsintPlan,
-        policy=_policy(deps),
-        native=deps.native_structured,
+        label="planner",
     )
-    existing = list(state.get("plan", []))
-    seen = {t.id for t in existing}
-    additions = [t for t in resp.tasks if t.id not in seen]
-    plan = (existing + additions)[: deps.max_tasks]
-    replan = state.get("replan_count", 0) + (1 if existing else 0)
-    return {"plan": plan, "replan_count": replan}
+    return extend_plan(
+        resp.tasks,
+        list(state.get("plan", [])),
+        max_tasks=deps.max_tasks,
+        replan_count=state.get("replan_count", 0),
+    )
 
 
-def _collect_one(task: OsintTask, deps: OsintDeps) -> OsintResult:
+def _collect_one(task: OsintTask, deps: OsintDeps) -> IntelResult:
     """Scope-check the task, dispatch to its collector, return a result (no raise)."""
     if deps.osint is None:
         return empty_result(task, "no OSINT scope loaded")
@@ -111,31 +99,31 @@ def _collect_one(task: OsintTask, deps: OsintDeps) -> OsintResult:
 
 def collect_node(state: OsintState, deps: OsintDeps) -> dict[str, object]:
     """Run one ready task, persist its artifact, and record it as completed."""
-    plan = list(state.get("plan", []))
-    completed = list(state.get("completed", []))
-    results = list(state.get("results", []))
-    ready = select_ready(plan, completed)
-    if not ready:
-        return {}
-    task = ready[0]
-    result = _collect_one(task, deps)
-    ctx = deps.collect_context
-    if deps.workspace is not None and ctx is not None:
-        store.write_result(deps.workspace, result, clean=ctx.clean)
-    return {"completed": [*completed, task.id], "results": [*results, result]}
+
+    def persist(result: IntelResult) -> None:
+        ws, ctx = deps.workspace, deps.collect_context
+        if ws is not None and ctx is not None:
+            store.write_result(ws, result, clean=ctx.clean)
+
+    return collect_one_ready(
+        list(state.get("plan", [])),
+        list(state.get("completed", [])),
+        list(state.get("results", [])),
+        collect_one=lambda task: _collect_one(task, deps),
+        persist=persist,
+    )
 
 
 def verify_node(state: OsintState, deps: OsintDeps) -> dict[str, object]:
     """Judge coverage, record findings, and set the draft + any gaps to re-plan."""
     results = list(state.get("results", []))
     floor = [str(s) for s in coverage_gaps(results, deps.osint)] if deps.osint else []
-    resp = ask(
-        deps.llm,
+    resp = ask_schema(
+        deps,
         deps.prompts.verifier,
         _verify_request(state, deps, floor),
         OsintVerdict,
-        policy=_policy(deps),
-        native=deps.native_structured,
+        label="verifier",
     )
     if deps.ledger is not None and deps.session_id and resp.findings:
         record_finding_drafts(
@@ -145,11 +133,7 @@ def verify_node(state: OsintState, deps: OsintDeps) -> dict[str, object]:
             engagement=deps.engagement,
             command_id=None,
         )
-    return {
-        "draft": resp.summary,
-        "gaps": list(resp.gaps),
-        "done": resp.done,
-    }
+    return {"draft": resp.summary, "gaps": list(resp.gaps), "done": resp.done}
 
 
 def respond_node(state: OsintState) -> dict[str, object]:

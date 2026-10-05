@@ -127,6 +127,11 @@ class AgentCore:
         # rebuild: _deps's turn_id lambda reads current_turn_event_id from here).
         self.turn_runner = TurnRunner(self)
 
+        # The OSINT/research graphs are built lazily on first use (unlike the turn
+        # graph) so a pentest-only session never compiles them or their collector
+        # contexts; rebuild_graph invalidates the cache. See the properties below.
+        self._osint_graph: CompiledStateGraph[OsintState] | None = None
+        self._research_graph: CompiledStateGraph[ResearchState] | None = None
         self.rebuild_graph()
 
         # Per-session approval grants for gated writes (config/install/scope/cmd).
@@ -478,8 +483,31 @@ class AgentCore:
         turn graph, the OSINT loop and the research loop are rebuilt together.
         """
         self.graph = self._build()
-        self.osint_graph = self._build_osint()
-        self.research_graph = self._build_research()
+        # Invalidate the lazy OSINT/research graphs; they recompile on next use.
+        self._osint_graph = None
+        self._research_graph = None
+
+    @property
+    def osint_graph(self) -> CompiledStateGraph[OsintState]:
+        """The OSINT loop graph, compiled on first use and cached per rebuild."""
+        if self._osint_graph is None:
+            self._osint_graph = self._build_osint()
+        return self._osint_graph
+
+    @osint_graph.setter
+    def osint_graph(self, value: CompiledStateGraph[OsintState]) -> None:
+        self._osint_graph = value
+
+    @property
+    def research_graph(self) -> CompiledStateGraph[ResearchState]:
+        """The research loop graph, compiled on first use and cached per rebuild."""
+        if self._research_graph is None:
+            self._research_graph = self._build_research()
+        return self._research_graph
+
+    @research_graph.setter
+    def research_graph(self, value: CompiledStateGraph[ResearchState]) -> None:
+        self._research_graph = value
 
     def close(self) -> None:
         """Close the ledger, vault, preferences and checkpointer connections."""
