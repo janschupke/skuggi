@@ -12,6 +12,7 @@ per-loop nodes shrink to that binding plus the genuinely loop-specific verifier
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Protocol
 
 from langchain_core.language_models import BaseChatModel
@@ -89,26 +90,10 @@ def extend_plan[T: Task](
     return {"plan": plan, "replan_count": replan_count + (1 if existing else 0)}
 
 
-def collect_one_ready[T: Task](
-    plan: Sequence[T],
-    completed: Sequence[str],
-    results: Sequence[IntelResult],
-    *,
-    collect_one: Callable[[T], IntelResult],
-    persist: Callable[[IntelResult], None],
-) -> dict[str, object]:
-    """Run one ready task, persist its artifact, and record it as completed.
-
-    The shared collector-node body. ``persist`` is the loop's confined artifact
-    writer; a bad write (a subject that will not slug, a confinement escape) is
-    logged and swallowed so one odd task cannot abort a whole run and discard every
-    result collected so far (audit B3). An empty ready set is a no-op update.
-    """
-    ready = select_ready(list(plan), list(completed))
-    if not ready:
-        return {}
-    task = ready[0]
-    result = collect_one(task)
+def _persist_result(
+    result: IntelResult, persist: Callable[[IntelResult], None]
+) -> None:
+    """Persist one artifact, swallowing a bad write so it cannot abort the run (B3)."""
     try:
         persist(result)
     except (OSError, ValueError) as exc:  # a bad artifact write must not abort the run
@@ -118,4 +103,51 @@ def collect_one_ready[T: Task](
             result.subject,
             exc,
         )
-    return {"completed": [*completed, task.id], "results": [*results, result]}
+
+
+def collect_ready[T: Task](  # noqa: PLR0913 -- keyword-only collect-step seams
+    plan: Sequence[T],
+    completed: Sequence[str],
+    results: Sequence[IntelResult],
+    *,
+    collect_one: Callable[[T], IntelResult],
+    persist: Callable[[IntelResult], None],
+    uses_driver: Callable[[T], bool] = lambda _t: False,
+    max_workers: int = 1,
+) -> dict[str, object]:
+    """Run every currently-ready task, persist its artifact, mark it completed.
+
+    The shared collector-node body. All ready tasks run in one superstep (the DAG
+    is re-evaluated next step for any that this unblocks), so an independent set is
+    not serialized a step apart (audit D1). Pure-I/O collectors run in a bounded
+    thread pool; a driver-capable collector (``uses_driver``) runs serially, so a
+    parallel superstep never spawns a browser pool -- the one hard constraint on
+    this parallelism. Results are appended in ready (plan) order regardless of
+    completion order, so a run stays deterministic and the goldens hold. ``persist``
+    is the loop's confined writer; a bad write is logged and swallowed (audit B3).
+    An empty ready set is a no-op update.
+    """
+    ready = select_ready(list(plan), list(completed))
+    if not ready:
+        return {}
+    serial = [t for t in ready if uses_driver(t)]
+    parallel = [t for t in ready if not uses_driver(t)]
+    collected: dict[str, IntelResult] = {}
+    for task in serial:  # driver-backed: one browser at a time, never pooled
+        collected[task.id] = collect_one(task)
+    workers = max(1, min(max_workers, len(parallel)))
+    if workers == 1 or len(parallel) <= 1:
+        for task in parallel:
+            collected[task.id] = collect_one(task)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(collect_one, task): task for task in parallel}
+            for future in as_completed(futures):
+                collected[futures[future].id] = future.result()
+    ordered = [collected[task.id] for task in ready]  # deterministic plan order
+    for result in ordered:
+        _persist_result(result, persist)
+    return {
+        "completed": [*completed, *[task.id for task in ready]],
+        "results": [*results, *ordered],
+    }

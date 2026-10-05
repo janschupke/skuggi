@@ -199,7 +199,11 @@ class EngagementManager:
 
     def _load_registry(self) -> ToolRegistry:
         try:
-            return load_registry(self._core.settings.registry_path)
+            # Scope the catalogue to the active mode: blueteam gets only the
+            # defensive tools, never the offensive registry (audit E12).
+            return load_registry(self._core.settings.registry_path).for_mode(
+                self._core.mode
+            )
         except ConfigError as exc:
             log.warning("no tool registry loaded: %s", exc)
             self._core.warnings.append(f"no tool registry loaded: {exc}")

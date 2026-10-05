@@ -114,6 +114,23 @@ def test_example_registry_includes_the_new_tools() -> None:
         assert spec.positional_file is True
 
 
+def test_blueteam_mode_sees_only_defensive_tools() -> None:
+    """Blueteam gets the defensive set, never the offensive registry (audit E12)."""
+    registry = load_registry(template("tools.example.json"))
+
+    blue = registry.for_mode("blueteam")
+    binaries = {t.binary for t in blue.tools}
+    assert {"yara", "osqueryi", "sigma", "chainsaw"} <= binaries  # defensive present
+    assert "nmap" not in binaries  # offensive absent
+    assert "sqlmap" not in binaries
+
+    # Offensive modes are unchanged: the full offensive set, no defensive-only tools.
+    pentest = registry.for_mode("pentest")
+    pent_bins = {t.binary for t in pentest.tools}
+    assert "nmap" in pent_bins
+    assert "yara" not in pent_bins  # a blueteam-only tool is not fronted offensively
+
+
 # --- command aliases --------------------------------------------------------
 
 

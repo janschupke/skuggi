@@ -34,4 +34,7 @@ class ResearchDeps:
     session_id: str = ""
     max_tasks: int = 10
     max_replans: int = 2
+    # Max pure-I/O collectors run concurrently per superstep (D1); driver-backed
+    # collectors always run serially regardless of this cap.
+    concurrency: int = 4
     prompts: ResearchPromptSet = field(default_factory=research_prompt_set)

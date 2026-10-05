@@ -174,13 +174,12 @@ class Ledger:
         self, session_id: str, *, engagement_name: str, mode: str
     ) -> None:
         """Record the start of a session (idempotent on session_id)."""
-        with self._lock:
+        with self._lock, self._conn:
             self._conn.execute(
                 "INSERT OR IGNORE INTO sessions"
                 " (session_id, engagement_name, mode, started_at) VALUES (?, ?, ?, ?)",
                 (session_id, engagement_name, mode, now_iso()),
             )
-            self._conn.commit()
 
     def record_command(  # noqa: PLR0913 -- keyword-only ledger columns
         self,
@@ -205,7 +204,7 @@ class Ledger:
         command always appears on the ordered timeline.
         """
         started_at = result.started_at.isoformat() if result else now_iso()
-        with self._lock:
+        with self._lock, self._conn:
             cur = self._conn.execute(
                 _insert_sql("commands", _COMMAND_COLS[1:]),
                 (
@@ -232,7 +231,6 @@ class Ledger:
                 ref_id=cid,
                 created_at=started_at,
             )
-            self._conn.commit()
             return cid
 
     def record_finding(  # noqa: PLR0913 -- keyword-only ledger columns
@@ -276,7 +274,7 @@ class Ledger:
                 raise ValueError(msg)
             severity = eff.severity
         created_at = now_iso()
-        with self._lock:
+        with self._lock, self._conn:
             cur = self._conn.execute(
                 _insert_sql("findings", _FINDING_COLS[1:]),
                 (
@@ -322,7 +320,6 @@ class Ledger:
                 ref_id=fid,
                 created_at=created_at,
             )
-            self._conn.commit()
             return fid
 
     def _event_locked(  # noqa: PLR0913 -- keyword-only event columns
@@ -356,12 +353,10 @@ class Ledger:
         ``record_finding``; this is the entry point for the operator prompt and
         the agent's answer, which have no separate detail row.
         """
-        with self._lock:
-            eid = self._event_locked(
+        with self._lock, self._conn:
+            return self._event_locked(
                 session_id=session_id, thread_id=thread_id, kind=kind, text=text
             )
-            self._conn.commit()
-            return eid
 
     def record_audit(
         self,
@@ -376,12 +371,11 @@ class Ledger:
         Separate from the engagement timeline: ``reports.render_report`` never
         reads this table, so nothing here reaches a client-facing report.
         """
-        with self._lock:
+        with self._lock, self._conn:
             cur = self._conn.execute(
                 _insert_sql("audit", _AUDIT_COLS[1:]),
                 (session_id, kind, verb, detail, now_iso()),
             )
-            self._conn.commit()
             return int(cur.lastrowid or 0)
 
     def record_evidence(  # noqa: PLR0913 -- keyword-only ledger columns
@@ -399,12 +393,11 @@ class Ledger:
         The acquisition record for the chain of custody: ``sha256`` pins the
         content at examination time so any later report can prove integrity.
         """
-        with self._lock:
+        with self._lock, self._conn:
             cur = self._conn.execute(
                 _insert_sql("evidence", _EVIDENCE_COLS[1:]),
                 (session_id, source_path, sha256, size, media_type, now_iso(), note),
             )
-            self._conn.commit()
             return int(cur.lastrowid or 0)
 
     def record_procedure(  # noqa: PLR0913 -- keyword-only ledger columns
@@ -424,7 +417,7 @@ class Ledger:
         ``actor`` is ``in-process`` (a pure-Python analyzer) or ``tool`` (a gated
         read-only external utility, whose exact ``argv`` is stored verbatim).
         """
-        with self._lock:
+        with self._lock, self._conn:
             cur = self._conn.execute(
                 _insert_sql("procedure", _PROCEDURE_COLS[1:]),
                 (
@@ -439,7 +432,6 @@ class Ledger:
                     note,
                 ),
             )
-            self._conn.commit()
             return int(cur.lastrowid or 0)
 
     def evidence_for(self, session_id: str) -> list[EvidenceRow]:
@@ -597,13 +589,12 @@ class Ledger:
         A rejection carries its ``reason`` (shown to the operator and fed back to
         the agent); approving clears any prior reason.
         """
-        with self._lock:
+        with self._lock, self._conn:
             self._conn.execute(
                 "UPDATE findings SET status = ?, review_reason = ?, reviewed_at = ?"
                 " WHERE id = ?",
                 (status, reason, now_iso(), finding_id),
             )
-            self._conn.commit()
 
     def finding_refs_for(self, finding_id: int) -> list[FindingRefRow]:
         """The framework citations attached to a finding (primary first)."""
@@ -623,12 +614,11 @@ class Ledger:
     def record_threat_model(self, snapshot: str, *, note: str = "") -> int:
         """Append a threat-model version (the snapshot env scores are tagged by)."""
         created_at = now_iso()
-        with self._lock:
+        with self._lock, self._conn:
             cur = self._conn.execute(
                 _insert_sql("threat_model_versions", _TM_VERSION_COLS[1:]),
                 (snapshot, note, created_at),
             )
-            self._conn.commit()
             return int(cur.lastrowid or 0)
 
     def current_threat_model_version(self) -> int:
@@ -662,7 +652,7 @@ class Ledger:
             return False
         eff = _effective_score(row.cvss_vector, env_metrics)
         assert eff is not None  # noqa: S101 -- guaranteed by the vector check above
-        with self._lock:
+        with self._lock, self._conn:
             self._conn.execute(
                 "UPDATE findings SET cvss_environmental = ?, cvss_score = ?,"
                 " cvss_severity = ?, severity = ?, cvss_tm_version = ?,"
@@ -677,7 +667,6 @@ class Ledger:
                     finding_id,
                 ),
             )
-            self._conn.commit()
         return True
 
 

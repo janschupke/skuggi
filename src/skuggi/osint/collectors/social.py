@@ -32,6 +32,9 @@ class SocialCollector:
     """Public social-profile discovery for a subject."""
 
     source: OsintSource = "social"
+    # Driver-capable (Apify when configured, else a Playwright render): the
+    # collect step runs it serially so a parallel superstep never pools browsers.
+    uses_driver = True
 
     def available(self, ctx: CollectContext) -> bool:
         """Usable when Apify is configured for social or a browser driver exists."""

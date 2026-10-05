@@ -15,8 +15,8 @@ from skuggi.agent.executor import record_finding_drafts
 from skuggi.common.text import join_blocks, labeled
 from skuggi.engagement.osint_guard import check_osint_task
 from skuggi.engagement.scope import OsintScope
-from skuggi.intel.collectors.base import empty_result
-from skuggi.intel.nodes import ask_schema, collect_one_ready, extend_plan, results_block
+from skuggi.intel.collectors.base import collector_uses_driver, empty_result
+from skuggi.intel.nodes import ask_schema, collect_ready, extend_plan, results_block
 from skuggi.intel.schema import IntelResult
 from skuggi.osint import store
 from skuggi.osint.collectors import collector_for
@@ -98,19 +98,25 @@ def _collect_one(task: OsintTask, deps: OsintDeps) -> IntelResult:
 
 
 def collect_node(state: OsintState, deps: OsintDeps) -> dict[str, object]:
-    """Run one ready task, persist its artifact, and record it as completed."""
+    """Run every ready task (bounded parallel), persist artifacts, mark completed."""
 
     def persist(result: IntelResult) -> None:
         ws, ctx = deps.workspace, deps.collect_context
         if ws is not None and ctx is not None:
             store.write_result(ws, result, clean=ctx.clean)
 
-    return collect_one_ready(
+    def uses_driver(task: OsintTask) -> bool:
+        collector = collector_for(task.source, deps.collectors)
+        return collector is not None and collector_uses_driver(collector)
+
+    return collect_ready(
         list(state.get("plan", [])),
         list(state.get("completed", [])),
         list(state.get("results", [])),
         collect_one=lambda task: _collect_one(task, deps),
         persist=persist,
+        uses_driver=uses_driver,
+        max_workers=deps.concurrency,
     )
 
 

@@ -40,4 +40,7 @@ class OsintDeps:
     session_id: str = ""
     max_tasks: int = 12
     max_replans: int = 2
+    # Max pure-I/O collectors run concurrently per superstep (D1); driver-backed
+    # collectors always run serially regardless of this cap.
+    concurrency: int = 4
     prompts: OsintPromptSet = field(default_factory=osint_prompt_set)

@@ -115,6 +115,8 @@ class GraphDeps:
     native_structured: bool = True
     max_command_rounds: int = 4
     retrieve_k: int = 4
+    # When False, a plain target/tool turn skips retrieval (audit D3).
+    retrieve_on_recon: bool = False
     history_messages: int = 8
     history_chars: int = 4_000
     findings_limit: int = 10
@@ -310,7 +312,13 @@ def _retrieve_node(
     """Inline a top-k retrieval snippet ahead of the worker."""
     if deps.store is None:
         return {}
-    hits = deps.store.search(last_user_text(state["messages"]), k=deps.retrieve_k)
+    text = last_user_text(state["messages"])
+    # A plain target/tool turn (a scan/exploit request) gains nothing from the
+    # ingested knowledge corpus, so skip the embed unless configured otherwise
+    # (audit D3); a research/knowledge turn still retrieves.
+    if not deps.retrieve_on_recon and needs_pipeline(text, deps):
+        return {}
+    hits = deps.store.search(text, k=deps.retrieve_k)
     # Redact before the snippet is stored in graph state, so a secret in an
     # ingested document never lands in the checkpoint either.
     return {"context": clean(format_hits(hits))} if hits else {}

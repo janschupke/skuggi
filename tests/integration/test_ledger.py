@@ -10,6 +10,7 @@ import pytest
 
 from skuggi.common.execution import CommandResult
 from skuggi.frameworks import cvss
+from skuggi.persistence import ledger as ledger_mod
 from skuggi.persistence.ledger import FindingRefInput, open_ledger
 
 
@@ -406,3 +407,39 @@ def test_finding_stores_impact_remediation_affected_and_cve_ref(tmp_path: Path) 
         [ref] = led.finding_refs_for(fid)
         assert ref.framework == "cve"
         assert ref.url == "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"
+
+
+def test_record_finding_rolls_back_on_a_mid_write_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure between the finding insert and its refs must leave no row (B10).
+
+    record_finding writes the finding, then each ref, then the timeline event as
+    one unit. If a ref write raises partway through, the whole unit must roll back
+    so the ledger never holds a half-written finding without its refs.
+    """
+    calls = {"n": 0}
+    real = ledger_mod._ref_display
+
+    def flaky(framework: str, ref_id: str) -> tuple[str, str]:
+        calls["n"] += 1
+        if calls["n"] == 2:  # the second ref insert fails mid-unit
+            msg = "boom"
+            raise ValueError(msg)
+        return real(framework, ref_id)
+
+    monkeypatch.setattr(ledger_mod, "_ref_display", flaky)
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        with pytest.raises(ValueError, match="boom"):
+            led.record_finding(
+                session_id="s1",
+                title="half-written",
+                severity="high",
+                description="d",
+                refs=[
+                    FindingRefInput("wstg", "WSTG-CLNT-01", is_primary=True),
+                    FindingRefInput("attack", "T1189"),
+                ],
+            )
+        assert led.findings_for("s1") == []  # fully rolled back, not half-written

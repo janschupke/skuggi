@@ -364,7 +364,9 @@
       "binary": "bloodhound-python",
       "method": "enumerate",
       "requires_target": true,
-      "target_flags": ["-d"],
+      "target_flags": [
+        "-d"
+      ],
       "install": {
         "pip": "pip install bloodhound",
         "apt": "apt-get install -y bloodhound.py"
@@ -453,7 +455,9 @@
       "risk": "recon",
       "requires_target": false,
       "positional_file": true,
-      "version_args": ["--version"],
+      "version_args": [
+        "--version"
+      ],
       "install": {
         "brew": "brew install file-formula",
         "apt": "apt-get install -y file"
@@ -466,7 +470,9 @@
       "risk": "recon",
       "requires_target": false,
       "positional_file": true,
-      "version_args": ["-ver"],
+      "version_args": [
+        "-ver"
+      ],
       "install": {
         "brew": "brew install exiftool",
         "apt": "apt-get install -y libimage-exiftool-perl"
@@ -479,7 +485,9 @@
       "risk": "recon",
       "requires_target": false,
       "positional_file": true,
-      "version_args": ["--help"],
+      "version_args": [
+        "--help"
+      ],
       "install": {
         "brew": "brew install binwalk",
         "apt": "apt-get install -y binwalk"
@@ -490,8 +498,12 @@
       "binary": "nuclei",
       "method": "scan",
       "requires_target": true,
-      "target_flags": ["-u"],
-      "version_args": ["-version"],
+      "target_flags": [
+        "-u"
+      ],
+      "version_args": [
+        "-version"
+      ],
       "install": {
         "brew": "brew install nuclei",
         "apt": "apt-get install -y nuclei"
@@ -505,7 +517,9 @@
       "binary": "httpx",
       "method": "recon",
       "requires_target": true,
-      "target_flags": ["-u"],
+      "target_flags": [
+        "-u"
+      ],
       "install": {
         "brew": "brew install httpx",
         "apt": "apt-get install -y httpx-toolkit"
@@ -516,7 +530,9 @@
       "binary": "subfinder",
       "method": "recon",
       "requires_target": true,
-      "target_flags": ["-d"],
+      "target_flags": [
+        "-d"
+      ],
       "install": {
         "brew": "brew install subfinder",
         "apt": "apt-get install -y subfinder"
@@ -527,8 +543,12 @@
       "binary": "feroxbuster",
       "method": "enumerate",
       "requires_target": true,
-      "target_flags": ["-u"],
-      "input_file_flags": ["-w"],
+      "target_flags": [
+        "-u"
+      ],
+      "input_file_flags": [
+        "-w"
+      ],
       "install": {
         "brew": "brew install feroxbuster",
         "apt": "apt-get install -y feroxbuster"
@@ -539,11 +559,77 @@
       "binary": "smbmap",
       "method": "enumerate",
       "requires_target": true,
-      "target_flags": ["-H"],
+      "target_flags": [
+        "-H"
+      ],
       "install": {
         "pip": "pip install smbmap",
         "apt": "apt-get install -y smbmap"
       }
+    },
+    {
+      "name": "yara",
+      "binary": "yara",
+      "method": "forensics",
+      "version_args": [
+        "--version"
+      ],
+      "requires_target": true,
+      "input_file_flags": [],
+      "install": {
+        "brew": "brew install yara",
+        "apt": "apt-get install -y yara"
+      },
+      "modes": [
+        "blueteam"
+      ]
+    },
+    {
+      "name": "osqueryi",
+      "binary": "osqueryi",
+      "method": "recon",
+      "version_args": [
+        "--version"
+      ],
+      "requires_target": false,
+      "install": {
+        "brew": "brew install osquery",
+        "apt": "apt-get install -y osquery"
+      },
+      "modes": [
+        "blueteam"
+      ]
+    },
+    {
+      "name": "sigma",
+      "binary": "sigma",
+      "method": "recon",
+      "version_args": [
+        "--version"
+      ],
+      "requires_target": true,
+      "install": {
+        "brew": "brew install sigma-cli",
+        "apt": "pipx install sigma-cli"
+      },
+      "modes": [
+        "blueteam"
+      ]
+    },
+    {
+      "name": "chainsaw",
+      "binary": "chainsaw",
+      "method": "forensics",
+      "version_args": [
+        "--version"
+      ],
+      "requires_target": true,
+      "install": {
+        "brew": "brew install chainsaw"
+      },
+      "modes": [
+        "blueteam"
+      ]
     }
   ]
 }

@@ -10,6 +10,7 @@
   "tool_source": "combine",
   "command_timeout_s": 120,
   "retrieve_k": 4,
+  "retrieve_on_recon": false,
   "max_revisions": 2,
   "max_tool_rounds": 4,
   "history_messages": 8,

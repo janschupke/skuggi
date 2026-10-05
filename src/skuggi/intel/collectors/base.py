@@ -15,7 +15,7 @@ The protocol is generic in the task type (``Collector[OsintTask]`` /
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from skuggi.intel.http import (
     ApifyRun,
@@ -38,6 +38,7 @@ __all__ = [
     "IntelItem",
     "IntelResult",
     "collector_for",
+    "collector_uses_driver",
     "default_fetch",
     "empty_result",
 ]
@@ -66,6 +67,18 @@ def empty_result(task: CollectTask, note: str) -> IntelResult:
     return IntelResult(
         task_id=task.id, source=task.source, subject=task.subject, note=note
     )
+
+
+def collector_uses_driver(collector: Collector[Any]) -> bool:
+    """Whether this collector may drive a browser, so it must run serially.
+
+    A collector that can render through ``ctx.driver_factory()`` (the active
+    OSINT sources) sets ``uses_driver = True``; the collect step keeps those off
+    the thread pool so a parallel superstep never spawns a browser pool (the one
+    hard constraint on D1 parallelism). Everything else is pure I/O and defaults
+    to False, so it may run concurrently.
+    """
+    return bool(getattr(collector, "uses_driver", False))
 
 
 def collector_for[TaskT: CollectTask](

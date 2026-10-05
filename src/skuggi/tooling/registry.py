@@ -29,6 +29,7 @@ from pydantic import (
     field_validator,
 )
 
+from skuggi.common.modes import Mode
 from skuggi.common.text import safe_cmd_fragment
 
 # How a tool's output flag wants its path shaped: a basename *prefix* (nmap
@@ -120,6 +121,12 @@ class ToolSpec(BaseModel):
     # ``engagement.risk``; set -> overrides it (e.g. mark msfvenom/sqlmap
     # ``destructive`` regardless of their method bucket).
     risk: RiskTierField | None = None
+    # Which operating modes expose this tool. Empty = the offensive default
+    # (available in every mode except blueteam); a tool tagged with explicit
+    # modes (e.g. the defensive set with ``["blueteam"]``) is offered only in
+    # those. ``blueteam`` sees ONLY tools that name it, so a defensive session
+    # never fronts the offensive registry (audit E12).
+    modes: tuple[Mode, ...] = ()
     # Output convention (optional). When ``output_flag`` is set, the cheatsheet
     # renderer injects ``<output_flag> <workspace-dir>/<stamp>_${target}_<label>``
     # so every invocation of this tool lands a timestamped artefact in the right
@@ -165,6 +172,21 @@ class ToolRegistry(BaseModel):
         """The engagement method `binary` belongs to, or None if unrecognized."""
         spec = self.spec_for(binary)
         return spec.method if spec else None
+
+    def for_mode(self, mode: Mode) -> ToolRegistry:
+        """The subset of tools this ``mode`` exposes (audit E12).
+
+        ``blueteam`` is defensive: it sees only tools that explicitly name it, so an
+        offensive binary (``nmap``/``sqlmap``) is not even in its guard's registry.
+        Every other mode keeps the historical behavior -- a tool with no declared
+        modes is universal, and a mode-tagged tool appears only where it is named --
+        so pentest/redteam/forensics are unchanged.
+        """
+        if mode == "blueteam":
+            kept = tuple(t for t in self.tools if mode in t.modes)
+        else:
+            kept = tuple(t for t in self.tools if not t.modes or mode in t.modes)
+        return ToolRegistry(tools=kept)
 
 
 class ToolStatus(NamedTuple):

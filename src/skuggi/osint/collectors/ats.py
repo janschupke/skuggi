@@ -27,6 +27,9 @@ class ATSCollector:
     """Open positions from an applicant-tracking / careers page."""
 
     source: OsintSource = "ats"
+    # Driver-capable (Apify when configured, else a Playwright render): the
+    # collect step runs it serially so a parallel superstep never pools browsers.
+    uses_driver = True
 
     def available(self, ctx: CollectContext) -> bool:
         """Usable when Apify is configured for ats or a browser driver exists."""

@@ -261,6 +261,10 @@ class Settings(BaseSettings):
     chunk_size: int = 800
     chunk_overlap: int = 120
     retrieve_k: int = 4
+    # Embed+retrieve over the ingested corpus only on knowledge/research turns;
+    # a plain target/tool turn (a scan/exploit request) skips it (audit D3). Set
+    # True to retrieve on every non-direct turn, as before.
+    retrieve_on_recon: bool = False
 
     max_revisions: int = 2
     max_tool_rounds: int = 4
@@ -399,6 +403,10 @@ class Settings(BaseSettings):
     )
     research_max_tasks: int = 10
     research_max_replans: int = 2
+    # Max pure-I/O collectors run concurrently per superstep in the OSINT and
+    # research loops (audit D1). Driver-backed collectors always run serially,
+    # so a parallel superstep never spawns a browser pool.
+    intel_concurrency: int = 4
     # The forensics loop: how many evidence files one run examines, and whether to
     # call AI vision on images (OCR always runs; vision needs a vision-capable
     # provider and is gated + marked speculative, so it is on by default but a

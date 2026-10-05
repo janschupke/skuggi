@@ -117,7 +117,7 @@ class PreferenceStore:
         cleaned = text.strip()
         if not cleaned:
             return None
-        with self._lock:
+        with self._lock, self._conn:
             duplicate = self._conn.execute(
                 "SELECT 1 FROM preferences WHERE lower(text) = lower(?) LIMIT 1",
                 (cleaned,),
@@ -130,23 +130,20 @@ class PreferenceStore:
                 " VALUES (?, ?, ?, ?)",
                 (category, cleaned, source, created),
             )
-            self._conn.commit()
             return PreferenceRow(
                 int(cur.lastrowid or 0), category, cleaned, source, created
             )
 
     def forget(self, pref_id: int) -> bool:
         """Delete one preference by id; ``True`` if a row was removed."""
-        with self._lock:
+        with self._lock, self._conn:
             cur = self._conn.execute("DELETE FROM preferences WHERE id = ?", (pref_id,))
-            self._conn.commit()
             return cur.rowcount > 0
 
     def clear(self) -> int:
         """Delete every preference; returns how many were removed."""
-        with self._lock:
+        with self._lock, self._conn:
             cur = self._conn.execute("DELETE FROM preferences")
-            self._conn.commit()
             return cur.rowcount
 
     def count(self) -> int:

@@ -374,6 +374,7 @@ class AgentCore:
             native_structured=self.settings.supports_structured_output(),
             max_command_rounds=self.settings.max_tool_rounds,
             retrieve_k=self.settings.retrieve_k,
+            retrieve_on_recon=self.settings.retrieve_on_recon,
             history_messages=self.settings.history_messages,
             history_chars=self.settings.history_chars,
             system_facts=self.engagement_mgr.system_facts_block(),
@@ -439,6 +440,7 @@ class AgentCore:
             session_id=self.session_id,
             max_tasks=self.settings.osint_max_tasks,
             max_replans=self.settings.osint_max_replans,
+            concurrency=self.settings.intel_concurrency,
         )
 
     def _build_osint(self) -> CompiledStateGraph[OsintState]:
@@ -467,6 +469,7 @@ class AgentCore:
             session_id=self.session_id,
             max_tasks=self.settings.research_max_tasks,
             max_replans=self.settings.research_max_replans,
+            concurrency=self.settings.intel_concurrency,
         )
 
     def _build_research(self) -> CompiledStateGraph[ResearchState]:
@@ -562,12 +565,16 @@ class AgentCore:
         return self.provider_kernel.ingest(path)
 
     def set_mode(self, mode: str) -> Mode:
-        """Switch operating mode, rebuilding the graph's prompt set."""
+        """Switch operating mode, re-scoping the registry and prompt set.
+
+        The tool registry is mode-dependent (blueteam sees only defensive tools --
+        audit E12), so a mode switch reloads it, not just the prompt set.
+        """
         if mode not in MODES:
             msg = f"unknown mode: {mode!r} (choose {', '.join(MODES)})"
             raise ValueError(msg)
         self.mode = mode
-        self.rebuild_graph()
+        self.engagement_mgr.reload_registries()  # re-filters the registry + rebuilds
         return self.mode
 
     def new_thread(self) -> str:

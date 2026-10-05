@@ -15,6 +15,7 @@ from skuggi.agent.executor import (
 )
 from skuggi.agent.graph import (
     GraphDeps,
+    _retrieve_node,
     needs_pipeline,
     route_after_critic,
     route_after_plan,
@@ -284,3 +285,41 @@ def test_head_tail_keeps_both_ends_within_the_cap() -> None:
 
 def test_head_tail_leaves_short_text_untouched() -> None:
     assert _head_tail("short", 60) == "short"
+
+
+# --- D3: retrieval is gated on turns that benefit from the ingested corpus ---
+
+
+class _CountingStore:
+    """A store fake that only records whether a retrieval embed was attempted."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def search(self, query: str, k: int = 4) -> list[object]:
+        self.calls += 1
+        return []
+
+
+def test_retrieve_skips_a_plain_target_or_tool_turn() -> None:
+    store = _CountingStore()
+    deps = GraphDeps(registry=_TOOLS, engagement=_scoped_engagement(), store=store)  # type: ignore[arg-type]
+    state = _state(messages=[HumanMessage(content="run nmap against scanme.example")])
+    assert _retrieve_node(state, deps, lambda s: s) == {}
+    assert store.calls == 0  # no embed on a recon/tool turn
+
+
+def test_retrieve_runs_for_a_knowledge_turn() -> None:
+    store = _CountingStore()
+    deps = GraphDeps(store=store)  # type: ignore[arg-type]
+    state = _state(messages=[HumanMessage(content="what is session fixation?")])
+    _retrieve_node(state, deps, lambda s: s)
+    assert store.calls == 1  # a knowledge question still retrieves
+
+
+def test_retrieve_on_recon_setting_forces_retrieval() -> None:
+    store = _CountingStore()
+    deps = GraphDeps(registry=_TOOLS, store=store, retrieve_on_recon=True)  # type: ignore[arg-type]
+    state = _state(messages=[HumanMessage(content="run nmap")])
+    _retrieve_node(state, deps, lambda s: s)
+    assert store.calls == 1  # opt back in to retrieving on every non-direct turn

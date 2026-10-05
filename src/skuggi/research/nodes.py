@@ -14,8 +14,8 @@ from langchain_core.messages import AIMessage
 from skuggi.common.logs import get_logger
 from skuggi.common.text import join_blocks, labeled
 from skuggi.intel import store
-from skuggi.intel.collectors.base import empty_result
-from skuggi.intel.nodes import ask_schema, collect_one_ready, extend_plan, results_block
+from skuggi.intel.collectors.base import collector_uses_driver, empty_result
+from skuggi.intel.nodes import ask_schema, collect_ready, extend_plan, results_block
 from skuggi.intel.schema import IntelResult
 from skuggi.research import report
 from skuggi.research.collectors import collector_for
@@ -88,19 +88,25 @@ def _collect_one(task: ResearchTask, deps: ResearchDeps) -> IntelResult:
 
 
 def collect_node(state: ResearchState, deps: ResearchDeps) -> dict[str, object]:
-    """Run one ready task, persist its artifact, and record it as completed."""
+    """Run every ready task (bounded parallel), persist artifacts, mark completed."""
 
     def persist(result: IntelResult) -> None:
         ctx = deps.collect_context
         if deps.output_root is not None and ctx is not None:
             store.write_result(deps.output_root, result, clean=ctx.clean)
 
-    return collect_one_ready(
+    def uses_driver(task: ResearchTask) -> bool:
+        collector = collector_for(task.source, deps.collectors)
+        return collector is not None and collector_uses_driver(collector)
+
+    return collect_ready(
         list(state.get("plan", [])),
         list(state.get("completed", [])),
         list(state.get("results", [])),
         collect_one=lambda task: _collect_one(task, deps),
         persist=persist,
+        uses_driver=uses_driver,
+        max_workers=deps.concurrency,
     )
 
 
