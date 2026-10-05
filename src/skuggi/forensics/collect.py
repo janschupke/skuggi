@@ -21,6 +21,7 @@ from skuggi.forensics.analyzers import (
     Observation,
     encoding,
     entropy,
+    evtx,
     executable,
     fuzzyhash,
     hashes,
@@ -112,6 +113,9 @@ def _battery(
         yield "hexdump", "in-process", _run("hexdump", lambda: hexview.analyze(path))
     elif media_type == "application/x-ms-registry":
         yield "registry", "in-process", _run("registry", lambda: registry.analyze(path))
+        yield "strings", "in-process", _run("strings", lambda: strings.analyze(path))
+    elif media_type == "application/x-ms-evtx":
+        yield "evtx", "in-process", _run("evtx", lambda: evtx.analyze(path))
         yield "strings", "in-process", _run("strings", lambda: strings.analyze(path))
     else:
         exe = _run("executable", lambda: executable.analyze(path))
