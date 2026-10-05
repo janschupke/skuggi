@@ -26,6 +26,7 @@ import subprocess
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from skuggi.common.logs import get_logger
@@ -102,20 +103,28 @@ class ClaudeCliChatModel(BaseChatModel):
         **kwargs: object,  # noqa: ARG002 -- generic BaseChatModel hook
     ) -> ChatResult:
         system, prompt = _split_messages(messages)
+        # The transcript is passed on STDIN, not as an argv positional: a long
+        # pentest conversation would otherwise exceed ARG_MAX and raise OSError
+        # (E2BIG). `claude -p` with no positional reads the prompt from stdin.
+        # Tools are disabled (`--allowedTools ""`): the prompt carries untrusted
+        # scan/web output, and this is a text-only planner -- it must never be able
+        # to drive the operator's own Claude Code tools outside skuggi's guard.
         argv = [
             self.binary,
             "-p",
-            prompt,
             "--output-format",
             "json",
             "--model",
             self.model,
+            "--allowedTools",
+            "",
         ]
         if system:
             argv += ["--append-system-prompt", system]
         try:
             proc = subprocess.run(  # noqa: S603 -- fixed argv, no shell
                 argv,
+                input=prompt,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_s,
@@ -130,17 +139,25 @@ class ClaudeCliChatModel(BaseChatModel):
         except subprocess.TimeoutExpired as exc:
             msg = f"the {self.binary!r} CLI timed out after {self.timeout_s:g}s"
             raise ClaudeCliError(msg) from exc
+        except OSError as exc:  # E2BIG and other spawn failures are not a crash
+            msg = f"the {self.binary!r} CLI could not be run: {exc}"
+            raise ClaudeCliError(msg) from exc
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout or "").strip()
             msg = f"the {self.binary!r} CLI failed (exit {proc.returncode}): {detail}"
             raise ClaudeCliError(msg)
-        text = _parse_result(proc.stdout)
-        generation = ChatGeneration(message=AIMessage(content=text))
-        return ChatResult(generations=[generation])
+        text, usage = _parse_result(proc.stdout)
+        message = AIMessage(content=text, usage_metadata=usage)
+        return ChatResult(generations=[ChatGeneration(message=message)])
 
 
-def _parse_result(stdout: str) -> str:
-    """Extract the ``result`` text from a ``--output-format json`` reply."""
+def _parse_result(stdout: str) -> tuple[str, UsageMetadata | None]:
+    """Extract the ``result`` text and token usage from a json-format reply.
+
+    The ``--output-format json`` reply carries a ``usage`` block; surfacing it as
+    ``usage_metadata`` means cost accounting (``eval.cost``) sees real tokens
+    rather than silently reading zero for every claude-cli turn.
+    """
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
@@ -150,7 +167,17 @@ def _parse_result(stdout: str) -> str:
     if not isinstance(result, str):
         msg = "the claude CLI reply had no 'result' text"
         raise ClaudeCliError(msg)
-    return result
+    return result, _usage_of(payload)
+
+
+def _usage_of(payload: dict[str, object]) -> UsageMetadata | None:
+    """Map the CLI reply's ``usage`` block to a LangChain ``UsageMetadata``."""
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    inp = int(usage.get("input_tokens", 0) or 0)
+    out = int(usage.get("output_tokens", 0) or 0)
+    return UsageMetadata(input_tokens=inp, output_tokens=out, total_tokens=inp + out)
 
 
 def build_claude_cli_chat_model(model: str) -> ClaudeCliChatModel:

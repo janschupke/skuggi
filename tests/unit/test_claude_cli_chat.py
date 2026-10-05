@@ -114,3 +114,38 @@ def test_build_uses_resolved_binary(monkeypatch: pytest.MonkeyPatch) -> None:
     model = build_claude_cli_chat_model("opus")
     assert model.binary == "/opt/claude"
     assert model.model == "opus"
+
+
+def test_generate_attaches_usage_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = json.dumps(
+        {"result": "ok", "usage": {"input_tokens": 12, "output_tokens": 3}}
+    )
+    monkeypatch.setattr(subprocess, "run", _fake_run([], payload))
+    model = ClaudeCliChatModel(model="haiku", binary="claude")
+    result = model.invoke([HumanMessage(content="q")])
+    assert result.usage_metadata == {
+        "input_tokens": 12,
+        "output_tokens": 3,
+        "total_tokens": 15,
+    }
+
+
+def test_generate_passes_prompt_on_stdin_not_argv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def run(argv: list[str], **kwargs: object) -> SimpleNamespace:
+        captured["argv"] = argv
+        captured["input"] = kwargs.get("input")
+        return SimpleNamespace(
+            returncode=0, stdout=json.dumps({"result": "ok"}), stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", run)
+    model = ClaudeCliChatModel(model="haiku", binary="claude")
+    model.invoke([HumanMessage(content="a long transcript")])
+    # The transcript rides stdin (avoids ARG_MAX), not an argv positional.
+    assert captured["input"] == "User: a long transcript"
+    assert "a long transcript" not in captured["argv"]  # type: ignore[operator]
+    assert captured["argv"][-2:] == ["--allowedTools", ""]  # type: ignore[index]

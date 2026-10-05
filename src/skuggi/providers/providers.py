@@ -95,6 +95,11 @@ def is_configured(settings: Settings, provider: Provider) -> bool:
         from skuggi.providers.codex_chat import CodexTokenStore  # noqa: PLC0415
 
         return CodexTokenStore(settings.auth_json()).is_logged_in()
+    if provider == "claude-cli":
+        # Lazy import: a which() check must not pull the provider module in at boot.
+        from skuggi.providers.claude_cli_chat import is_available  # noqa: PLC0415
+
+        return is_available()
     return True
 
 
