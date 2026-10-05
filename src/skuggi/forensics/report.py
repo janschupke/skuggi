@@ -20,7 +20,12 @@ from skuggi.common.text import slug
 from skuggi.forensics.analyzers.base import sha256_of
 from skuggi.forensics.deps import ForensicsDeps
 from skuggi.forensics.schema import ForensicsVerdict
+from skuggi.forensics.timeline import TimelineEntry, build_timeline
+from skuggi.intel.schema import IntelResult
 from skuggi.persistence.ledger_schema import EvidenceRow, FindingRow, ProcedureRow
+
+# The reconstructed timeline can be long; the report shows at most this many rows.
+_MAX_TIMELINE = 200
 
 log = get_logger(__name__)
 
@@ -142,6 +147,24 @@ def _integrity_block(deps: ForensicsDeps, evidence: list[EvidenceRow]) -> str:
     return "\n".join(lines)
 
 
+def _timeline_block(entries: list[TimelineEntry]) -> str:
+    """A chronological cross-evidence timeline of the parseable event times (F5)."""
+    if not entries:
+        return ""
+    lines = [
+        "## Timeline (reconstructed)",
+        "",
+        "| When | Evidence | Kind | Detail |",
+        "| --- | --- | --- | --- |",
+    ]
+    for e in entries[:_MAX_TIMELINE]:
+        detail = e.detail.replace("|", "\\|")
+        lines.append(f"| {e.when.isoformat()} | {e.source} | {e.kind} | {detail} |")
+    if len(entries) > _MAX_TIMELINE:
+        lines.append(f"\n_{len(entries) - _MAX_TIMELINE} further entries omitted._")
+    return "\n".join(lines)
+
+
 def render_report(  # noqa: PLR0913 -- a report is composed from its parts
     case_name: str,
     evidence: list[EvidenceRow],
@@ -150,6 +173,7 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its parts
     verdict: ForensicsVerdict | None,
     *,
     integrity: str = "",
+    timeline: str = "",
 ) -> str:
     """Compose the Markdown case report from the custody record + the verdict."""
     blocks = [
@@ -159,6 +183,7 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its parts
         integrity,
         _acquisition_table(evidence),
         _procedure_table(procedure),
+        timeline,
         _confirmed_findings(findings),
         _speculative_section(verdict),
     ]
@@ -166,13 +191,16 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its parts
 
 
 def write_case_report(
-    deps: ForensicsDeps, verdict: ForensicsVerdict | None
+    deps: ForensicsDeps,
+    verdict: ForensicsVerdict | None,
+    results: list[IntelResult] | None = None,
 ) -> Path | None:
     """Render + write the case report (Markdown, plus best-effort PDF); return its path.
 
     Reads the custody record back from the case ledger (the source of truth), so
-    the report reflects exactly what was recorded. Returns ``None`` when no case
-    ledger/output is wired (nothing to report).
+    the report reflects exactly what was recorded. ``results`` (the collected
+    observations) feed the reconstructed timeline; omit them to skip it. Returns
+    ``None`` when no case ledger/output is wired (nothing to report).
     """
     if deps.ledger is None or deps.output_root is None:
         return None
@@ -180,6 +208,7 @@ def write_case_report(
     procedure = deps.ledger.procedure_for(deps.session_id)
     findings = deps.ledger.findings_for(deps.session_id)
     integrity = _integrity_block(deps, evidence)
+    timeline = _timeline_block(build_timeline(results or [], evidence))
     body = render_report(
         deps.case_name or "case",
         evidence,
@@ -187,6 +216,7 @@ def write_case_report(
         findings,
         verdict,
         integrity=integrity,
+        timeline=timeline,
     )
     name = f"{slug(deps.case_name or 'case')}-{file_stamp()}.md"
     # The human-facing report goes to the conventional reports/ dir; the per-file

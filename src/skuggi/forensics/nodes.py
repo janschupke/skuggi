@@ -109,8 +109,9 @@ def examine_node(state: dict[str, object], deps: ForensicsDeps) -> dict[str, obj
 def respond_node(state: dict[str, object], deps: ForensicsDeps) -> dict[str, object]:
     """Write the cited case report and emit the operator-facing summary."""
     verdict = state.get("verdict")
+    results = cast("list[IntelResult]", state.get("results", []))
     summary = str(state.get("draft", "")) or "forensic examination complete"
-    written = report_mod.write_case_report(deps, verdict)  # type: ignore[arg-type]
+    written = report_mod.write_case_report(deps, verdict, results)  # type: ignore[arg-type]
     if written is not None:
         summary = f"{summary}\n\nReport written to {written}"
     return {"messages": [AIMessage(content=summary)], "draft": summary}
