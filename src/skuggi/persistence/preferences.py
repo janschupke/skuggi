@@ -30,6 +30,7 @@ from pathlib import Path
 
 from skuggi.common.clock import now_iso
 from skuggi.common.paths import ensure_parent
+from skuggi.common.sqlitedb import harden
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS preferences (
@@ -201,6 +202,7 @@ def open_preferences(path: Path) -> Iterator[PreferenceStore]:
     # check_same_thread=False because graph nodes run on a worker-thread pool;
     # PreferenceStore serializes every access with a lock.
     conn = sqlite3.connect(str(resolved), check_same_thread=False)
+    harden(conn, resolved)
     try:
         yield PreferenceStore(conn)
     finally:

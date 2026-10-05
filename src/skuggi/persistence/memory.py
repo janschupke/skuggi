@@ -15,6 +15,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from skuggi.common.paths import ensure_parent
+from skuggi.common.sqlitedb import harden
 
 
 @contextmanager
@@ -23,8 +24,9 @@ def open_checkpointer(path: Path) -> Iterator[SqliteSaver]:
 
     Hold this open for the lifetime of the session.
     """
-    ensure_parent(path)
+    expanded = ensure_parent(path)
     with SqliteSaver.from_conn_string(str(path)) as saver:
+        harden(saver.conn, expanded)
         yield saver
 
 

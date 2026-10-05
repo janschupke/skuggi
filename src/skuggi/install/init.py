@@ -30,6 +30,7 @@ second checkout can never clobber the first one's data.
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from importlib.resources import files
@@ -70,19 +71,71 @@ def _template(name: str) -> bytes:
     return (files("skuggi") / _TEMPLATE_DIR / name).read_bytes()
 
 
+# SQLite WAL/shared-memory sidecars: a DB file carries uncommitted state in its
+# ``-wal`` and index in ``-shm``, so the three move as ONE unit -- moving the .db
+# without its -wal (or vice versa) yields a WAL/DB mismatch and corruption on open.
+_DB_SIDECAR_SUFFIXES = ("-wal", "-shm")
+
+
+def _sidecars(db: Path) -> list[Path]:
+    """The existing ``-wal``/``-shm`` sidecars beside a ``.db`` file."""
+    return [
+        db.with_name(db.name + suffix)
+        for suffix in _DB_SIDECAR_SUFFIXES
+        if db.with_name(db.name + suffix).exists()
+    ]
+
+
+def _safe_move_file(src: Path, dest: Path) -> None:
+    """Move one file via copy -> fsync -> atomic rename -> unlink source.
+
+    ``shutil.move`` across filesystems is copy-then-remove, so a crash mid-copy
+    can leave a partial ``dest`` that the idempotency guard (``dest.exists()``)
+    then treats as already migrated -- running the harness against a truncated
+    database while the intact source is orphaned. Copying to a temp name in the
+    destination dir and ``os.replace``-ing into place means the final name only
+    ever appears complete (audit B10).
+    """
+    tmp = dest.with_name(dest.name + ".partial")
+    shutil.copy2(src, tmp)
+    with tmp.open("rb") as handle:
+        os.fsync(handle.fileno())
+    tmp.replace(dest)
+    src.unlink()
+
+
 def _migrate(src_dir: Path, dest_dir: Path, *, skip_examples: bool) -> list[str]:
-    """Move every entry of `src_dir` into `dest_dir`, skipping ones already there."""
+    """Move every entry of `src_dir` into `dest_dir`, skipping ones already there.
+
+    A ``.db`` is moved together with its WAL sidecars as one unit (so they can
+    never be split), and each file is moved atomically so a partial copy is never
+    mistaken for a completed migration. Directories fall back to ``shutil.move``.
+    """
     if not src_dir.is_dir():
         return []
+    entries = sorted(src_dir.iterdir())
+    sidecar_names = {
+        sc.name for e in entries if e.suffix == ".db" for sc in _sidecars(e)
+    }
     moved: list[str] = []
-    for entry in sorted(src_dir.iterdir()):
+    for entry in entries:
         if skip_examples and entry.name.endswith(".example.json"):
             continue
+        if entry.name in sidecar_names:
+            continue  # moved as part of its .db, below
         dest = dest_dir / entry.name
         if dest.exists():
             continue
-        shutil.move(str(entry), str(dest))
+        if entry.is_dir():
+            shutil.move(str(entry), str(dest))
+        else:
+            _safe_move_file(entry, dest)
         moved.append(f"  moved {entry.name} -> {dest}")
+        if entry.suffix == ".db":
+            for sidecar in _sidecars(entry):
+                sidecar_dest = dest_dir / sidecar.name
+                if not sidecar_dest.exists():
+                    _safe_move_file(sidecar, sidecar_dest)
     return moved
 
 

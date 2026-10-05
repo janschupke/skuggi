@@ -36,6 +36,7 @@ from pathlib import Path
 from skuggi.common.clock import now_iso
 from skuggi.common.execution import CommandResult
 from skuggi.common.paths import ensure_parent
+from skuggi.common.sqlitedb import harden
 from skuggi.frameworks import cvss, registry
 from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
@@ -669,6 +670,7 @@ def open_ledger(path: Path) -> Iterator[Ledger]:
     # check_same_thread=False because graph nodes (and thus ledger-writing tools)
     # run on a worker-thread pool; Ledger serializes every access with a lock.
     conn = sqlite3.connect(str(expanded), check_same_thread=False)
+    harden(conn, expanded)
     try:
         yield Ledger(conn)
     finally:
