@@ -19,7 +19,12 @@ from skuggi.intel.collectors.base import (
     IntelResult,
     empty_result,
 )
-from skuggi.research.collectors.local import LocalRun, default_local_run, have
+from skuggi.research.collectors.local import (
+    LocalRun,
+    default_local_run,
+    have,
+    safe_subject,
+)
 
 _EXPLOIT = "https://www.exploit-db.com/exploits/"
 
@@ -45,7 +50,10 @@ class SearchsploitCollector:
 
     def collect(self, task: CollectTask, ctx: CollectContext) -> IntelResult:  # noqa: ARG002
         """Run a local ``searchsploit`` JSON query and parse the exploit list."""
-        body = self._run(["searchsploit", "--json", task.subject])
+        subject = safe_subject(task.subject)
+        if subject is None:
+            return empty_result(task, "subject rejected by the research input guard")
+        body = self._run(["searchsploit", "--json", subject])
         if not body:
             return empty_result(task, "searchsploit returned no data")
         return _parse(task, body)

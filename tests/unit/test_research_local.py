@@ -50,7 +50,7 @@ def test_local_run_none_on_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -> None
         "skuggi.research.collectors.local.subprocess.run",
         lambda *_a, **_k: subprocess.CompletedProcess([], 1, "x", ""),
     )
-    assert local.default_local_run(["x"]) is None
+    assert local.default_local_run(["searchsploit"]) is None
 
 
 def test_local_run_none_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -60,7 +60,7 @@ def test_local_run_none_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         raise subprocess.TimeoutExpired(cmd="x", timeout=1)
 
     monkeypatch.setattr("skuggi.research.collectors.local.subprocess.run", boom)
-    assert local.default_local_run(["x"]) is None
+    assert local.default_local_run(["searchsploit"]) is None
 
 
 def test_local_run_none_on_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,7 +70,7 @@ def test_local_run_none_on_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
         raise OSError
 
     monkeypatch.setattr("skuggi.research.collectors.local.subprocess.run", boom)
-    assert local.default_local_run(["x"]) is None
+    assert local.default_local_run(["searchsploit"]) is None
 
 
 def test_msf_cache_reads_dict(tmp_path: Path) -> None:
@@ -93,3 +93,35 @@ def test_msf_cache_none_for_non_dict(tmp_path: Path) -> None:
     f = tmp_path / "list.json"
     f.write_text("[1, 2, 3]", encoding="utf-8")
     assert local.default_msf_cache(f) is None
+
+
+# --- research input guard: binary allow-list + subject sanitiser ------------
+
+
+def test_local_run_rejects_a_non_allowlisted_binary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deny-by-default: only RESEARCH_BINARIES may be spawned, never reaching run."""
+    monkeypatch.setattr(local, "have", lambda _n: True)
+
+    def _never(*_a: Any, **_k: Any) -> Any:  # pragma: no cover -- must not run
+        pytest.fail("subprocess.run must not be reached")
+
+    monkeypatch.setattr("skuggi.research.collectors.local.subprocess.run", _never)
+    assert local.default_local_run(["rm", "-rf", "/"]) is None
+
+
+def test_local_run_rejects_a_control_char_in_a_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(local, "have", lambda _n: True)
+    assert local.default_local_run(["searchsploit", "a\nb"]) is None
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "-m", "--examine", "a\x00b", "x\ny"])
+def test_safe_subject_rejects_unsafe_input(bad: str) -> None:
+    assert local.safe_subject(bad) is None
+
+
+def test_safe_subject_accepts_and_strips_a_plain_query() -> None:
+    assert local.safe_subject("  apache 2.4  ") == "apache 2.4"

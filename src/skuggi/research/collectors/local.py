@@ -25,20 +25,54 @@ CacheLoader = Callable[[], "dict[str, object] | None"]
 _TIMEOUT_S = 20.0
 _MSF_CACHE = Path.home() / ".msf4" / "store" / "modules_metadata.json"
 
+# The ONLY binaries a research collector may spawn. Research is the one mode where
+# model-chosen input (``task.subject``) reaches a subprocess argv, and it never
+# passes through the engagement guard -- so the binary allow-list is the
+# deterministic backstop here, deny-by-default like ``check_command`` elsewhere.
+RESEARCH_BINARIES = frozenset({"searchsploit", "msfconsole"})
+
+# Characters that must never appear in a model-supplied argv token. There is no
+# shell (argv list), so these cannot inject a command, but a newline/NUL can still
+# confuse a tool's own parser or its JSON output -- reject them outright.
+_FORBIDDEN_IN_TOKEN = ("\x00", "\n", "\r")
+
 
 def have(binary: str) -> bool:
     """Whether ``binary`` resolves on the host PATH (``shutil.which``)."""
     return shutil.which(binary) is not None
 
 
+def safe_subject(subject: str) -> str | None:
+    """A model-supplied research subject cleared for an argv, or None if unsafe.
+
+    The subject is the one token a research collector interpolates into a tool's
+    argv. A leading ``-`` would be read as a flag (argument injection -- e.g.
+    searchsploit's ``-m``/``-x`` write/examine options), and a control character
+    could corrupt the tool's parse; both are rejected so the collector degrades to
+    a coverage gap rather than running something other than a plain query.
+    """
+    stripped = subject.strip()
+    if not stripped or stripped.startswith("-"):
+        return None
+    if any(c in stripped for c in _FORBIDDEN_IN_TOKEN):
+        return None
+    return stripped
+
+
 def default_local_run(argv: list[str]) -> str | None:
     """Run ``argv`` with a hard timeout; return stdout, or None on any failure.
 
-    Read-only local-database queries only (searchsploit/metasploit). The binary is
-    resolved from PATH; a missing binary, a non-zero exit, or a timeout all yield
-    ``None`` so the collector degrades to an empty result.
+    Read-only local-database queries only (searchsploit/metasploit). ``argv[0]``
+    must be on the ``RESEARCH_BINARIES`` allow-list and no token may carry a
+    control character; the binary is then resolved from PATH, and a missing
+    binary, a non-zero exit, or a timeout all yield ``None`` so the collector
+    degrades to an empty result.
     """
-    if not argv or not have(argv[0]):
+    if not argv or argv[0] not in RESEARCH_BINARIES:
+        return None
+    if any(c in tok for tok in argv for c in _FORBIDDEN_IN_TOKEN):
+        return None
+    if not have(argv[0]):
         return None
     try:
         proc = subprocess.run(  # noqa: S603 -- argv list, no shell, bounded timeout

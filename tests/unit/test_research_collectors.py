@@ -241,6 +241,20 @@ def test_searchsploit_degrades_to_empty(body: str | None) -> None:
     assert res.items == ()
 
 
+def test_searchsploit_rejects_a_flag_injection_subject_without_running() -> None:
+    """A subject starting with '-' is argument injection; it must not be spawned."""
+    calls: list[list[str]] = []
+
+    def run(argv: list[str]) -> str | None:
+        calls.append(argv)
+        return None
+
+    col = SearchsploitCollector(run=run, have_tool=True)
+    res = col.collect(_task("searchsploit", subject="-m 12345"), _ctx(lambda _r: None))
+    assert res.items == ()
+    assert calls == []  # the guard rejected it before the subprocess seam
+
+
 # ----- metasploit (local module cache) -----------------------------------------
 
 _MSF_CACHE = {
