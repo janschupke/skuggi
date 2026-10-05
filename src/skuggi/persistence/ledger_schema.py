@@ -171,6 +171,22 @@ CREATE TABLE IF NOT EXISTS credentials (
     validated   INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL
 );
+-- A compromised/jump host registered as a runtime execution channel (audit: pivot).
+-- Scope stays the authorization boundary; a foothold layers reachability on top: it
+-- names the networks/hosts it reaches and how a command is run through it (a command
+-- template for an RCE/shell, or a proxy spec for a tunnel). Any secret is a vault
+-- placeholder, never plaintext -- rehydrated at exec like a credential.
+CREATE TABLE IF NOT EXISTS footholds (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id    TEXT NOT NULL REFERENCES sessions(session_id),
+    host          TEXT NOT NULL,              -- the foothold host (must be in scope)
+    transport     TEXT NOT NULL DEFAULT 'command',  -- command | tunnel
+    template      TEXT NOT NULL DEFAULT '',   -- cmd template ({cmd}) or proxy spec
+    secret_ref    TEXT NOT NULL DEFAULT '',   -- a vault placeholder, never plaintext
+    reachable_networks TEXT NOT NULL DEFAULT '',  -- comma-separated CIDRs
+    reachable_hosts    TEXT NOT NULL DEFAULT '',  -- comma-separated hostnames
+    created_at    TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id  TEXT NOT NULL REFERENCES sessions(session_id),
@@ -252,6 +268,7 @@ CREATE INDEX IF NOT EXISTS idx_finding_refs_finding ON finding_refs(finding_id);
 CREATE INDEX IF NOT EXISTS idx_finding_evidence_finding ON finding_evidence(finding_id);
 CREATE INDEX IF NOT EXISTS idx_coverage_session ON coverage(session_id);
 CREATE INDEX IF NOT EXISTS idx_credentials_session ON credentials(session_id);
+CREATE INDEX IF NOT EXISTS idx_footholds_session ON footholds(session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit(session_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_session ON evidence(session_id);
 CREATE INDEX IF NOT EXISTS idx_procedure_session ON procedure(session_id);
@@ -426,6 +443,26 @@ class CredentialRow:
 
 
 @dataclass(frozen=True, slots=True)
+class FootholdRow:
+    """A compromised/jump host registered as a runtime execution channel (pivot).
+
+    ``secret_ref`` is a vault placeholder (never plaintext); ``reachable_networks``
+    and ``reachable_hosts`` are comma-separated lists naming what this foothold can
+    reach, which the execution router uses to send a command through it.
+    """
+
+    id: int
+    session_id: str
+    host: str
+    transport: str
+    template: str
+    secret_ref: str
+    reachable_networks: str
+    reachable_hosts: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class CoverageRow:
     """One exercised/skipped methodology id for a session (audit E7)."""
 
@@ -558,6 +595,7 @@ _FINDING_REF_COLS = tuple(f.name for f in fields(FindingRefRow))
 _FINDING_EVIDENCE_COLS = tuple(f.name for f in fields(FindingEvidenceRow))
 _COVERAGE_COLS = tuple(f.name for f in fields(CoverageRow))
 _CREDENTIAL_COLS = tuple(f.name for f in fields(CredentialRow))
+_FOOTHOLD_COLS = tuple(f.name for f in fields(FootholdRow))
 _TM_VERSION_COLS = tuple(f.name for f in fields(ThreatModelVersionRow))
 _EVENT_COLS = tuple(f.name for f in fields(EventRow))
 _AUDIT_COLS = tuple(f.name for f in fields(AuditRow))

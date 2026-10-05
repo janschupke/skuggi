@@ -17,8 +17,10 @@ from skuggi.common.clock import now_iso
 from skuggi.persistence.ledger_schema import (
     _COVERAGE_COLS,
     _CREDENTIAL_COLS,
+    _FOOTHOLD_COLS,
     CoverageRow,
     CredentialRow,
+    FootholdRow,
     _insert_sql,
     _select_sql,
 )
@@ -107,3 +109,63 @@ class ArtifactsLedgerMixin:
                 (session_id,),
             ).fetchall()
         return [CredentialRow(*row) for row in rows]
+
+    def record_foothold(  # noqa: PLR0913 -- keyword-only ledger columns
+        self,
+        *,
+        session_id: str,
+        host: str,
+        transport: str = "command",
+        template: str = "",
+        secret_ref: str = "",
+        reachable_networks: str = "",
+        reachable_hosts: str = "",
+    ) -> int:
+        """Register a foothold host as a runtime execution channel (pivot).
+
+        ``secret_ref`` is a vault placeholder, never the plaintext secret -- the
+        caller interns it in the engagement vault, mirroring ``record_credential``.
+        ``transport`` is ``command`` (run through an RCE/shell template) or
+        ``tunnel`` (route through a proxy). Returns the new row id.
+        """
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                _insert_sql("footholds", _FOOTHOLD_COLS[1:]),
+                (
+                    session_id,
+                    host,
+                    transport,
+                    template,
+                    secret_ref,
+                    reachable_networks,
+                    reachable_hosts,
+                    now_iso(),
+                ),
+            )
+            return int(cur.lastrowid or 0)
+
+    def footholds_for(self, session_id: str) -> list[FootholdRow]:
+        """Every registered foothold in the session, in registration order (pivot)."""
+        with self._lock:
+            rows = self._conn.execute(
+                _select_sql(
+                    "footholds",
+                    _FOOTHOLD_COLS,
+                    "WHERE session_id = ? ORDER BY id",
+                ),
+                (session_id,),
+            ).fetchall()
+        return [FootholdRow(*row) for row in rows]
+
+    def clear_footholds(self, session_id: str) -> int:
+        """Remove every foothold registered in the session; return how many (pivot).
+
+        Footholds are volatile runtime state (unlike append-only custody), so the
+        operator can drop them -- e.g. when access is lost -- via the ``clear
+        foothold`` verb. Returns the number of rows deleted.
+        """
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "DELETE FROM footholds WHERE session_id = ?", (session_id,)
+            )
+            return int(cur.rowcount or 0)
