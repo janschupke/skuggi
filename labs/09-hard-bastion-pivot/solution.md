@@ -28,6 +28,24 @@
    ```
    returns the **ledger** (Blackwood Holdings SA, Meridian Freight Ltd, … — IBANs, balances).
 
+## Via skuggi (the foothold flow)
+
+Once the DMZ RCE is a reliable command primitive, register it as a **foothold** so the
+harness routes internal-host commands through it automatically:
+
+```
+add foothold portal.bastion.lab command 10.9.0.0/24,admin.internal <rce-wrapper> {cmd}
+```
+
+`<rce-wrapper>` is whatever runs an inner command on the DMZ host (your pickle-RCE
+one-liner, or `ssh`/webshell if you planted one), with `{cmd}` where the inner command
+goes. After that, a normal in-scope command against the internal host —
+`curl http://admin.internal:8000/db` — is wrapped and run through the foothold; the
+scope guard still authorises `admin.internal` on the real target first, and (because a
+pivot is an intrusive act) it runs unattended only with the autonomous ceiling raised to
+`intrusive`. `show footholds` lists the route; the engagement report records it under
+**Access path (pivots)**.
+
 ## Planted loot (manifest oracles)
 
 | id | what | where |

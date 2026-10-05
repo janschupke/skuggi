@@ -27,6 +27,7 @@ from skuggi.persistence.ledger import (
     FindingEvidenceRow,
     FindingRefRow,
     FindingRow,
+    FootholdRow,
     Ledger,
     SessionRow,
 )
@@ -267,6 +268,25 @@ def _roe_block(engagement: EngagementConfig | None) -> str:
     return "\n".join(lines)
 
 
+def _access_path_block(footholds: list[FootholdRow]) -> str:
+    """The pivot access-path: how otherwise-unreachable hosts were reached (pivot/P4).
+
+    Documents each registered foothold -- the jump host, its transport, and what it
+    reached -- so the deliverable records the route to a segmented internal network.
+    Any secret in a template stays a masked vault placeholder, never plaintext.
+    """
+    if not footholds:
+        return ""
+    lines = [
+        "| Foothold | Transport | Reached |",
+        "| --- | --- | --- |",
+    ]
+    for f in footholds:
+        reach = ", ".join(p for p in (f.reachable_networks, f.reachable_hosts) if p)
+        lines.append(f"| `{f.host}` | {f.transport} | {reach or '—'} |")
+    return "\n".join(lines)
+
+
 def render_report(  # noqa: PLR0913 -- a report is composed from its ledger parts
     session: SessionRow,
     commands: list[CommandRow],
@@ -355,6 +375,7 @@ def render_engagement_report(  # noqa: PLR0913 -- a report is composed from its 
     evidence: _Evidence | None = None,
     media_root: Path | None = None,
     session_count: int = 0,
+    footholds: list[FootholdRow] | None = None,
 ) -> str:
     """Compose the cross-session, deduplicated engagement report (audit E5).
 
@@ -381,6 +402,11 @@ def render_engagement_report(  # noqa: PLR0913 -- a report is composed from its 
         labeled("Scope", f"```\n{scope}\n```" if scope else "", heading=True),
         labeled("Rules of engagement", _roe_block(engagement), heading=True),
         labeled("Methodology & limitations", _LIMITATIONS, heading=True),
+        labeled(
+            "Access path (pivots)",
+            _access_path_block(footholds or []),
+            heading=True,
+        ),
         labeled("Affected assets", _affected_table(findings), heading=True),
         labeled(
             "Findings", _findings(findings, refs, evidence, media_root), heading=True
@@ -487,6 +513,7 @@ def write_engagement_report(  # noqa: PLR0913 -- a report write is composed from
     session_count = sum(
         1 for s in ledger.sessions() if s.engagement_name == engagement_name
     )
+    footholds = ledger.footholds_for_engagement(engagement_name)
     reports_dir = ensure_dir(reports_dir)
     generated_label = _local_stamp(now_iso(), engagement)
     body = render_engagement_report(
@@ -498,6 +525,7 @@ def write_engagement_report(  # noqa: PLR0913 -- a report write is composed from
         evidence=evidence,
         media_root=media_root,
         session_count=session_count,
+        footholds=footholds,
     )
     base = reports_dir / f"{slug(engagement_name)}-engagement-{file_stamp()}"
     md_path = base.with_suffix(".md")

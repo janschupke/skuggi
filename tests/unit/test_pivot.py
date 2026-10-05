@@ -15,6 +15,7 @@ from skuggi.common import execution
 from skuggi.engagement.pivot import route_for
 from skuggi.engagement.scope import EngagementConfig
 from skuggi.frontend import presenters_journal
+from skuggi.persistence import reports
 from skuggi.persistence.ledger import Ledger, open_ledger
 from skuggi.persistence.ledger_schema import FootholdRow
 from skuggi.tooling.registry import RiskTier, ToolRegistry, ToolSpec
@@ -228,3 +229,80 @@ def test_present_footholds_masks_and_lists() -> None:
     assert "admin.internal" in text
     # the placeholder is shown (masked), never a plaintext secret
     assert "«CRED:ab12»" in text
+
+
+# --- P4: engagement-report access path + lab-09 flow ------------------------
+
+
+def test_engagement_report_renders_the_access_path() -> None:
+    body = reports.render_engagement_report(
+        "bastion",
+        [],
+        footholds=[_foothold(reachable_hosts="admin.internal")],
+    )
+    assert "Access path (pivots)" in body
+    assert "portal.bastion.lab" in body
+    assert "admin.internal" in body
+
+
+def test_lab09_bastion_pivot_flow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lab 09: reach the internal admin host via a command-exec foothold on the DMZ."""
+    captured: dict[str, object] = {}
+
+    def fake_run(argv: Sequence[str], **kw: object) -> execution.CommandResult:
+        captured["argv"] = list(argv)
+        return execution.CommandResult(
+            command=str(kw.get("display_command")),
+            exit_code=0,
+            stdout="crown jewels",
+            stderr="",
+            started_at=_NOW,
+            finished_at=_NOW,
+        )
+
+    monkeypatch.setattr("skuggi.agent.executor.execution.run", fake_run)
+    registry = ToolRegistry(
+        tools=(ToolSpec(name="curl", binary="curl", method="recon"),)
+    )
+    engagement = EngagementConfig.model_validate(
+        {
+            "name": "bastion",
+            "timezone": "UTC",
+            # both the DMZ and the internal segment are authorized
+            "target_networks": ("172.30.9.0/24", "10.9.0.0/24"),
+            "allowed_hosts": frozenset({"admin.internal"}),
+            "allowed_tools": frozenset({"curl"}),
+            "allowed_methods": frozenset({"recon"}),
+            "autonomous": True,
+            "autonomous_ceiling": "intrusive",  # operator armed pivoting
+        }
+    )
+    led = Ledger(sqlite3.connect(str(tmp_path / "l.db"), check_same_thread=False))
+    led.start_session("s1", engagement_name="bastion", mode="pentest")
+    # foothold on the DMZ portal, reaching the internal segment over its RCE primitive
+    led.record_foothold(
+        session_id="s1",
+        host="portal.bastion.lab",
+        transport="command",
+        template="ssh root@portal.bastion.lab -- {cmd}",
+        reachable_networks="10.9.0.0/24",
+        reachable_hosts="admin.internal",
+    )
+    deps = GraphDeps(
+        engagement=engagement, ledger=led, registry=registry, session_id="s1"
+    )
+    _cid, brief, ran = _run_or_propose(
+        deps, "curl http://admin.internal:8000/db", tmp_path, now=_NOW
+    )
+    assert ran is True
+    # the inner curl ran THROUGH the DMZ foothold (authorized on the internal host)
+    assert captured["argv"] == [
+        "ssh",
+        "root@portal.bastion.lab",
+        "--",
+        "curl",
+        "http://admin.internal:8000/db",
+    ]
+    assert "[via foothold portal.bastion.lab]" in brief.summary

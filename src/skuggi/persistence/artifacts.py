@@ -157,6 +157,23 @@ class ArtifactsLedgerMixin:
             ).fetchall()
         return [FootholdRow(*row) for row in rows]
 
+    def footholds_for_engagement(self, engagement_name: str) -> list[FootholdRow]:
+        """Every foothold across all of an engagement's sessions (pivot/P4).
+
+        Joins each session's footholds by engagement name so the engagement report's
+        access-path section spans the whole engagement, not one session.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                _select_sql(
+                    "footholds f JOIN sessions s ON f.session_id = s.session_id",
+                    tuple(f"f.{c}" for c in _FOOTHOLD_COLS),
+                    "WHERE s.engagement_name = ? ORDER BY s.started_at, f.id",
+                ),
+                (engagement_name,),
+            ).fetchall()
+        return [FootholdRow(*row) for row in rows]
+
     def clear_footholds(self, session_id: str) -> int:
         """Remove every foothold registered in the session; return how many (pivot).
 
