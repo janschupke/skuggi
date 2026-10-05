@@ -43,6 +43,7 @@ from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
     _COMMAND_COLS,
     _COMMAND_MIGRATIONS,
+    _COVERAGE_COLS,
     _EVENT_COLS,
     _FINDING_COLS,
     _FINDING_EVIDENCE_COLS,
@@ -56,6 +57,7 @@ from skuggi.persistence.ledger_schema import (
     AuditRow,
     CommandRow,
     CommandStatus,
+    CoverageRow,
     EventKind,
     EventRow,
     EvidenceRow,
@@ -84,6 +86,7 @@ __all__ = [
     "AuditRow",
     "CommandRow",
     "CommandStatus",
+    "CoverageRow",
     "EventKind",
     "EventRow",
     "EvidenceRow",
@@ -290,6 +293,12 @@ class Ledger(CustodyLedgerMixin):
                 self._conn.execute(
                     _insert_sql("finding_refs", _FINDING_REF_COLS[1:]),
                     (fid, ref.framework, ref.ref_id, title, url, int(ref.is_primary)),
+                )
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO coverage"
+                    " (session_id, framework, ref_id, status, note, created_at)"
+                    " VALUES (?, ?, ?, 'exercised', '', ?)",
+                    (session_id, ref.framework, ref.ref_id, created_at),
                 )
             for ev in evidence_items:
                 self._conn.execute(
@@ -503,6 +512,37 @@ class Ledger(CustodyLedgerMixin):
                 (engagement_name, FindingStatus.APPROVED),
             ).fetchall()
         return dedup_findings([FindingRow(*row) for row in rows])
+
+    def record_coverage(
+        self,
+        *,
+        session_id: str,
+        framework: str,
+        ref_id: str,
+        status: str = "exercised",
+        note: str = "",
+    ) -> None:
+        """Mark a methodology id exercised/skipped for a session, idempotently (E7)."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO coverage"
+                " (session_id, framework, ref_id, status, note, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (session_id, framework, ref_id, status, note, now_iso()),
+            )
+
+    def coverage_for(self, session_id: str) -> list[CoverageRow]:
+        """Every recorded coverage id for a session, framework then id order (E7)."""
+        with self._lock:
+            rows = self._conn.execute(
+                _select_sql(
+                    "coverage",
+                    _COVERAGE_COLS,
+                    "WHERE session_id = ? ORDER BY framework, ref_id",
+                ),
+                (session_id,),
+            ).fetchall()
+        return [CoverageRow(*row) for row in rows]
 
     def set_finding_status(
         self, finding_id: int, status: str, *, reason: str = ""

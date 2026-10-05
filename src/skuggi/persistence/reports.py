@@ -23,6 +23,7 @@ from skuggi.common.text import join_blocks, labeled, slug
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.persistence.ledger import (
     CommandRow,
+    CoverageRow,
     FindingEvidenceRow,
     FindingRefRow,
     FindingRow,
@@ -222,6 +223,24 @@ def _findings(
     return "\n".join(p for p in out if p)
 
 
+def _coverage_block(coverage: list[CoverageRow], enabled: tuple[str, ...]) -> str:
+    """A methodology-coverage summary: exercised ids per framework + gaps (E7)."""
+    if not coverage and not enabled:
+        return ""
+    by_fw: dict[str, list[str]] = {}
+    for c in coverage:
+        by_fw.setdefault(c.framework, []).append(c.ref_id)
+    lines: list[str] = []
+    for fw in sorted(by_fw):
+        ids = ", ".join(sorted(by_fw[fw]))
+        lines.append(f"- **{fw}** — {len(by_fw[fw])} exercised: {ids}")
+    lines.extend(
+        f"- **{tax}** — none exercised"
+        for tax in sorted(t for t in enabled if t not in by_fw)
+    )
+    return "\n".join(lines)
+
+
 def render_report(  # noqa: PLR0913 -- a report is composed from its ledger parts
     session: SessionRow,
     commands: list[CommandRow],
@@ -232,6 +251,7 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
     refs: _Refs | None = None,
     evidence: _Evidence | None = None,
     media_root: Path | None = None,
+    coverage: list[CoverageRow] | None = None,
     revision: int = 1,
     previous: str | None = None,
     excluded: int = 0,
@@ -273,6 +293,14 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
         labeled(
             "Findings",
             _findings(findings, refs, evidence, media_root),
+            heading=True,
+        ),
+        labeled(
+            "Methodology coverage",
+            _coverage_block(
+                coverage or [],
+                tuple(engagement.taxonomies) if engagement else (),
+            ),
             heading=True,
         ),
         labeled("Command log", _command_log(commands, engagement), heading=True),
@@ -360,6 +388,7 @@ def write_report(  # noqa: PLR0913 -- a report write is composed from its ledger
     excluded = len(ledger.findings_for(session_id)) - len(findings)
     refs = {f.id: ledger.finding_refs_for(f.id) for f in findings}
     evidence = {f.id: ledger.finding_evidence_for(f.id) for f in findings}
+    coverage = ledger.coverage_for(session_id)
 
     reports_dir = ensure_dir(reports_dir)
     prefix = f"{slug(session.engagement_name)}-{session_id[:8]}-"
@@ -379,6 +408,7 @@ def write_report(  # noqa: PLR0913 -- a report write is composed from its ledger
         refs=refs,
         evidence=evidence,
         media_root=media_root,
+        coverage=coverage,
         revision=len(prior) + 1,
         previous=prior[-1].name if prior else None,
         excluded=excluded,

@@ -478,3 +478,32 @@ def test_approved_findings_for_engagement_aggregates_and_dedupes(
         rolled = led.approved_findings_for_engagement("acme")
         titles = sorted(f.title for f in rolled)
         assert titles == ["Open redirect", "Weak TLS"]  # dup collapsed, draft excluded
+
+
+def test_recording_a_finding_marks_its_refs_exercised(tmp_path: Path) -> None:
+    """A finding's framework refs auto-record methodology coverage (audit E7)."""
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        led.record_finding(
+            session_id="s1",
+            title="auth bypass",
+            severity="high",
+            description="d",
+            refs=[
+                FindingRefInput("wstg", "WSTG-ATHN-01", is_primary=True),
+                FindingRefInput("attack", "T1110"),
+            ],
+        )
+        cov = led.coverage_for("s1")
+        assert {(c.framework, c.ref_id, c.status) for c in cov} == {
+            ("wstg", "WSTG-ATHN-01", "exercised"),
+            ("attack", "T1110", "exercised"),
+        }
+
+
+def test_record_coverage_is_idempotent(tmp_path: Path) -> None:
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        led.record_coverage(session_id="s1", framework="wstg", ref_id="WSTG-INFO-01")
+        led.record_coverage(session_id="s1", framework="wstg", ref_id="WSTG-INFO-01")
+        assert len(led.coverage_for("s1")) == 1  # UNIQUE collapses the repeat

@@ -150,6 +150,16 @@ CREATE TABLE IF NOT EXISTS finding_evidence (
     media_path  TEXT NOT NULL DEFAULT '',  -- workspace-confined path (screenshot/image)
     created_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS coverage (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL REFERENCES sessions(session_id),
+    framework   TEXT NOT NULL,       -- wstg | attack | ptes
+    ref_id      TEXT NOT NULL,       -- e.g. WSTG-ATHN-01, T1110
+    status      TEXT NOT NULL DEFAULT 'exercised',  -- exercised | skipped | n/a
+    note        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    UNIQUE(session_id, framework, ref_id)
+);
 CREATE TABLE IF NOT EXISTS events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id  TEXT NOT NULL REFERENCES sessions(session_id),
@@ -207,6 +217,7 @@ CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_events_thread ON events(thread_id);
 CREATE INDEX IF NOT EXISTS idx_finding_refs_finding ON finding_refs(finding_id);
 CREATE INDEX IF NOT EXISTS idx_finding_evidence_finding ON finding_evidence(finding_id);
+CREATE INDEX IF NOT EXISTS idx_coverage_session ON coverage(session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit(session_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_session ON evidence(session_id);
 CREATE INDEX IF NOT EXISTS idx_procedure_session ON procedure(session_id);
@@ -354,6 +365,19 @@ class FindingEvidenceRow:
 
 
 @dataclass(frozen=True, slots=True)
+class CoverageRow:
+    """One exercised/skipped methodology id for a session (audit E7)."""
+
+    id: int
+    session_id: str
+    framework: str
+    ref_id: str
+    status: str
+    note: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class FindingEvidenceInput:
     """A structured evidence item to attach to a finding (request/response/image)."""
 
@@ -465,6 +489,7 @@ _COMMAND_COLS = tuple(f.name for f in fields(CommandRow))
 _FINDING_COLS = tuple(f.name for f in fields(FindingRow))
 _FINDING_REF_COLS = tuple(f.name for f in fields(FindingRefRow))
 _FINDING_EVIDENCE_COLS = tuple(f.name for f in fields(FindingEvidenceRow))
+_COVERAGE_COLS = tuple(f.name for f in fields(CoverageRow))
 _TM_VERSION_COLS = tuple(f.name for f in fields(ThreatModelVersionRow))
 _EVENT_COLS = tuple(f.name for f in fields(EventRow))
 _AUDIT_COLS = tuple(f.name for f in fields(AuditRow))

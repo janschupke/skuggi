@@ -128,6 +128,7 @@ VERBS: tuple[Verb, ...] = (
             Noun("notes", "engagement notes"),
             Noun("loot", "captured loot"),
             Noun("findings", "recorded findings"),
+            Noun("coverage", "exercised WSTG/ATT&CK ids vs the enabled taxonomy"),
             Noun("history", "recent messages on this thread", "[n]"),
             Noun("trace", "the worker's tool calls on this thread"),
             Noun("threads", "conversation threads"),

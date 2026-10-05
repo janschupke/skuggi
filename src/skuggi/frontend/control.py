@@ -89,6 +89,16 @@ def show_config(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.
     return [render.plain(core.config.summary())]
 
 
+def show_coverage(
+    core: AgentCore, _rest: str, _surface: verbs.Surface
+) -> render.Styled:
+    """Exercised methodology ids vs the engagement's enabled taxonomies (E7)."""
+    enabled = tuple(core.engagement.taxonomies) if core.engagement else ()
+    return presenters_journal.present_coverage(
+        core.ledger.coverage_for(core.session_id), enabled
+    )
+
+
 def show_findings(
     core: AgentCore, _rest: str, _surface: verbs.Surface
 ) -> render.Styled:
@@ -295,6 +305,7 @@ SHOW_ACTIONS: dict[str, Action] = {
     "memory": show_memory,
     "config": show_config,
     "findings": show_findings,
+    "coverage": show_coverage,
     "env": show_env,
     "case": show_case,
 }

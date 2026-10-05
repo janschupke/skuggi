@@ -6,7 +6,7 @@ from pathlib import Path
 
 from skuggi.frontend import outcomes, presenters_journal
 from skuggi.frontend.render import Styled, to_markup
-from skuggi.persistence.ledger import FindingRow, SessionRow
+from skuggi.persistence.ledger import CoverageRow, FindingRow, SessionRow
 
 
 def _texts(lines: Styled) -> list[str]:
@@ -119,3 +119,28 @@ def test_present_replay_list_empty_and_rows() -> None:
     assert lines[0].text == "aaaa1111  2026-10-03T00:00:00+00:00  pentest"
     assert lines[1].text.endswith(" *")  # the current session is marked
     assert all(line.spans is not None for line in lines)  # id painted on both surfaces
+
+
+def _coverage(fw: str, ref: str) -> CoverageRow:
+    return CoverageRow(
+        id=1,
+        session_id="s1",
+        framework=fw,
+        ref_id=ref,
+        status="exercised",
+        note="",
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+
+
+def test_present_coverage_lists_exercised_and_gaps() -> None:
+    rows = [_coverage("wstg", "WSTG-ATHN-01")]
+    texts = _texts(presenters_journal.present_coverage(rows, ("wstg", "attack")))
+    joined = "\n".join(texts)
+    assert "wstg: 1 exercised" in joined
+    assert "WSTG-ATHN-01" in joined
+    assert "attack: none exercised yet" in joined  # enabled but untouched -> a gap
+
+
+def test_present_coverage_empty() -> None:
+    assert _texts(presenters_journal.present_coverage([], ())) == ["(no coverage yet)"]

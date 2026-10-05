@@ -31,7 +31,7 @@ from skuggi.frontend.render import Styled
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from skuggi.persistence.ledger import FindingRow
+    from skuggi.persistence.ledger import CoverageRow, FindingRow
 
 
 def present_report(outcome: ReportOutcome, surface: verbs.Surface) -> Styled:
@@ -98,6 +98,27 @@ def present_findings_list(
         )
         for f in rows
     ]
+
+
+def present_coverage(rows: Sequence[CoverageRow], enabled: tuple[str, ...]) -> Styled:
+    """Render ``show coverage``: exercised methodology ids vs the enabled taxonomy (E7).
+
+    Each framework's exercised ids are listed; an enabled taxonomy that produced no
+    exercised id yet is called out as a gap, so the operator sees what the run has
+    and has not touched.
+    """
+    exercised: dict[str, list[str]] = {}
+    for r in rows:
+        exercised.setdefault(r.framework, []).append(r.ref_id)
+    lines: Styled = []
+    for fw in sorted(exercised):
+        ids = ", ".join(sorted(exercised[fw]))
+        lines.append(render.info(f"{fw}: {len(exercised[fw])} exercised — {ids}"))
+    for tax in sorted(t for t in enabled if t not in exercised):
+        lines.append(render.info(f"{tax}: none exercised yet"))
+    if not lines:
+        return presenters.empty("coverage")
+    return lines
 
 
 def present_replay_list(outcome: ReplayEmpty | ReplayList) -> Styled:
