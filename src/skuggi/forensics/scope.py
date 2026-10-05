@@ -83,6 +83,12 @@ def check_forensic_command(
     An ordered deny-chain; the first failing invariant wins. `cwd` is the tool's
     working directory (the case root), used to resolve a positional path the way
     the tool will.
+
+    The forensics loop today runs only pure-Python analyzers and spawns NO process,
+    so this guard has no runtime caller yet -- it is the sanctioned entry point for
+    the day an external-tool node is added. ``test_forensics_readonly_invariant``
+    fails if any forensics module grows a subprocess/exec primitive without routing
+    it through here, so the read-only guarantee cannot erode silently.
     """
     if not argv:
         return GuardVerdict(False, "empty command")
