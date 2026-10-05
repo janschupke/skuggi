@@ -33,7 +33,7 @@ from typing import Literal, get_args
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from skuggi.common.logs import get_logger
-from skuggi.common.text import join_blocks, labeled
+from skuggi.common.text import join_blocks, labeled, untrusted
 from skuggi.frameworks import cvss, registry
 
 log = get_logger(__name__)
@@ -629,10 +629,10 @@ def render_request(ctx: RequestContext) -> str:
         labeled("Captured credentials", _credentials_block(ctx.credentials)),
         labeled("Captured loot", _loot_block(ctx.loot)),
         labeled("Notes", _notes_block(ctx.notes)),
-        labeled("Recent commands", _commands_block(ctx.recent_commands)),
-        labeled("Lookup results", "\n\n".join(ctx.lookup_results)),
+        untrusted("Recent commands", _commands_block(ctx.recent_commands)),
+        untrusted("Lookup results", "\n\n".join(ctx.lookup_results)),
         labeled("Data files", ctx.data_files),
-        labeled("Retrieved context", ctx.retrieved_context),
+        untrusted("Retrieved context", ctx.retrieved_context),
         labeled("Plan", steps),
         labeled("Prior critique", ctx.prior_critique),
         labeled("Draft", ctx.draft),
