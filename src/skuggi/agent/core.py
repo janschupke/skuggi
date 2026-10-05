@@ -40,6 +40,7 @@ from skuggi.agent.state import AgentState
 from skuggi.agent.tooldoctor import ToolDoctor
 from skuggi.agent.turn_runner import TurnEvent, TurnRunner
 from skuggi.common import execution, logs
+from skuggi.common.backends import ContainerBackend, ContainerConfig
 from skuggi.config.config import (
     Provider,
     Settings,
@@ -356,6 +357,23 @@ class AgentCore:
         """The active model name (None = the provider's persisted default)."""
         return self.provider_kernel.model
 
+    def _execution_backend(self) -> execution.ExecutionBackend:
+        """The backend that runs an agent-cleared command (host or container).
+
+        Operator/machine choice (``settings.execution_backend``), not per-engagement
+        scope: whether a locked-down container runtime is available is about the box,
+        not the target. Defaults to the hardened host subprocess.
+        """
+        if self.settings.execution_backend == "container":
+            return ContainerBackend(
+                ContainerConfig(
+                    image=self.settings.container_image,
+                    runtime=self.settings.container_runtime,
+                    network=self.settings.container_network,
+                )
+            )
+        return execution.HostBackend()
+
     def _deps(self) -> GraphDeps:
         return GraphDeps(
             llm=self.llm,
@@ -372,7 +390,7 @@ class AgentCore:
             turn_id=lambda: self.current_turn_event_id,
             cwd=self.engagement_mgr.recon_cwd(),
             command_timeout_s=self.settings.command_timeout_s,
-            backend=execution.HostBackend(),
+            backend=self._execution_backend(),
             native_structured=self.settings.supports_structured_output(),
             max_command_rounds=self.settings.max_tool_rounds,
             retrieve_k=self.settings.retrieve_k,

@@ -63,6 +63,9 @@ ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 REASONING_EFFORTS: tuple[ReasoningEffort, ...] = ("minimal", "low", "medium", "high")
 
 ToolSource = Literal["host", "managed", "combine"]
+# Which execution backend runs an agent-cleared command: a hardened host
+# subprocess, or a throwaway container with OS-level isolation.
+ExecutionBackendName = Literal["host", "container"]
 
 # The ChatGPT-account (codex) endpoints. Verified live: the responses route is
 # under /codex (a bare /backend-api/responses 404s), and refresh is the OpenAI
@@ -323,6 +326,15 @@ class Settings(BaseSettings):
     # Wall-clock cap on any single autonomously executed command. Single source
     # in common.execution so Settings and the graph's GraphDeps never drift.
     command_timeout_s: float = execution.DEFAULT_COMMAND_TIMEOUT_S
+    # How an agent-cleared command is run. "host" (default) is the hardened host
+    # subprocess; "container" runs each tool in a throwaway docker/podman container
+    # (read-only rootfs, caps dropped, resource caps, workspace-only writable). The
+    # container network defaults to "none" -- an engagement needing egress sets an
+    # operator-provisioned, egress-filtered network name.
+    execution_backend: ExecutionBackendName = "host"
+    container_image: str = "kalilinux/kali-rolling"
+    container_runtime: str = "docker"
+    container_network: str = "none"
 
     # --- session logging & review ---
     # Free-typed shell commands whose first word is one of these are treated as
