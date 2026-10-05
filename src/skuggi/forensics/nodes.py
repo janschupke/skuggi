@@ -58,12 +58,15 @@ def _ground(verdict: ForensicsVerdict, valid_ids: set[str]) -> ForensicsVerdict:
     but a finding with no refs, or any ref that is not a collected evidence ID, is
     additionally forced speculative -- an ungrounded claim can never read confirmed.
     """
+
+    def _norm(value: str) -> str:
+        return value.strip().upper()
+
+    valid = {_norm(v) for v in valid_ids}
     grounded: list[ForensicsFinding] = []
     for f in verdict.findings:
         refs = tuple(ref for ref in f.evidence_refs)
-        resolved = bool(refs) and all(
-            any(vid in ref or ref in vid for vid in valid_ids) for ref in refs
-        )
+        resolved = bool(refs) and all(_norm(ref) in valid for ref in refs)
         grounded.append(
             f
             if (resolved and not f.speculative)
