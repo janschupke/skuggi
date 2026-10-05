@@ -28,6 +28,7 @@ from skuggi.forensics.analyzers import (
     logparse,
     magic,
     ocr,
+    pcap,
     strings,
 )
 from skuggi.forensics.analyzers.base import sha256_of
@@ -104,6 +105,10 @@ def _battery(
                     for o in report.observations
                 ]
                 yield "vision", "vision", obs
+    elif media_type in ("application/vnd.tcpdump.pcap", "application/x-pcapng"):
+        yield "pcap", "in-process", _run("pcap", lambda: pcap.analyze(path))
+        yield "strings", "in-process", _run("strings", lambda: strings.analyze(path))
+        yield "hexdump", "in-process", _run("hexdump", lambda: hexview.analyze(path))
     else:
         exe = _run("executable", lambda: executable.analyze(path))
         if exe:  # a recognized ELF/PE/Mach-O header -> structured format observation

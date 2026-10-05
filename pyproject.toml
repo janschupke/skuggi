@@ -84,6 +84,9 @@ forensics = [
     # here -- its C extension needs the system libfuzzy and has no cp314 wheel, so
     # the analyzer uses it only when an operator installed it out of band.
     "py-tlsh>=4.5",
+    # Dependency-light packet decode for the forensic pcap analyzer's enrichment
+    # pass (pure-Python, cp314 wheels). The structural summary runs without it.
+    "dpkt>=1.9",
 ]
 # Browser-driven OSINT collectors (LinkedIn/ATS/social). Heavy -- Playwright
 # downloads a Chromium -- so it is opt-in; the collectors gate on availability and
@@ -388,5 +391,5 @@ ignore_missing_imports = true
 # The forensics fuzzy-hash backends ship no type stubs. Imported lazily inside the
 # forensics.analyzers.fuzzyhash guards, so a strict run without them type-checks.
 [[tool.mypy.overrides]]
-module = ["tlsh.*", "ssdeep.*"]
+module = ["tlsh.*", "ssdeep.*", "dpkt.*"]
 ignore_missing_imports = true
