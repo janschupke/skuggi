@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from skuggi.common.logs import get_logger
+from skuggi.intel.schema import IntelResult
 
 log = get_logger(__name__)
 
@@ -78,6 +79,11 @@ class CollectContext:
     driver_factory: Callable[[], Driver] | None = None
     apify_run: ApifyRun | None = None
     source_config: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    # The results of this task's completed dependencies (audit E15), set per task by
+    # the collect step so a dependent collector (e.g. CVE lookup from a resolved
+    # version) reads its upstream output directly instead of the planner having to
+    # re-state it. Empty for a task with no dependencies.
+    upstream: tuple[IntelResult, ...] = ()
 
     def config_for(self, source: str) -> Mapping[str, str]:
         """The non-secret config block for one source (empty when unset)."""

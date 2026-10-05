@@ -9,6 +9,9 @@ Every model call goes through the shared ``ask`` seam.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import replace
+
 from langchain_core.messages import AIMessage
 
 from skuggi.common.logs import get_logger
@@ -73,7 +76,9 @@ def plan_node(state: ResearchState, deps: ResearchDeps) -> dict[str, object]:
     )
 
 
-def _collect_one(task: ResearchTask, deps: ResearchDeps) -> IntelResult:
+def _collect_one(
+    task: ResearchTask, deps: ResearchDeps, upstream: Sequence[IntelResult] = ()
+) -> IntelResult:
     """Source-check the task, dispatch to its collector, return a result (no raise)."""
     verdict = check_research_source(task.source)
     if not verdict.allowed:
@@ -82,6 +87,7 @@ def _collect_one(task: ResearchTask, deps: ResearchDeps) -> IntelResult:
     ctx = deps.collect_context
     if collector is None or ctx is None:
         return empty_result(task, f"no collector configured for {task.source}")
+    ctx = replace(ctx, upstream=tuple(upstream))  # thread upstream results (E15)
     if not collector.available(ctx):
         return empty_result(task, f"{task.source} collector is unavailable")
     return collector.collect(task, ctx)
@@ -103,7 +109,7 @@ def collect_node(state: ResearchState, deps: ResearchDeps) -> dict[str, object]:
         list(state.get("plan", [])),
         list(state.get("completed", [])),
         list(state.get("results", [])),
-        collect_one=lambda task: _collect_one(task, deps),
+        collect_one=lambda task, upstream: _collect_one(task, deps, upstream),
         persist=persist,
         uses_driver=uses_driver,
         max_workers=deps.concurrency,

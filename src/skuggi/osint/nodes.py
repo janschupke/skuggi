@@ -9,6 +9,9 @@ and sets the re-plan gaps. Every model call goes through the shared ``ask`` seam
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import replace
+
 from langchain_core.messages import AIMessage
 
 from skuggi.agent.executor import record_finding_drafts
@@ -21,6 +24,7 @@ from skuggi.intel.schema import IntelResult
 from skuggi.osint import store
 from skuggi.osint.collectors import collector_for
 from skuggi.osint.deps import OsintDeps
+from skuggi.osint.promote import promotable_hosts
 from skuggi.osint.scheduler import coverage_gaps
 from skuggi.osint.schema import OsintPlan, OsintTask, OsintVerdict
 from skuggi.osint.state import OsintState
@@ -81,7 +85,9 @@ def plan_node(state: OsintState, deps: OsintDeps) -> dict[str, object]:
     )
 
 
-def _collect_one(task: OsintTask, deps: OsintDeps) -> IntelResult:
+def _collect_one(
+    task: OsintTask, deps: OsintDeps, upstream: Sequence[IntelResult] = ()
+) -> IntelResult:
     """Scope-check the task, dispatch to its collector, return a result (no raise)."""
     if deps.osint is None:
         return empty_result(task, "no OSINT scope loaded")
@@ -92,6 +98,7 @@ def _collect_one(task: OsintTask, deps: OsintDeps) -> IntelResult:
     ctx = deps.collect_context
     if collector is None or ctx is None:
         return empty_result(task, f"no collector configured for {task.source}")
+    ctx = replace(ctx, upstream=tuple(upstream))  # thread upstream results (E15)
     if not collector.available(ctx):
         return empty_result(task, f"{task.source} collector is unavailable")
     return collector.collect(task, ctx)
@@ -113,7 +120,7 @@ def collect_node(state: OsintState, deps: OsintDeps) -> dict[str, object]:
         list(state.get("plan", [])),
         list(state.get("completed", [])),
         list(state.get("results", [])),
-        collect_one=lambda task: _collect_one(task, deps),
+        collect_one=lambda task, upstream: _collect_one(task, deps, upstream),
         persist=persist,
         uses_driver=uses_driver,
         max_workers=deps.concurrency,
@@ -139,7 +146,29 @@ def verify_node(state: OsintState, deps: OsintDeps) -> dict[str, object]:
             engagement=deps.engagement,
             command_id=None,
         )
-    return {"draft": resp.summary, "gaps": list(resp.gaps), "done": resp.done}
+    summary = _with_scope_proposal(resp.summary, results, deps)
+    return {"draft": summary, "gaps": list(resp.gaps), "done": resp.done}
+
+
+def _with_scope_proposal(
+    summary: str, results: list[IntelResult], deps: OsintDeps
+) -> str:
+    """Append a gated scope-promotion proposal for any discovered in-scope hosts.
+
+    OSINT-discovered hosts inside an authorized network but not yet in
+    ``allowed_hosts`` are surfaced here as a proposal, never auto-applied: the
+    operator authorizes them through the gated, non-grantable ``set scope`` flow,
+    closing the recon -> scan loop deliberately (audit E17/C4).
+    """
+    hosts = promotable_hosts(results, deps.engagement)
+    if not hosts:
+        return summary
+    proposal = (
+        "Discovered in-scope hosts not yet authorized for scanning: "
+        f"{', '.join(hosts)}. Run `set scope` to add them to allowed_hosts "
+        "(each change is confirmed)."
+    )
+    return f"{summary}\n\n{proposal}" if summary else proposal
 
 
 def respond_node(state: OsintState) -> dict[str, object]:

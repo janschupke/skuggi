@@ -34,24 +34,68 @@ class CveCollector:
         return True
 
     def collect(self, task: CollectTask, ctx: CollectContext) -> IntelResult:
-        """Search NVD by keyword and return the top CVE matches."""
+        """Query NVD, version-scoped via a CPE when a version is known, else keyword.
+
+        When an upstream version collector resolved a concrete version for this
+        subject (audit E15/E16), query NVD by ``virtualMatchString`` -- a CPE pinned
+        to that product+version -- so the hits are the CVEs that actually affect the
+        running version, not every CVE ever filed against the product name. With no
+        known version it falls back to the historical keyword search.
+        """
         headers = {}
         key = ctx.secrets.get("nvd_api_key")
         if key:
             headers["apiKey"] = key
-        body = ctx.fetch(
-            HttpRequest(
-                _NVD,
-                params={"keywordSearch": task.subject, "resultsPerPage": str(_MAX)},
-                headers=headers,
-            )
-        )
+        version = _version_from_upstream(ctx.upstream, task.subject)
+        if version:
+            cpe = _cpe(task.subject, version)
+            params = {"virtualMatchString": cpe, "resultsPerPage": str(_MAX)}
+            mode = f"CPE {cpe}"
+        else:
+            params = {"keywordSearch": task.subject, "resultsPerPage": str(_MAX)}
+            mode = "keyword"
+        body = ctx.fetch(HttpRequest(_NVD, params=params, headers=headers))
         if not body:
             return empty_result(task, "no CVE data returned from NVD")
-        return _parse(task, body)
+        return _parse(task, body, mode=mode)
 
 
-def _parse(task: CollectTask, body: str) -> IntelResult:
+def _version_from_upstream(upstream: tuple[IntelResult, ...], subject: str) -> str:
+    """The most relevant concrete version an upstream collector resolved, or "".
+
+    Prefers a ``version`` item whose result subject matches this task's subject
+    (the usual version -> CVE dependency), else the first version item seen. An
+    ``eol`` cycle like ``1.18`` is a usable CPE version; a bare ``latest`` is used
+    only as a fallback.
+    """
+    want = subject.strip().lower()
+    candidates: list[str] = []
+    for result in upstream:
+        for item in result.items:
+            if item.kind != "version":
+                continue
+            value = item.value.strip()
+            if not value:
+                continue
+            if result.subject.strip().lower() == want:
+                return value
+            candidates.append(value)
+    return candidates[0] if candidates else ""
+
+
+def _cpe(subject: str, version: str) -> str:
+    """A permissive CPE 2.3 match string pinned to the product and version.
+
+    The vendor is left wild (``*``) because the research loop rarely knows it; NVD's
+    ``virtualMatchString`` still narrows to the product + version, which is the win
+    over a bare keyword search. The product is the subject's leading token, lowered.
+    """
+    product = subject.strip().lower().split()[0] if subject.strip() else "*"
+    product = "".join(c if c.isalnum() or c in "._-" else "_" for c in product)
+    return f"cpe:2.3:a:*:{product or '*'}:{version}:*:*:*:*:*:*:*"
+
+
+def _parse(task: CollectTask, body: str, *, mode: str = "keyword") -> IntelResult:
     try:
         data = json.loads(body)
     except ValueError:
@@ -65,7 +109,7 @@ def _parse(task: CollectTask, body: str) -> IntelResult:
         source="cve",
         subject=task.subject,
         items=items,
-        note=f"{len(items)} CVEs via NVD",
+        note=f"{len(items)} CVEs via NVD ({mode})",
     )
 
 

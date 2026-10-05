@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from skuggi.agent.requests import ask
 from skuggi.common.logs import get_logger
 from skuggi.intel.scheduler import Task, select_ready
-from skuggi.intel.schema import IntelResult
+from skuggi.intel.schema import IntelItem, IntelResult
 from skuggi.security.policy import RedactionPolicy
 
 log = get_logger(__name__)
@@ -68,11 +68,43 @@ def ask_schema[T: BaseModel](
     )
 
 
-def results_block(results: Sequence[IntelResult]) -> str:
-    """A one-line-per-result digest for a verifier/planner request block."""
-    return "\n".join(
-        f"[{r.source}] {r.subject}: {len(r.items)} items -- {r.note}" for r in results
-    )
+# How much collected content the planner/verifier see: a few items per result,
+# rendered compactly, under a hard overall cap so a large corpus cannot blow the
+# prompt. Enough to CORRELATE (a subdomain feeds a portscan, a version feeds a CVE
+# lookup) rather than only counting results (audit E15).
+_DIGEST_ITEMS_PER_RESULT = 8
+_DIGEST_CHAR_CAP = 4000
+
+
+def _item_line(item: IntelItem) -> str:
+    """One collected datum, rendered compactly for a request digest."""
+    attrs = ", ".join(f"{k}={v}" for k, v in sorted(item.attributes.items()))
+    return f"  - {item.kind}: {item.value}" + (f" ({attrs})" if attrs else "")
+
+
+def results_block(
+    results: Sequence[IntelResult],
+    *,
+    items_per_result: int = _DIGEST_ITEMS_PER_RESULT,
+    char_cap: int = _DIGEST_CHAR_CAP,
+) -> str:
+    """A content digest of the collected results for a verifier/planner request.
+
+    Each result contributes its header line (source/subject/count/note) plus up to
+    ``items_per_result`` of its actual items, so the planner and verifier reason
+    over the data (and can wire a dependent task to it) instead of only its count.
+    The whole block is capped so a large corpus never blows the prompt budget.
+    """
+    lines: list[str] = []
+    for r in results:
+        lines.append(f"[{r.source}] {r.subject}: {len(r.items)} items -- {r.note}")
+        lines.extend(_item_line(item) for item in r.items[:items_per_result])
+        if len(r.items) > items_per_result:
+            lines.append(f"  ... (+{len(r.items) - items_per_result} more)")
+    block = "\n".join(lines)
+    if len(block) > char_cap:
+        return block[:char_cap] + "\n... (truncated)"
+    return block
 
 
 def extend_plan[T: Task](
@@ -110,7 +142,7 @@ def collect_ready[T: Task](  # noqa: PLR0913 -- keyword-only collect-step seams
     completed: Sequence[str],
     results: Sequence[IntelResult],
     *,
-    collect_one: Callable[[T], IntelResult],
+    collect_one: Callable[[T, Sequence[IntelResult]], IntelResult],
     persist: Callable[[IntelResult], None],
     uses_driver: Callable[[T], bool] = lambda _t: False,
     max_workers: int = 1,
@@ -130,18 +162,29 @@ def collect_ready[T: Task](  # noqa: PLR0913 -- keyword-only collect-step seams
     ready = select_ready(list(plan), list(completed))
     if not ready:
         return {}
+    by_id = {result.task_id: result for result in results}
+
+    def upstream_of(task: T) -> list[IntelResult]:
+        # Every dependency is completed before a task is ready, so its result is
+        # already in `results` -- thread it in so a dependent collector reads its
+        # upstream output directly (audit E15).
+        return [by_id[dep] for dep in task.depends_on if dep in by_id]
+
     serial = [t for t in ready if uses_driver(t)]
     parallel = [t for t in ready if not uses_driver(t)]
     collected: dict[str, IntelResult] = {}
     for task in serial:  # driver-backed: one browser at a time, never pooled
-        collected[task.id] = collect_one(task)
+        collected[task.id] = collect_one(task, upstream_of(task))
     workers = max(1, min(max_workers, len(parallel)))
     if workers == 1 or len(parallel) <= 1:
         for task in parallel:
-            collected[task.id] = collect_one(task)
+            collected[task.id] = collect_one(task, upstream_of(task))
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(collect_one, task): task for task in parallel}
+            futures = {
+                pool.submit(collect_one, task, upstream_of(task)): task
+                for task in parallel
+            }
             for future in as_completed(futures):
                 collected[futures[future].id] = future.result()
     ordered = [collected[task.id] for task in ready]  # deterministic plan order

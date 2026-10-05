@@ -83,3 +83,47 @@ def test_write_report_sanitizes_a_traversal_subject(tmp_path: Path) -> None:
     path = write_research_report(out, "x", bad, [], clean=lambda s: s)
     assert path.parent == out.resolve()
     assert ".." not in path.name
+
+
+def test_report_renders_the_cve_exploitability_join() -> None:
+    """The report ties a CVE to its exploit/module via the deterministic join (E16)."""
+    results = [
+        IntelResult(
+            task_id="c",
+            source="cve",
+            subject="nginx",
+            items=(
+                IntelItem(
+                    kind="cve", value="CVE-2024-0001", attributes={"severity": "HIGH"}
+                ),
+            ),
+        ),
+        IntelResult(
+            task_id="m",
+            source="metasploit",
+            subject="nginx",
+            items=(
+                IntelItem(
+                    kind="module",
+                    value="exploit/x",
+                    attributes={"cves": "CVE-2024-0001"},
+                ),
+            ),
+        ),
+    ]
+    out = render_report("nginx vulns", None, results)
+    assert "## Exploitability (CVE join)" in out
+    assert "CVE-2024-0001" in out
+    assert "exploit/x" in out
+
+
+def test_report_omits_exploitability_without_a_join() -> None:
+    results = [
+        IntelResult(
+            task_id="c",
+            source="cve",
+            subject="nginx",
+            items=(IntelItem(kind="cve", value="CVE-2024-0001"),),
+        )
+    ]
+    assert "## Exploitability" not in render_report("nginx", None, results)

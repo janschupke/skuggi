@@ -15,6 +15,7 @@ from collections.abc import Callable
 import pytest
 
 from skuggi.intel.collectors.base import CollectContext, HttpRequest
+from skuggi.intel.schema import IntelItem, IntelResult
 from skuggi.research.collectors.cve import CveCollector
 from skuggi.research.collectors.exploitdb import ExploitDbCollector
 from skuggi.research.collectors.metasploit import MetasploitCollector
@@ -280,3 +281,41 @@ def test_metasploit_empty_result_when_cache_vanishes_between_calls() -> None:
     assert col.available(_ctx(lambda _r: None)) is True
     res = col.collect(_task("metasploit"), _ctx(lambda _r: None))
     assert res.items == ()
+
+
+# ----- E16: version-aware CVE query + CVE join --------------------------------
+
+
+def test_cve_uses_cpe_virtual_match_when_a_version_is_upstream() -> None:
+    """A resolved upstream version switches NVD from keyword to a version-scoped CPE."""
+    seen: dict[str, str] = {}
+
+    def fetch(req: HttpRequest) -> str:
+        seen.update(req.params)
+        return _NVD_BODY
+
+    upstream = (
+        IntelResult(
+            task_id="v",
+            source="versions",
+            subject="wordpress",
+            items=(IntelItem(kind="version", value="6.4"),),
+        ),
+    )
+    res = CveCollector().collect(_task("cve"), _ctx(fetch, upstream=upstream))
+    assert "virtualMatchString" in seen
+    assert "cpe:2.3:a:*:wordpress:6.4:" in seen["virtualMatchString"]
+    assert "keywordSearch" not in seen
+    assert "CPE" in res.note
+
+
+def test_cve_falls_back_to_keyword_without_an_upstream_version() -> None:
+    seen: dict[str, str] = {}
+
+    def fetch(req: HttpRequest) -> str:
+        seen.update(req.params)
+        return _NVD_BODY
+
+    CveCollector().collect(_task("cve"), _ctx(fetch))
+    assert seen.get("keywordSearch") == "wordpress"
+    assert "virtualMatchString" not in seen

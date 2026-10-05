@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
-from skuggi.intel.nodes import collect_ready
-from skuggi.intel.schema import IntelResult
+from skuggi.intel.nodes import collect_ready, results_block
+from skuggi.intel.schema import IntelItem, IntelResult
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ def test_empty_ready_set_is_a_noop() -> None:
     assert out == {}
 
 
-def _r(task: _Task) -> IntelResult:
+def _r(task: _Task, _upstream: object = ()) -> IntelResult:
     return IntelResult(task_id=task.id, source=task.source, subject=task.subject)
 
 
@@ -72,7 +73,7 @@ def test_io_tasks_actually_run_concurrently() -> None:
     probe = _Probe()
     plan = [_Task(f"t{i}") for i in range(4)]
 
-    def collect_one(task: _Task) -> IntelResult:
+    def collect_one(task: _Task, _upstream: object = ()) -> IntelResult:
         probe.enter(task.id)
         time.sleep(0.05)  # overlap window
         probe.leave()
@@ -88,7 +89,7 @@ def test_driver_backed_tasks_never_run_concurrently() -> None:
     probe = _Probe()
     plan = [_Task(f"d{i}") for i in range(3)]
 
-    def collect_one(task: _Task) -> IntelResult:
+    def collect_one(task: _Task, _upstream: object = ()) -> IntelResult:
         probe.enter(task.id)
         time.sleep(0.02)
         probe.leave()
@@ -109,7 +110,7 @@ def test_driver_backed_tasks_never_run_concurrently() -> None:
 def test_results_ordered_by_plan_even_when_io_finishes_out_of_order() -> None:
     plan = [_Task("slow"), _Task("fast")]
 
-    def collect_one(task: _Task) -> IntelResult:
+    def collect_one(task: _Task, _upstream: object = ()) -> IntelResult:
         time.sleep(0.05 if task.id == "slow" else 0.0)
         return _r(task)
 
@@ -130,3 +131,56 @@ def test_a_bad_persist_is_swallowed_and_does_not_abort(caplog: object) -> None:
 
     out = collect_ready(plan, [], [], collect_one=_r, persist=persist, max_workers=2)
     assert out["completed"] == ["t0", "t1"]  # the run was not aborted by the bad write
+
+
+def test_a_dependent_task_receives_its_upstream_results() -> None:
+    """A ready task's completed dependencies are threaded into its collect (E15)."""
+    producer = IntelResult(task_id="a", source="s", subject="x")
+    # 'b' depends on completed 'a'; only 'b' is ready now.
+    plan = [_Task("a"), _Task("b", depends_on=("a",))]
+    seen: dict[str, list[str]] = {}
+
+    def collect_one(task: _Task, upstream: Sequence[IntelResult]) -> IntelResult:
+        seen[task.id] = [r.task_id for r in upstream]
+        return _r(task)
+
+    collect_ready(
+        plan,
+        ["a"],
+        [producer],
+        collect_one=collect_one,
+        persist=lambda _r: None,
+    )
+    assert seen == {"b": ["a"]}  # b saw a's result; a was already completed
+
+
+def test_results_block_shows_item_content_not_just_counts() -> None:
+    """The planner/verifier digest carries actual items so they can correlate (E15)."""
+    result = IntelResult(
+        task_id="t",
+        source="dns",
+        subject="example.com",
+        items=(
+            IntelItem(kind="subdomain", value="api.example.com"),
+            IntelItem(
+                kind="subdomain", value="vpn.example.com", attributes={"ip": "10.0.0.9"}
+            ),
+        ),
+        note="2 found",
+    )
+    block = results_block([result])
+    assert "[dns] example.com: 2 items -- 2 found" in block  # header line kept
+    assert "subdomain: api.example.com" in block  # actual content now present
+    assert "vpn.example.com (ip=10.0.0.9)" in block
+
+
+def test_results_block_caps_a_large_corpus() -> None:
+    big = IntelResult(
+        task_id="t",
+        source="s",
+        subject="x",
+        items=tuple(IntelItem(kind="k", value="v" * 50) for _ in range(500)),
+    )
+    block = results_block([big], char_cap=500)
+    assert len(block) <= 520  # the hard cap holds (plus the truncation marker)
+    assert block.endswith("... (truncated)")

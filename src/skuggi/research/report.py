@@ -18,6 +18,7 @@ from skuggi.common.clock import file_stamp, now_iso
 from skuggi.common.paths import confine_under, ensure_parent
 from skuggi.common.text import slug
 from skuggi.intel.schema import IntelResult
+from skuggi.research.correlate import cve_correlations
 from skuggi.research.schema import ResearchProfile
 
 
@@ -33,6 +34,7 @@ def render_report(
     ]
     if profile:
         blocks.append(_profile_block(profile))
+    blocks.append(_exploitability_block(results))
     blocks.append(_sources_block(results))
     return "\n\n".join(b for b in blocks if b) + "\n"
 
@@ -56,6 +58,25 @@ def _profile_block(p: ResearchProfile) -> str:
         for v in p.known_vulnerabilities:
             link = f"[{v.url}]({v.url})" if v.url else ""
             lines.append(f"| {v.id} | {v.severity} | {v.title} | {link} | {v.source} |")
+    return "\n".join(lines)
+
+
+def _exploitability_block(results: list[IntelResult]) -> str:
+    """A CVE-joined exploitability table: each CVE with its exploits/modules (E16)."""
+    correlations = cve_correlations(results)
+    joined = [c for c in correlations if c.exploits or c.modules]
+    if not joined:
+        return ""
+    lines = [
+        "## Exploitability (CVE join)\n",
+        "| CVE | Severity | Exploit-DB | Metasploit |",
+        "| --- | --- | --- | --- |",
+    ]
+    for c in joined:
+        edb = ", ".join(c.exploits) or "—"
+        msf = ", ".join(c.modules) or "—"
+        sev = c.severity or "—"
+        lines.append(f"| {c.cve_id} | {sev} | {edb} | {msf} |")
     return "\n".join(lines)
 
 
