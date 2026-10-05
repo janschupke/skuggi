@@ -12,6 +12,7 @@ sub-component: it reads session scalars (``session_id``/``mode``) and mutates
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -269,11 +270,18 @@ class EngagementManager:
         Rebuilt with the graph (on config/engagement changes, not per turn), so a
         mid-session install is reflected on the next rebuild.
         """
+        settings = self._core.settings
+        network = awareness.network_posture_line(
+            backend=settings.execution_backend,
+            container_network=settings.container_network,
+            egress_proxy=os.environ.get("https_proxy") or os.environ.get("http_proxy"),
+        )
         return awareness.system_facts_block(
             self.registry,
             self.engagement,
-            source=self._core.settings.tool_source,
-            managed_dir=self._core.settings.managed_tools_dir,
+            source=settings.tool_source,
+            managed_dir=settings.managed_tools_dir,
+            network=network,
         )
 
     def harness_catalogue_block(self) -> str:

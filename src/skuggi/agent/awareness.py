@@ -55,14 +55,41 @@ def _scoped_statuses(
     ]
 
 
+def network_posture_line(
+    *, backend: str, container_network: str, egress_proxy: str | None
+) -> str:
+    """One line telling the agent how its commands reach the network.
+
+    So the worker reasons with its own confinement in view -- e.g. that recon
+    egress is public-only (an OSINT/research fetch cannot reach an internal host),
+    and whether tool traffic is direct, proxied, or namespaced by a container.
+    """
+    if backend == "container":
+        tool = f"container, --network {container_network}"
+    elif egress_proxy:
+        tool = "host subprocess via egress proxy"
+    else:
+        tool = "direct host network (no egress proxy)"
+    return (
+        f"tool execution: {tool}; "
+        "recon egress: public-only (OSINT/research cannot reach "
+        "private/loopback/metadata hosts)"
+    )
+
+
 def system_facts_block(
     registry: ToolRegistry,
     engagement: EngagementConfig | None,
     *,
     source: str,
     managed_dir: Path,
+    network: str = "",
 ) -> str:
-    """Render the host-awareness block: OS, installers, scoped tool presence."""
+    """Render the host-awareness block: OS, installers, scoped tool presence.
+
+    ``network`` is the optional :func:`network_posture_line`, appended so the agent
+    also sees how its commands reach the network.
+    """
     installers = sorted(probe.available_installers())
     lines = [
         f"os: {_os_line()}",
@@ -77,6 +104,8 @@ def system_facts_block(
         missing = sorted(s.spec.binary for s in scoped if not s.found)
         lines.append(f"scoped tools installed: {', '.join(installed) or '(none)'}")
         lines.append(f"scoped tools missing: {', '.join(missing) or '(none)'}")
+    if network:
+        lines.append(f"network: {network}")
     return "\n".join(lines)
 
 

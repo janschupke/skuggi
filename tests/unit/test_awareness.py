@@ -95,3 +95,40 @@ def test_catalogue_lists_verbs_and_aliases() -> None:
 
 def test_catalogue_with_no_aliases() -> None:
     assert "saved cmd aliases: (none saved)" in awareness.harness_catalogue_block(())
+
+
+# --- network posture awareness ----------------------------------------------
+
+
+def test_network_posture_host_direct() -> None:
+    line = awareness.network_posture_line(
+        backend="host", container_network="none", egress_proxy=None
+    )
+    assert "direct host network" in line
+    assert "public-only" in line  # recon egress note always present
+
+
+def test_network_posture_host_proxied() -> None:
+    line = awareness.network_posture_line(
+        backend="host", container_network="none", egress_proxy="http://127.0.0.1:8080"
+    )
+    assert "egress proxy" in line
+
+
+def test_network_posture_container_names_the_network() -> None:
+    line = awareness.network_posture_line(
+        backend="container", container_network="scoped-egress", egress_proxy=None
+    )
+    assert "container" in line
+    assert "scoped-egress" in line
+
+
+def test_system_facts_block_appends_the_network_line() -> None:
+    block = awareness.system_facts_block(
+        ToolRegistry(tools=()),
+        None,
+        source="host",
+        managed_dir=Path("/tmp/x"),  # noqa: S108
+        network="tool execution: container, --network none; recon egress: public-only",
+    )
+    assert "network: tool execution: container" in block
