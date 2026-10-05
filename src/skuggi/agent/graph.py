@@ -41,7 +41,7 @@ from skuggi.agent.executor import (
     execute_node,
     route_after_executor,
 )
-from skuggi.agent.prompts import PromptSet, prompt_set
+from skuggi.agent.prompts import SUMMARY_INSTRUCTION, PromptSet, prompt_set
 from skuggi.agent.protocol import (
     CommandBrief,
     CredentialBrief,
@@ -52,6 +52,7 @@ from skuggi.agent.protocol import (
     NoteBrief,
     PlannerResponse,
     RequestContext,
+    SummaryResponse,
     WorkerResponse,
     clamp_phase,
     methodology_phases,
@@ -68,6 +69,7 @@ from skuggi.agent.state import (
     PlanUpdate,
     ReplyUpdate,
     RevisionUpdate,
+    SummaryUpdate,
     WorkerUpdate,
 )
 from skuggi.common import execution
@@ -128,6 +130,8 @@ class GraphDeps:
     retrieve_on_recon: bool = False
     history_messages: int = 8
     history_chars: int = 4_000
+    # Fold turns scrolling out of the window into a running summary (compactor node).
+    compact_history: bool = True
     findings_limit: int = 10
     commands_limit: int = 10
     # The host-awareness block (OS, installers, scoped tool presence) and the
@@ -438,6 +442,43 @@ def _retrieve_node(
     return {"context": clean(format_hits(hits))} if hits else {}
 
 
+def _compact_node(
+    state: AgentState, deps: GraphDeps, clean: Callable[[str], str]
+) -> SummaryUpdate:
+    """Fold turns that scrolled out of the window into the running summary.
+
+    Runs once at the start of a turn, before the planner. Only when prior turns now
+    exceed the verbatim window does it spend a model call, folding just the
+    newly-overflowed turns (``summary_len`` advances) into the existing summary. A
+    short session never overflows, so it is free there.
+    """
+    if not deps.compact_history or deps.llm is None:
+        return {}
+    prior = prior_turns(state["messages"])
+    cut = len(prior) - deps.history_messages
+    already = state.get("summary_len") or 0
+    if cut <= already:
+        return {}
+    overflow = prior[already:cut]
+    rendered = clean(
+        render_history(
+            overflow, max_messages=len(overflow), max_chars=deps.history_chars
+        )
+    )
+    existing = state.get("summary") or "(none)"
+    human = f"Existing summary:\n{existing}\n\nNew exchanges:\n{rendered}"
+    resp = _ask(
+        deps.llm,
+        SUMMARY_INSTRUCTION,
+        human,
+        SummaryResponse,
+        policy=deps.redaction_policy or RedactionPolicy(),
+        native=deps.native_structured,
+        label="compactor",
+    )
+    return {"summary": clean(resp.summary), "summary_len": cut}
+
+
 def build_graph(
     deps: GraphDeps, checkpointer: BaseCheckpointSaver[str]
 ) -> CompiledStateGraph[AgentState]:
@@ -472,6 +513,7 @@ def build_graph(
             engagement=brief,
             system_facts=deps.system_facts,
             harness_catalogue=deps.harness_catalogue,
+            conversation_summary=clean(state.get("summary") or ""),
             history=clean(history(state, divisor=divisor)),
             preferences=clean(deps.preferences),
             data_files=deps.data_files,
@@ -504,6 +546,9 @@ def build_graph(
             label=_NODE_LABELS.get(schema, schema.__name__.lower()),
         )
 
+    def compact_node(state: AgentState) -> SummaryUpdate:
+        return _compact_node(state, deps, clean)
+
     def plan_node(state: AgentState) -> PlanUpdate:
         ctx = context(state, prior_critique=state.get("critique") or "")
         resp = ask(deps.prompts.planner, ctx, PlannerResponse)
@@ -529,6 +574,7 @@ def build_graph(
         return {"approved": resp.approved, "critique": resp.reason}
 
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
+    graph.add_node("compactor", compact_node)
     graph.add_node("planner", plan_node)
     graph.add_node("retriever", retrieve_node)
     graph.add_node("worker", work_node)
@@ -537,7 +583,8 @@ def build_graph(
     graph.add_node("respond", _respond_node)
     graph.add_node("bump", _bump_node)
 
-    graph.add_edge(START, "planner")
+    graph.add_edge(START, "compactor")
+    graph.add_edge("compactor", "planner")
     graph.add_conditional_edges("planner", route_after_plan)
     graph.add_edge("retriever", "worker")
     graph.add_edge("worker", "executor")
@@ -557,8 +604,9 @@ def recursion_limit(*, max_revisions: int, max_command_rounds: int) -> int:
 
     ``2 * (rounds + 1)`` is the worker+executor pair per command round (plus the
     final non-command pair); the ``+ 3`` is the per-pass planner, retriever and
-    critic. The trailing ``+ 4`` is slack so a worst-case turn stops at ``respond``
-    rather than tripping langgraph's recursion guard one step early.
+    critic. The trailing ``+ 5`` is slack -- the once-per-turn compactor superstep
+    plus headroom so a worst-case turn stops at ``respond`` rather than tripping
+    langgraph's recursion guard one step early.
     """
     per_pass = 2 * (max_command_rounds + 1) + 3
-    return (max_revisions + 1) * per_pass + 4
+    return (max_revisions + 1) * per_pass + 5

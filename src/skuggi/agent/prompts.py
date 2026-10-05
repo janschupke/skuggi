@@ -319,6 +319,20 @@ CODEX_DEFAULT_INSTRUCTIONS = (
     "boilerplate disclaimers." + _FORMAT_CLAUSE + _MEMORY_CLAUSE
 )
 
+# The history compactor's brief. Runs when turns scroll out of the verbatim
+# history window: it folds them into a running summary so the agent keeps the gist
+# of an old turn without carrying its full text. Runs out of the turn graph, over
+# already-redacted conversation text.
+SUMMARY_INSTRUCTION = (
+    "You maintain a running summary of an ongoing penetration-testing conversation "
+    "for an assistant whose verbatim history is limited. Given the existing summary "
+    "and the older exchanges that are now scrolling out of view, return an updated "
+    "summary that folds the new exchanges in. Preserve the load-bearing facts: "
+    "targets and scope decisions, what was tried and found, credentials or access "
+    "gained (by nature, never a secret value), and open threads or next steps. Drop "
+    "small talk. Keep it tight -- a compact brief, not a transcript."
+)
+
 # The reviewer's brief. Private feedback for the operator, deliberately not
 # client-facing (stored in the audit log, never the report).
 REVIEW_INSTRUCTION = (

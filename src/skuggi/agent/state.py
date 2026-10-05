@@ -56,6 +56,11 @@ class AgentState(_MessageChannels, total=False):
     revision_count: int
     max_revisions: int
     command_rounds: int
+    # The running conversation summary and how many prior-turn messages have been
+    # folded into it. Persist across turns (never reset), so the summary grows as
+    # old turns scroll out of the verbatim window. Written by the compactor node.
+    summary: str
+    summary_len: int
 
 
 class PlanUpdate(TypedDict, total=False):
@@ -79,6 +84,13 @@ class ContextUpdate(TypedDict, total=False):
     """Written by the retrieval node; empty when it is a no-op."""
 
     context: str
+
+
+class SummaryUpdate(TypedDict, total=False):
+    """Written by the compactor node; empty when nothing scrolled out this turn."""
+
+    summary: str
+    summary_len: int
 
 
 class WorkerUpdate(TypedDict, total=False):

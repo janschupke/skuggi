@@ -272,6 +272,10 @@ class Settings(BaseSettings):
     # both a message count and a character budget (see graph.render_history).
     history_messages: int = 8
     history_chars: int = 4_000
+    # Fold turns that scroll out of the history window into a running summary (one
+    # extra model call per turn, but only once a session is long enough to overflow
+    # the window). Set False to drop old turns silently as before.
+    compact_history: bool = True
     # How many prior findings / commands the agent recalls into each request.
     # Findings recall is engagement-scoped (spanning every session of the
     # engagement, not just this launch's); both are redaction-safe briefs that

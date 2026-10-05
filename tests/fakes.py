@@ -19,7 +19,12 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel
 
-from skuggi.agent.protocol import CriticResponse, PlannerResponse, WorkerResponse
+from skuggi.agent.protocol import (
+    CriticResponse,
+    PlannerResponse,
+    SummaryResponse,
+    WorkerResponse,
+)
 
 EMBED_DIM = 8
 
@@ -136,6 +141,7 @@ class RoleScriptedChatModel(BaseChatModel):
     critic_replies: list[CriticResponse] = [
         CriticResponse(approved=True, reason="fine")
     ]
+    summary_replies: list[SummaryResponse] = []
     calls: list[tuple[str, list[BaseMessage]]] = []
 
     @property
@@ -145,6 +151,10 @@ class RoleScriptedChatModel(BaseChatModel):
     @staticmethod
     def _role(messages: Sequence[BaseMessage]) -> str:
         system = next((m.text for m in messages if m.type == "system"), "")
+        # The history compactor runs out of the role set and has no "You are the"
+        # anchor; detect its brief so it is not mistaken for the worker.
+        if "running summary" in system:
+            return "summary"
         for role in ("planner", "worker", "critic"):
             if f"You are the {role}" in system:
                 return role
@@ -167,6 +177,7 @@ class RoleScriptedChatModel(BaseChatModel):
             "planner": self.planner_replies,
             "worker": self.worker_replies,
             "critic": self.critic_replies,
+            "summary": self.summary_replies,
         }
         queue = queues[role]
         if not queue:
@@ -174,6 +185,7 @@ class RoleScriptedChatModel(BaseChatModel):
                 "planner": PlannerResponse(),
                 "worker": WorkerResponse(),
                 "critic": CriticResponse(approved=True),
+                "summary": SummaryResponse(summary="(summarized)"),
             }[role]
         return queue[min(seen - 1, len(queue) - 1)]
 

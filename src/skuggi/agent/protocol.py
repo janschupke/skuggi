@@ -235,6 +235,9 @@ class RequestContext(BaseModel):
     # run through the ingress redactor; the egress scrub in ``ask`` still covers them.
     system_facts: str = ""
     harness_catalogue: str = ""
+    # A running summary of turns that have scrolled out of the verbatim history
+    # window (the history compactor maintains it); empty until a session overflows.
+    conversation_summary: str = ""
     history: str = ""
     preferences: str = ""
     retrieved_context: str = ""
@@ -406,6 +409,14 @@ class WorkerResponse(BaseModel):
     advice: str = ""
     findings: tuple[FindingDraft, ...] = ()
     done: bool = False
+
+
+class SummaryResponse(BaseModel):
+    """The history compactor's output: the updated running conversation summary."""
+
+    model_config = ConfigDict(frozen=True)
+
+    summary: str = ""
 
 
 class CriticResponse(BaseModel):
@@ -612,6 +623,7 @@ def render_request(ctx: RequestContext) -> str:
         labeled("System", ctx.system_facts),
         labeled("Harness commands", ctx.harness_catalogue),
         labeled("Operator preferences", ctx.preferences),
+        labeled("Conversation summary", ctx.conversation_summary),
         labeled("Conversation so far", ctx.history),
         labeled("Prior findings", _findings_block(ctx.findings)),
         labeled("Captured credentials", _credentials_block(ctx.credentials)),
