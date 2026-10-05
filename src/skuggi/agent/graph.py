@@ -156,16 +156,28 @@ def engagement_brief(engagement: EngagementConfig) -> EngagementBrief:
 
 
 def _finding_briefs(deps: GraphDeps) -> tuple[FindingBrief, ...]:
-    """The most recent findings recorded this session, for a request.
+    """The most recent findings for this engagement, for a request.
+
+    Engagement-scoped, not session-scoped: ``session_id`` is a fresh UUID every
+    launch, so a session-only recall would blank the agent's memory of findings on
+    day two of the same engagement. With an engagement loaded we pull its whole
+    cross-session record (deduped); with none (agent-only mode) we fall back to the
+    current session.
 
     The title is model-facing, so it is redacted: the ledger stores a finding's
     text raw (operator/report-facing), but a title echoed back into a prompt must
     not reintroduce a secret the evidence happened to contain.
     """
-    if deps.ledger is None or not deps.session_id:
+    if deps.ledger is None:
+        return ()
+    if deps.engagement is not None:
+        rows = deps.ledger.findings_for_engagement(deps.engagement.name)
+    elif deps.session_id:
+        rows = deps.ledger.findings_for(deps.session_id)
+    else:
         return ()
     clean = _redactor(deps)
-    rows = deps.ledger.findings_for(deps.session_id)[-deps.findings_limit :]
+    rows = rows[-deps.findings_limit :]
     return tuple(
         FindingBrief(
             id=r.id,

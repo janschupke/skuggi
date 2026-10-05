@@ -480,6 +480,43 @@ def test_approved_findings_for_engagement_aggregates_and_dedupes(
         assert titles == ["Open redirect", "Weak TLS"]  # dup collapsed, draft excluded
 
 
+def test_findings_for_engagement_spans_sessions_and_all_statuses(
+    tmp_path: Path,
+) -> None:
+    """The model-facing recall spans every session and keeps all statuses.
+
+    Unlike the report-facing aggregate, this feeds the agent's memory: a draft lead
+    and a rejected finding from an earlier session must still surface (the brief
+    renders their status), and a finding under a different engagement must not.
+    """
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme", mode="pentest")
+        led.start_session("s2", engagement_name="acme", mode="pentest")
+        led.start_session("o1", engagement_name="other", mode="pentest")
+        led.record_finding(
+            session_id="s1", title="Open lead", severity="low", description="d"
+        )
+        rej = led.record_finding(
+            session_id="s1", title="Not real", severity="info", description="d"
+        )
+        led.set_finding_status(rej, "rejected", reason="false positive")
+        approved = led.record_finding(
+            session_id="s2", title="Real bug", severity="high", description="d"
+        )
+        led.set_finding_status(approved, "approved")
+        led.record_finding(
+            session_id="o1", title="Elsewhere", severity="low", description="d"
+        )
+
+        rows = led.findings_for_engagement("acme")
+        assert [f.title for f in rows] == ["Open lead", "Not real", "Real bug"]
+        assert {f.title: f.status for f in rows} == {
+            "Open lead": "draft",
+            "Not real": "rejected",
+            "Real bug": "approved",
+        }
+
+
 def test_recording_a_finding_marks_its_refs_exercised(tmp_path: Path) -> None:
     """A finding's framework refs auto-record methodology coverage (audit E7)."""
     with open_ledger(tmp_path / "l.db") as led:

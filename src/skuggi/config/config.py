@@ -272,6 +272,12 @@ class Settings(BaseSettings):
     # both a message count and a character budget (see graph.render_history).
     history_messages: int = 8
     history_chars: int = 4_000
+    # How many prior findings / commands the agent recalls into each request.
+    # Findings recall is engagement-scoped (spanning every session of the
+    # engagement, not just this launch's); both are redaction-safe briefs that
+    # carry a finding's nature, never its raw evidence.
+    findings_limit: int = 10
+    commands_limit: int = 10
 
     # --- pentest harness ---
     # The operating mode selects the agent's prompt set (pentest/redteam/blueteam).

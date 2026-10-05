@@ -528,6 +528,32 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
             ).fetchall()
         return dedup_findings([FindingRow(*row) for row in rows])
 
+    def findings_for_engagement(self, engagement_name: str) -> list[FindingRow]:
+        """Every finding across an engagement's sessions, deduped, chronological.
+
+        The cross-session analogue of :meth:`findings_for`, for the agent's recall:
+        ``session_id`` is a fresh UUID each launch, so a session-only recall blanks
+        the agent's memory of findings on day two of the same engagement. This spans
+        every session of the engagement instead. All statuses are kept -- an
+        approved finding is the record, a rejected one still carries its "do not
+        re-assert" signal, a draft is an open lead -- and ``dedup_findings``
+        collapses the same issue proven in more than one session (first wins).
+
+        Unlike :meth:`approved_findings_for_engagement` (report-facing, approved
+        only), this is model-facing; the caller redacts each title/reason and never
+        projects ``evidence``.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                _select_sql(
+                    "findings f JOIN sessions s ON f.session_id = s.session_id",
+                    tuple(f"f.{c}" for c in _FINDING_COLS),
+                    "WHERE s.engagement_name = ? ORDER BY s.started_at, f.id",
+                ),
+                (engagement_name,),
+            ).fetchall()
+        return dedup_findings([FindingRow(*row) for row in rows])
+
     def set_finding_status(
         self, finding_id: int, status: str, *, reason: str = ""
     ) -> None:

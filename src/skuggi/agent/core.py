@@ -377,6 +377,8 @@ class AgentCore:
             retrieve_on_recon=self.settings.retrieve_on_recon,
             history_messages=self.settings.history_messages,
             history_chars=self.settings.history_chars,
+            findings_limit=self.settings.findings_limit,
+            commands_limit=self.settings.commands_limit,
             system_facts=self.engagement_mgr.system_facts_block(),
             harness_catalogue=self.engagement_mgr.harness_catalogue_block(),
             preferences=self.prefs.render_block(),
