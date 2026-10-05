@@ -17,6 +17,7 @@ from skuggi.common.clock import file_stamp, now_iso
 from skuggi.common.logs import get_logger
 from skuggi.common.paths import confine_under, ensure_parent
 from skuggi.common.text import slug
+from skuggi.forensics.analyzers.base import sha256_of
 from skuggi.forensics.deps import ForensicsDeps
 from skuggi.forensics.schema import ForensicsVerdict
 from skuggi.persistence.ledger_schema import EvidenceRow, FindingRow, ProcedureRow
@@ -102,18 +103,60 @@ def _profile_block(verdict: ForensicsVerdict | None) -> str:
     return "\n".join(lines)
 
 
-def render_report(
+def _integrity_block(deps: ForensicsDeps, evidence: list[EvidenceRow]) -> str:
+    """Closeout integrity + provenance: custody chain, re-hash, examiner (E20/E21).
+
+    Re-walks the tamper-evident custody chain and re-hashes each evidence file
+    against the SHA pinned at acquisition, so a report states explicitly whether the
+    evidence is unchanged since examination -- the integrity assurance a forensic
+    deliverable must carry.
+    """
+    lines = ["## Integrity & provenance"]
+    if deps.examiner:
+        lines.append(f"- **Examiner:** {deps.examiner}")
+    if deps.ledger is not None:
+        verdict = deps.ledger.verify_custody(deps.session_id)
+        status = "intact" if verdict.ok else f"BROKEN at {verdict.broken_at}"
+        lines.append(f"- **Custody chain:** {status} ({verdict.checked} rows checked)")
+    ws = deps.workspace
+    if ws is not None and evidence:
+        mismatches: list[str] = []
+        for ev in evidence:
+            path = ws.evidence_dir / ev.source_path
+            try:
+                current, _ = sha256_of(path)
+            except OSError:
+                mismatches.append(f"{ev.note or ev.id}: file missing at closeout")
+                continue
+            if current != ev.sha256:
+                mismatches.append(
+                    f"{ev.note or ev.id}: SHA-256 changed since acquisition"
+                )
+        if mismatches:
+            lines.append("- **Evidence re-verification:** " + "; ".join(mismatches))
+        else:
+            lines.append(
+                f"- **Evidence re-verification:** all {len(evidence)} files match the "
+                "acquisition SHA-256"
+            )
+    return "\n".join(lines)
+
+
+def render_report(  # noqa: PLR0913 -- a report is composed from its parts
     case_name: str,
     evidence: list[EvidenceRow],
     procedure: list[ProcedureRow],
     findings: list[FindingRow],
     verdict: ForensicsVerdict | None,
+    *,
+    integrity: str = "",
 ) -> str:
     """Compose the Markdown case report from the custody record + the verdict."""
     blocks = [
         f"# Forensics case: {case_name}",
         f"_generated {now_iso()}_",
         _profile_block(verdict),
+        integrity,
         _acquisition_table(evidence),
         _procedure_table(procedure),
         _confirmed_findings(findings),
@@ -136,8 +179,14 @@ def write_case_report(
     evidence = deps.ledger.evidence_for(deps.session_id)
     procedure = deps.ledger.procedure_for(deps.session_id)
     findings = deps.ledger.findings_for(deps.session_id)
+    integrity = _integrity_block(deps, evidence)
     body = render_report(
-        deps.case_name or "case", evidence, procedure, findings, verdict
+        deps.case_name or "case",
+        evidence,
+        procedure,
+        findings,
+        verdict,
+        integrity=integrity,
     )
     name = f"{slug(deps.case_name or 'case')}-{file_stamp()}.md"
     # The human-facing report goes to the conventional reports/ dir; the per-file

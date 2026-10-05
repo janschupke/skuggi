@@ -41,6 +41,10 @@ class CaseManager:
         self.workspace.ensure_case()
         self._ledger_ctx = ledger_mod.open_ledger(self.workspace.case_ledger_path)
         self.ledger = self._ledger_ctx.__enter__()
+        # The chain-of-custody HMAC key lives beside the DB, not in it (E20).
+        self.ledger.custody_key = ledger_mod.load_or_create_custody_key(
+            self.workspace.custody_key_path
+        )
         # A case keeps its OWN session id, distinct from the engagement session on
         # AgentCore: forensic records live in the case ledger under this session.
         self.session_id = str(uuid.uuid4())

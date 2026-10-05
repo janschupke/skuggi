@@ -32,6 +32,7 @@ class ForensicsDeps:
     ledger: Ledger | None = None
     session_id: str = ""
     case_name: str = ""
+    examiner: str = ""
     provider: str = ""
     output_root: Path | None = None
     vision: bool = False

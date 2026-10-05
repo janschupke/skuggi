@@ -201,7 +201,12 @@ CREATE TABLE IF NOT EXISTS evidence (
     size        INTEGER NOT NULL,
     media_type  TEXT NOT NULL DEFAULT '',
     acquired_at TEXT NOT NULL,
-    note        TEXT NOT NULL DEFAULT ''
+    note        TEXT NOT NULL DEFAULT '',
+    -- Tamper-evident chain (audit E20): row_hmac = HMAC(case_key, prev_hash||row);
+    -- prev_hash links to the previous evidence row's row_hmac. Empty when no case
+    -- key was set (an offensive-engagement ledger never writes these rows).
+    prev_hash   TEXT NOT NULL DEFAULT '',
+    row_hmac    TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS procedure (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -213,8 +218,25 @@ CREATE TABLE IF NOT EXISTS procedure (
     input_sha256  TEXT NOT NULL DEFAULT '',  -- -> evidence.sha256 it operated on
     output_digest TEXT NOT NULL DEFAULT '',  -- sha256 of the captured output
     created_at    TEXT NOT NULL,
-    note          TEXT NOT NULL DEFAULT ''
+    note          TEXT NOT NULL DEFAULT '',
+    -- Provenance (audit E21): who ran the step and the tool version, for the report.
+    examiner      TEXT NOT NULL DEFAULT '',
+    tool_version  TEXT NOT NULL DEFAULT '',
+    -- Tamper-evident chain (audit E20), as on evidence.
+    prev_hash     TEXT NOT NULL DEFAULT '',
+    row_hmac      TEXT NOT NULL DEFAULT ''
 );
+-- Chain-of-custody is append-only (audit E20): reject any UPDATE/DELETE on the
+-- evidence/procedure tables at the database layer, so a row cannot be silently
+-- rewritten even by a direct SQL edit (the HMAC chain would also catch it).
+CREATE TRIGGER IF NOT EXISTS evidence_no_update BEFORE UPDATE ON evidence
+BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS evidence_no_delete BEFORE DELETE ON evidence
+BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS procedure_no_update BEFORE UPDATE ON procedure
+BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS procedure_no_delete BEFORE DELETE ON procedure
+BEGIN SELECT RAISE(ABORT, 'chain of custody is append-only'); END;
 """
 
 # Indexes for the hot per-session reads (audit D5): without these the command,
@@ -239,6 +261,18 @@ CREATE INDEX IF NOT EXISTS idx_procedure_session ON procedure(session_id);
 # already-created table with ADD COLUMN when missing (a fresh DB gets them from
 # the schema above). Kept plain (no REFERENCES) so ADD COLUMN is always legal.
 _COMMAND_MIGRATIONS = (("turn_event_id", "INTEGER"),)
+
+# Chain-of-custody columns added to an older case DB (audit E20/E21).
+_EVIDENCE_MIGRATIONS = (
+    ("prev_hash", "TEXT NOT NULL DEFAULT ''"),
+    ("row_hmac", "TEXT NOT NULL DEFAULT ''"),
+)
+_PROCEDURE_MIGRATIONS = (
+    ("examiner", "TEXT NOT NULL DEFAULT ''"),
+    ("tool_version", "TEXT NOT NULL DEFAULT ''"),
+    ("prev_hash", "TEXT NOT NULL DEFAULT ''"),
+    ("row_hmac", "TEXT NOT NULL DEFAULT ''"),
+)
 
 # Columns added to `findings` for CVSS scoring; applied to an older DB with ADD
 # COLUMN when missing (a fresh DB gets them from the schema). All nullable, since a
@@ -474,6 +508,8 @@ class EvidenceRow:
     media_type: str
     acquired_at: str
     note: str
+    prev_hash: str = ""
+    row_hmac: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -490,6 +526,10 @@ class ProcedureRow:
     output_digest: str
     created_at: str
     note: str
+    examiner: str = ""
+    tool_version: str = ""
+    prev_hash: str = ""
+    row_hmac: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -39,17 +39,23 @@ from skuggi.common.paths import ensure_parent
 from skuggi.common.sqlitedb import harden
 from skuggi.frameworks import cvss
 from skuggi.persistence.artifacts import ArtifactsLedgerMixin
-from skuggi.persistence.custody import CustodyLedgerMixin
+from skuggi.persistence.custody import (
+    CustodyLedgerMixin,
+    CustodyVerdict,
+    load_or_create_custody_key,
+)
 from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
     _COMMAND_COLS,
     _COMMAND_MIGRATIONS,
     _EVENT_COLS,
+    _EVIDENCE_MIGRATIONS,
     _FINDING_COLS,
     _FINDING_EVIDENCE_COLS,
     _FINDING_MIGRATIONS,
     _FINDING_REF_COLS,
     _INDEXES,
+    _PROCEDURE_MIGRATIONS,
     _SCHEMA,
     _SESSION_COLS,
     _TM_VERSION_COLS,
@@ -89,6 +95,7 @@ __all__ = [
     "CommandStatus",
     "CoverageRow",
     "CredentialRow",
+    "CustodyVerdict",
     "EventKind",
     "EventRow",
     "EvidenceRow",
@@ -104,6 +111,7 @@ __all__ = [
     "SessionRow",
     "ThreadSummary",
     "ThreatModelVersionRow",
+    "load_or_create_custody_key",
     "open_ledger",
 ]
 
@@ -131,11 +139,14 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
         # by this lock, which is what makes cross-thread writes safe.
         self._conn = conn
         self._lock = threading.Lock()
+        self.custody_key: bytes | None = None
         with self._lock:
             self._conn.execute("PRAGMA foreign_keys = ON")
             self._conn.executescript(_SCHEMA)
             self._migrate("commands", _COMMAND_MIGRATIONS)
             self._migrate("findings", _FINDING_MIGRATIONS)
+            self._migrate("evidence", _EVIDENCE_MIGRATIONS)
+            self._migrate("procedure", _PROCEDURE_MIGRATIONS)
             self._conn.executescript(_INDEXES)
             self._conn.commit()
 

@@ -658,6 +658,7 @@ class AgentCore:
             ledger=cm.ledger if cm is not None else None,
             session_id=cm.session_id if cm is not None else "",
             case_name=cm.case.name if cm is not None else "",
+            examiner=cm.case.examiner if cm is not None else "",
             provider=self.settings.provider,
             output_root=cm.forensics_dir if cm is not None else None,
             vision=self.settings.forensics_vision,

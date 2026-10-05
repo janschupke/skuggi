@@ -10,6 +10,7 @@ import pytest
 from skuggi.engagement.workspace import Workspace
 from skuggi.forensics.collect import collect_evidence
 from skuggi.forensics.deps import ForensicsDeps
+from skuggi.forensics.report import _integrity_block
 from skuggi.persistence.ledger import open_ledger
 
 
@@ -90,3 +91,41 @@ def test_vision_is_a_speculative_observation_not_a_custody_row(
         ops = {p.operation for p in ledger.procedure_for("s1")}
         assert "vision" not in ops  # never a custody row
         assert any(i.kind == "vision" for i in result.items)  # but kept for the report
+
+
+def test_collect_records_examiner_and_tool_version_with_a_custody_chain(
+    tmp_path: Path,
+) -> None:
+    """Procedure rows carry provenance and join a verifiable custody chain (E20/E21)."""
+    ws = Workspace.at(tmp_path / "case1")
+    ws.ensure_case()
+    (ws.evidence_dir / "blob.bin").write_bytes(b"ELFjunk" * 20)
+    with open_ledger(ws.case_ledger_path) as ledger:
+        ledger.custody_key = b"k" * 32  # the CaseManager normally sets this
+        ledger.start_session("s1", engagement_name="case:c", mode="forensics")
+        collect_evidence(_deps(ws, ledger, examiner="Jan"))
+        procs = ledger.procedure_for("s1")
+        assert all(p.examiner == "Jan" for p in procs)
+        assert all(p.tool_version.startswith("skuggi ") for p in procs)
+        # the chain written during collection re-verifies intact
+        assert ledger.verify_custody("s1").ok
+
+
+def test_report_integrity_section_flags_a_changed_evidence_file(tmp_path: Path) -> None:
+    """Closeout re-hashing detects evidence altered after acquisition (E21)."""
+    ws = Workspace.at(tmp_path / "case1")
+    ws.ensure_case()
+    evidence = ws.evidence_dir / "blob.bin"
+    evidence.write_bytes(b"original")
+    with open_ledger(ws.case_ledger_path) as ledger:
+        ledger.custody_key = b"k" * 32
+        ledger.start_session("s1", engagement_name="case:c", mode="forensics")
+        collect_evidence(_deps(ws, ledger, examiner="Jan"))
+        rows = ledger.evidence_for("s1")
+        clean_block = _integrity_block(_deps(ws, ledger, examiner="Jan"), rows)
+        assert "all 1 files match" in clean_block
+        assert "Examiner:** Jan" in clean_block
+        # Tamper with the evidence on disk, then re-verify at closeout.
+        evidence.write_bytes(b"tampered")
+        dirty_block = _integrity_block(_deps(ws, ledger, examiner="Jan"), rows)
+        assert "SHA-256 changed since acquisition" in dirty_block

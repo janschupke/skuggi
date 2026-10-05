@@ -257,6 +257,11 @@ class Workspace:
         """The case's SEPARATE ledger (``case.db``), never an engagement's ledger."""
         return self.root / self.layout.case_ledger_file
 
+    @property
+    def custody_key_path(self) -> Path:
+        """The per-case chain-of-custody HMAC key (0600 dotfile, not in the DB)."""
+        return self.root / ".custody.key"
+
     def _reserved_files(self) -> set[Path]:
         """Control files a tool must never be pointed at (scope, env, ledger, vault)."""
         return {

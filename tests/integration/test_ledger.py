@@ -507,3 +507,51 @@ def test_record_coverage_is_idempotent(tmp_path: Path) -> None:
         led.record_coverage(session_id="s1", framework="wstg", ref_id="WSTG-INFO-01")
         led.record_coverage(session_id="s1", framework="wstg", ref_id="WSTG-INFO-01")
         assert len(led.coverage_for("s1")) == 1  # UNIQUE collapses the repeat
+
+
+# --- E20: tamper-evident, append-only chain of custody ------------------------
+
+
+def test_custody_chain_verifies_when_intact(tmp_path: Path) -> None:
+    with open_ledger(tmp_path / "case.db") as led:
+        led.custody_key = b"k" * 32
+        led.start_session("c1", engagement_name="case:x", mode="forensics")
+        eid = led.record_evidence(
+            session_id="c1", source_path="a.bin", sha256="ab", size=10, note="E1"
+        )
+        led.record_procedure(
+            session_id="c1", step=1, operation="hash", actor="in-process", note="E1"
+        )
+        assert eid > 0
+        verdict = led.verify_custody("c1")
+        assert verdict.ok
+        assert verdict.checked == 2
+
+
+def test_custody_chain_detects_a_tampered_row(tmp_path: Path) -> None:
+    with open_ledger(tmp_path / "case.db") as led:
+        led.custody_key = b"k" * 32
+        led.start_session("c1", engagement_name="case:x", mode="forensics")
+        led.record_evidence(
+            session_id="c1", source_path="a.bin", sha256="ab", size=10, note="E1"
+        )
+        # Drop the append-only trigger to simulate an attacker editing the file.
+        led._conn.execute("DROP TRIGGER evidence_no_update")
+        led._conn.execute("UPDATE evidence SET sha256 = 'forged' WHERE session_id='c1'")
+        led._conn.commit()
+        verdict = led.verify_custody("c1")
+        assert not verdict.ok
+        assert "evidence" in verdict.broken_at
+
+
+def test_custody_tables_reject_update_and_delete(tmp_path: Path) -> None:
+    with open_ledger(tmp_path / "case.db") as led:
+        led.custody_key = b"k" * 32
+        led.start_session("c1", engagement_name="case:x", mode="forensics")
+        led.record_evidence(
+            session_id="c1", source_path="a.bin", sha256="ab", size=10, note="E1"
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            led._conn.execute("UPDATE evidence SET note = 'x'")
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            led._conn.execute("DELETE FROM evidence")

@@ -15,11 +15,13 @@ import hashlib
 from collections.abc import Iterator
 from pathlib import Path
 
+from skuggi import __version__ as skuggi_version
 from skuggi.agent import vision
 from skuggi.forensics.analyzers import (
     Observation,
     encoding,
     entropy,
+    executable,
     hashes,
     hexview,
     logparse,
@@ -81,6 +83,9 @@ def _battery(
                 ]
                 yield "vision", "vision", obs
     else:
+        exe = executable.analyze(path)
+        if exe:  # a recognized ELF/PE/Mach-O header -> structured format observation
+            yield "executable", "in-process", exe
         yield "strings", "in-process", strings.analyze(path)
         yield "hexdump", "in-process", hexview.analyze(path)
         yield "entropy", "in-process", entropy.analyze(path)
@@ -145,6 +150,8 @@ def collect_evidence(deps: ForensicsDeps) -> list[IntelResult]:
                 input_sha256=sha,
                 output_digest=digest,
                 note=eid,
+                examiner=deps.examiner,
+                tool_version=f"skuggi {skuggi_version}",
             )
         result = IntelResult(
             task_id=eid,
