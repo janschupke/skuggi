@@ -380,8 +380,6 @@ class Daemon:
                 "db": self._show_db,
                 "latency": self._show_latency,
                 "tools": self._show_tools,
-                "notes": self._notes,
-                "loot": self._loot,
                 "history": self._history,
                 "trace": self._trace,
             },
@@ -647,16 +645,6 @@ class Daemon:
             return
         options = " | ".join(n.name for n in verbs.nouns_of("add"))
         yield from self._emit(presenters.usage(f"add <{options}>", self._surface()))
-
-    def _notes(self, _arg: str) -> Iterator[str]:
-        yield from self._emit(
-            presenters_journal.present_notes(self.core.journal.note_items())
-        )
-
-    def _loot(self, _arg: str) -> Iterator[str]:
-        yield from self._emit(
-            presenters_journal.present_loot(self.core.journal.loot_items())
-        )
 
     def _findings(self, arg: str) -> Iterator[str]:
         """Review a finding (approve/reject/rescore); listing is `show findings`."""

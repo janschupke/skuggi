@@ -155,8 +155,6 @@ class Tui:
             "db": self._show_db,
             "latency": self._show_latency,
             "tools": self._show_tools,
-            "notes": self._show_notes,
-            "loot": self._show_loot,
             "history": self._show_history,
             "trace": self._show_trace,
         }
@@ -528,12 +526,6 @@ class Tui:
             self.console.print(f"[dim](no {which} tools)[/dim]")
             return
         self.console.print(doctor_table(filtered))
-
-    def _show_notes(self, _rest: str) -> None:
-        self._emit(presenters_journal.present_notes(self.core.journal.note_items()))
-
-    def _show_loot(self, _rest: str) -> None:
-        self._emit(presenters_journal.present_loot(self.core.journal.loot_items()))
 
     def _show_history(self, arg: str) -> None:
         self._emit(

@@ -32,7 +32,14 @@ from typing import TYPE_CHECKING
 from skuggi.agent import readiness
 from skuggi.agent.core import parse_toggle
 from skuggi.config.configs import ConfigError
-from skuggi.frontend import dispatch, presenters, presenters_journal, render, verbs
+from skuggi.frontend import (
+    dispatch,
+    presenters,
+    presenters_journal,
+    render,
+    show_filters,
+    verbs,
+)
 from skuggi.frontend.outcomes import FindingRecorded
 
 if TYPE_CHECKING:
@@ -111,12 +118,32 @@ def show_coverage(
     )
 
 
-def show_findings(
-    core: AgentCore, _rest: str, _surface: verbs.Surface
-) -> render.Styled:
-    """The recorded findings, severity-painted, flagging threat-model-outdated ones."""
+def show_findings(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
+    """The recorded findings, severity-painted, flagging threat-model-outdated ones.
+
+    Takes optional filters (``--severity``/``--status``/``--host``/``--grep``/
+    ``--limit``, or bare words as grep) so a large engagement's list stays usable.
+    """
+    filters = show_filters.parse_filters(rest)
+    rows = show_filters.filter_findings(core.journal.findings(), filters)
     return presenters_journal.present_findings_list(
-        core.journal.findings(), core.ledger.current_threat_model_version()
+        rows, core.ledger.current_threat_model_version()
+    )
+
+
+def show_loot(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
+    """Captured loot, secrets masked. Filters: ``--kind``/``--host``/``--grep``."""
+    filters = show_filters.parse_filters(rest)
+    return presenters_journal.present_loot(
+        show_filters.filter_loot(core.journal.loot_items(), filters)
+    )
+
+
+def show_notes(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
+    """Recorded notes. Filters: ``--host``/``--grep``/``--limit`` (bare = grep)."""
+    filters = show_filters.parse_filters(rest)
+    return presenters_journal.present_notes(
+        show_filters.filter_notes(core.journal.note_items(), filters)
     )
 
 
@@ -328,6 +355,8 @@ SHOW_ACTIONS: dict[str, Action] = {
     "coverage": show_coverage,
     "creds": show_creds,
     "footholds": show_footholds,
+    "loot": show_loot,
+    "notes": show_notes,
     "env": show_env,
     "case": show_case,
 }
