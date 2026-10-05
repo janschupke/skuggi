@@ -16,6 +16,7 @@ while this module only needs ``GraphDeps`` as a type. That one-way edge
 
 from __future__ import annotations
 
+import shlex
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -23,11 +24,13 @@ from skuggi.agent.protocol import CommandBrief, WorkerResponse
 from skuggi.common import execution
 from skuggi.common.logs import get_logger
 from skuggi.engagement.engagement import ParsedCommand, check_command, parse_command
+from skuggi.engagement.pivot import Route, select_route, wrap_command
 from skuggi.engagement.risk import risk_tier
 from skuggi.persistence.ledger import FindingEvidenceInput, FindingRefInput, Ledger
 from skuggi.persistence.ledger_schema import FindingAuthor
 from skuggi.security.policy import RedactionPolicy
 from skuggi.security.redaction import redact
+from skuggi.tooling.registry import RiskTier
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -188,6 +191,23 @@ def _record_command(  # noqa: PLR0913 -- keyword-only ledger columns
     )
 
 
+def _proposed_reason(
+    autonomous: bool, tier: RiskTier, ceiling: RiskTier, route: Route
+) -> str:
+    """The operator-facing reason a command was held proposed (incl. any pivot)."""
+    via = (
+        f" (routes via foothold {route.foothold.host})"
+        if route.foothold is not None
+        else ""
+    )
+    if not autonomous:
+        return f"recorded proposed; the operator runs it manually{via}"
+    return (
+        f"recorded proposed; risk tier '{tier.name}' exceeds the autonomous "
+        f"ceiling '{ceiling.name}' -- run it manually{via}"
+    )
+
+
 def _run_or_propose(
     deps: GraphDeps, command: str, work_dir: Path, *, now: datetime
 ) -> tuple[int, CommandBrief, bool]:
@@ -217,34 +237,42 @@ def _run_or_propose(
             id=cid, status="blocked", command=command, summary=verdict.reason
         )
         return cid, brief, False
+    # Reachability: is the target reachable directly, or only through a registered
+    # foothold? Routing never widens authority (the scope check above already
+    # passed on the real target) -- it only decides the path and, when a pivot is
+    # needed, elevates the effective risk tier (running THROUGH a compromised host
+    # is an intrusive act even for a benign inner command).
+    footholds = ledger.footholds_for(deps.session_id)
+    route = select_route(parsed.targets, footholds)
     # Risk gate: in scope, but is it low-risk enough to run unattended? A command
     # above the engagement's autonomous ceiling is held as ``proposed`` for the
     # operator to run by hand -- "manual escalation" -- exactly like the
     # non-autonomous path, but with a reason that names the tier. Deterministic:
     # no LLM decides this (see skuggi.engagement.risk).
     tier = risk_tier(deps.registry.spec_for(parsed.binary), parsed.argv)
+    if route.foothold is not None:
+        tier = max(tier, RiskTier.intrusive)
     ceiling = deps.engagement.autonomous_ceiling
     if not deps.engagement.autonomous or tier > ceiling:
-        if not deps.engagement.autonomous:
-            summary = "recorded proposed; the operator runs it manually"
-        else:
-            summary = (
-                f"recorded proposed; risk tier '{tier.name}' exceeds the "
-                f"autonomous ceiling '{ceiling.name}' -- run it manually"
-            )
+        summary = _proposed_reason(deps.engagement.autonomous, tier, ceiling, route)
         cid = _record_command(deps, ledger, parsed, command, status="proposed")
         brief = CommandBrief(
             id=cid, status="proposed", command=command, summary=summary
         )
         return cid, brief, False
-    # Rehydrate any «KIND:id» placeholder in the argv to its real value just
-    # before the tool runs: a credential the agent discovered (and only ever saw
-    # as a placeholder) reaches the tool here, and nowhere else. The recorded
-    # command and the model-facing brief keep the placeholder form.
+    # Build the argv to run. A pivoted command is first wrapped so it runs through
+    # the foothold (operator-supplied template); then every «KIND:id» placeholder
+    # -- the foothold's own secret and any credential in the inner command -- is
+    # rehydrated to its real value just before the tool runs, and nowhere else. The
+    # recorded command and model-facing brief keep the clean inner placeholder form.
+    to_run = (
+        wrap_command(route.foothold, command) if route.foothold is not None else command
+    )
+    tokens = shlex.split(to_run) if route.foothold is not None else list(parsed.argv)
     argv = (
-        tuple(deps.vault.rehydrate(token) for token in parsed.argv)
+        tuple(deps.vault.rehydrate(token) for token in tokens)
         if deps.vault is not None
-        else parsed.argv
+        else tuple(tokens)
     )
     result = execution.run(
         argv,
@@ -266,12 +294,15 @@ def _run_or_propose(
             "evidence loss: failed to record executed command %r", command
         )
         raise
+    summary = _summarize_result(result, _redactor(deps))
+    if route.foothold is not None:
+        summary = f"[via foothold {route.foothold.host}] {summary}"
     brief = CommandBrief(
         id=cid,
         status="executed",
         command=command,
         exit_code=result.exit_code,
-        summary=_summarize_result(result, _redactor(deps)),
+        summary=summary,
     )
     return cid, brief, True
 

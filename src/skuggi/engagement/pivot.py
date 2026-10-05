@@ -60,3 +60,34 @@ def route_for(target: str, footholds: Sequence[FootholdRow]) -> Route:
             if _reaches(foothold, target):
                 return Route(foothold=foothold)
     return Route(foothold=None)
+
+
+def select_route(targets: Sequence[str], footholds: Sequence[FootholdRow]) -> Route:
+    """Route a command by its first target that must go through a foothold, else direct.
+
+    A command may name several targets; the command is pivoted as soon as any one of
+    them is only reachable via a foothold (the deeper target drives the path).
+    """
+    for target in targets:
+        route = route_for(target, footholds)
+        if route.foothold is not None:
+            return route
+    return Route(foothold=None)
+
+
+def wrap_command(foothold: FootholdRow, inner_command: str) -> str:
+    """Wrap `inner_command` so it runs through `foothold` (template substitution).
+
+    The operator-supplied ``template`` places the inner command via a ``{cmd}``
+    marker (``ssh root@host -- {cmd}``, a webshell curl, ``proxychains4 -q {cmd}``);
+    a template with no marker is treated as a prefix wrapper. An empty template
+    leaves the command unchanged. The result is still in placeholder form -- any
+    ``«KIND:id»`` secret (the foothold's own, or one in the inner command) is
+    rehydrated by the caller just before exec, exactly like a direct command.
+    """
+    template = foothold.template.strip()
+    if not template:
+        return inner_command
+    if "{cmd}" in template:
+        return template.replace("{cmd}", inner_command)
+    return f"{template} {inner_command}"
