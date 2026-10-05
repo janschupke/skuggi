@@ -433,7 +433,8 @@ def _run_or_propose(
         if deps.vault is not None
         else tuple(tokens)
     )
-    result = execution.run(
+    backend = deps.backend or execution.HostBackend()
+    result = backend.run(
         argv,
         timeout=deps.command_timeout_s,
         cwd=work_dir,

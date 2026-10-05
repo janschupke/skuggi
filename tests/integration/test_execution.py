@@ -6,7 +6,9 @@ subprocess block. `_cap` needs no process and stays unmarked.
 
 from __future__ import annotations
 
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -125,3 +127,78 @@ def test_display_command_is_recorded_not_the_rehydrated_argv(tmp_path: Path) -> 
     assert result.command == "echo \u00abSECRET:1\u00bb"
     assert "s3cr3t-password" not in result.command
     assert "s3cr3t-password" in result.stdout  # the real value still ran
+
+
+# --- backend seam & host hardening ------------------------------------------
+
+
+def test_resource_limits_unbounded_sets_nothing() -> None:
+    """An unbounded limits object yields no preexec (the pre-hardening path)."""
+    assert execution._rlimit_preexec(execution.ResourceLimits.unbounded()) is None
+
+
+def test_rlimit_preexec_is_callable_on_posix() -> None:
+    """On POSIX the default limits compile to an applicable preexec closure."""
+    pytest.importorskip("resource")
+    assert callable(execution._rlimit_preexec(execution.ResourceLimits()))
+
+
+@pytest.mark.runs_commands
+def test_host_backend_runs_like_the_module_run(tmp_path: Path) -> None:
+    result = execution.HostBackend().run(["echo", "hi"], timeout=10, cwd=tmp_path)
+    assert result.exit_code == 0
+    assert "hi" in result.stdout
+
+
+@pytest.mark.runs_commands
+def test_host_backend_enforces_file_size_limit(tmp_path: Path) -> None:
+    """A tool that writes past RLIMIT_FSIZE is stopped, not left to fill the disk."""
+    pytest.importorskip("resource")
+    backend = execution.HostBackend(
+        limits=execution.ResourceLimits(
+            cpu_seconds=None,
+            address_space_bytes=None,
+            max_processes=None,
+            file_size_bytes=64 * 1024,  # 64 KiB
+            open_files=None,
+        )
+    )
+    program = (
+        "f = open('big.bin', 'wb')\n"
+        "f.write(b'x' * (4 * 1024 * 1024)); f.flush()\n"  # 4 MiB >> 64 KiB
+    )
+    result = backend.run([sys.executable, "-c", program], timeout=30, cwd=tmp_path)
+    # The write is killed by SIGXFSZ (negative exit) or fails the write (nonzero);
+    # either way the file never reaches the attempted 4 MiB.
+    assert result.exit_code != 0
+    written = (
+        (tmp_path / "big.bin").stat().st_size if (tmp_path / "big.bin").exists() else 0
+    )
+    assert written <= 64 * 1024
+
+
+@pytest.mark.runs_commands
+def test_timeout_reaps_a_forked_grandchild(tmp_path: Path) -> None:
+    """start_new_session + killpg: a helper the tool forks dies with its parent.
+
+    The parent writes the grandchild's pid, forks a long sleeper, then sleeps
+    itself past the deadline. After the timeout kill, the grandchild must be gone.
+    """
+    marker = tmp_path / "child.pid"
+    program = (
+        "import os, time, sys\n"
+        "pid = os.fork()\n"
+        "if pid == 0:\n"
+        "    time.sleep(60)\n"  # the grandchild
+        "else:\n"
+        f"    open({str(marker)!r}, 'w').write(str(pid))\n"
+        "    time.sleep(60)\n"  # the parent, killed at timeout
+    )
+    result = execution.HostBackend().run(
+        [sys.executable, "-c", program], timeout=1.0, cwd=tmp_path
+    )
+    assert result.timed_out
+    time.sleep(0.3)  # let the SIGKILL propagate through the group
+    child_pid = int(marker.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)  # 0 = existence probe; raises if already reaped

@@ -121,6 +121,11 @@ class GraphDeps:
     clock: Callable[[], datetime] | None = None
     cwd: Path | None = None
     command_timeout_s: float = execution.DEFAULT_COMMAND_TIMEOUT_S
+    # How a cleared, in-scope command is actually run: a hardened host
+    # subprocess (default) or a container with a netns egress allow-list.
+    # None falls back to a default ``HostBackend`` in the executor, so an
+    # agent-only ``GraphDeps`` keeps working.
+    backend: execution.ExecutionBackend | None = None
     # Whether the provider supports native structured output; the chatgpt path
     # (False) uses protocol's JSON-contract fallback. See Settings.
     native_structured: bool = True

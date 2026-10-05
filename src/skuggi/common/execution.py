@@ -16,14 +16,16 @@ blow up the ledger or a prompt.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
 import subprocess
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO
+from typing import IO, Protocol, runtime_checkable
 
 from skuggi.common.logs import get_logger
 
@@ -74,6 +76,90 @@ def safe_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
     }
 
 
+@dataclass(frozen=True, slots=True)
+class ResourceLimits:
+    """POSIX ``rlimit`` ceilings applied to a spawned tool (0/None = unset).
+
+    A model-proposed tool runs third-party code; the host default bounds the one
+    kind of runaway it can enforce without breaking legitimate tools -- a single
+    file growing without bound (``RLIMIT_FSIZE``). Everything else is deliberately
+    unset on the host, because each remaining ``rlimit`` breaks real tools when
+    set as a blunt default:
+
+    * ``RLIMIT_AS`` (virtual memory) -- JVM/Node/Python scanners reserve huge
+      address space and die under a hard cap.
+    * ``RLIMIT_CPU`` -- kills a legitimate long scan.
+    * ``RLIMIT_NPROC`` -- is a *per-UID* process count, not per-session; on any
+      machine already running many processes the child's first ``fork`` fails.
+    * ``RLIMIT_NOFILE`` -- a high-concurrency scanner (masscan) needs thousands
+      of fds; a blunt cap throttles it.
+
+    Memory / CPU / process / fd / network bounding is the ``ContainerBackend``'s
+    job (cgroups + ``--pids-limit`` + netns). On the host, the load-bearing
+    containment of a runaway is the wall-clock timeout plus process-group reaping
+    (``start_new_session`` + ``killpg``), not these ceilings. Callers that want a
+    hard cap pass an explicit ``ResourceLimits``; the preexec sets soft == hard
+    where it can and skips (never aborts on) a value above the inherited hard
+    limit.
+    """
+
+    cpu_seconds: int | None = None
+    address_space_bytes: int | None = None
+    max_processes: int | None = None
+    file_size_bytes: int | None = 1024 * 1024 * 1024  # 1 GiB any single file
+    open_files: int | None = None
+
+    @classmethod
+    def unbounded(cls) -> ResourceLimits:
+        """A limits object that sets nothing -- the pre-hardening behaviour."""
+        return cls(
+            cpu_seconds=None,
+            address_space_bytes=None,
+            max_processes=None,
+            file_size_bytes=None,
+            open_files=None,
+        )
+
+
+def _rlimit_preexec(limits: ResourceLimits) -> Callable[[], None] | None:
+    """A ``preexec_fn`` that applies `limits` in the child, or None off POSIX.
+
+    Imported lazily so the module stays importable on a platform without
+    ``resource`` (Windows); returns None there so the caller simply spawns
+    without ceilings rather than failing. The child is placed in its own session
+    by ``start_new_session`` at the ``Popen`` call, not here, so a timeout kill
+    can reap the whole process group.
+    """
+    try:
+        import resource  # noqa: PLC0415 -- lazy; POSIX-only, keep off the import path
+    except ImportError:
+        return None
+
+    pairs: list[tuple[int, int]] = []
+    for attr, value in (
+        ("RLIMIT_CPU", limits.cpu_seconds),
+        ("RLIMIT_AS", limits.address_space_bytes),
+        ("RLIMIT_NPROC", limits.max_processes),
+        ("RLIMIT_FSIZE", limits.file_size_bytes),
+        ("RLIMIT_NOFILE", limits.open_files),
+    ):
+        res = getattr(resource, attr, None)
+        if res is not None and value is not None:
+            pairs.append((res, value))
+    if not pairs:
+        return None
+
+    def _apply() -> None:  # pragma: no cover -- runs in the forked child
+        for res, value in pairs:
+            # A ceiling above the inherited hard limit, or one the platform
+            # refuses: skip it rather than abort the spawn. The wall-clock
+            # timeout remains the backstop.
+            with contextlib.suppress(ValueError, OSError):
+                resource.setrlimit(res, (value, value))
+
+    return _apply
+
+
 # A scan can emit megabytes; the ledger and any prompt that echoes a result
 # both need this bounded. Shared with tools.file_read (same 256 KiB ceiling).
 MAX_CAPTURE_BYTES = 262_144
@@ -117,18 +203,23 @@ class CommandResult:
         return self.exit_code == _TIMEOUT_EXIT
 
 
-def run(
+def run(  # noqa: PLR0913 -- keyword-only knobs; a single exec entry point
     argv: Sequence[str],
     *,
     timeout: float,
     cwd: Path,
     env: Mapping[str, str] | None = None,
     display_command: str | None = None,
+    preexec_fn: Callable[[], None] | None = None,
 ) -> CommandResult:
     """Execute `argv` directly (no shell), capturing output and timing.
 
     A timeout is a result, not an exception: the harness records a timed-out
-    command like any other rather than letting it abort the turn.
+    command like any other rather than letting it abort the turn. The child is
+    spawned in its own session (``start_new_session``) so a timeout kills the
+    whole process group, not just the immediate child -- a tool that forks
+    helpers (nmap's NSE, a shelled-out cracker) cannot outlive its deadline.
+    ``preexec_fn`` applies resource ceilings in the child (see ``HostBackend``).
     """
     started = datetime.now(UTC)
     # The rehydrated argv may carry a real secret (a vaulted credential is
@@ -149,6 +240,8 @@ def run(
                 stderr=err_f,
                 cwd=str(cwd),
                 env=dict(env) if env is not None else None,
+                start_new_session=True,
+                preexec_fn=preexec_fn,  # noqa: PLW1509 -- POSIX rlimits; None off POSIX
             )
         except (OSError, ValueError) as exc:
             # A missing binary or a bad argv is a failed command, not a crash.
@@ -165,7 +258,7 @@ def run(
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            _kill_group(proc)
             proc.wait()
             timed_out = True
         stdout = _cap(_read_capped(out_f))
@@ -187,6 +280,21 @@ def run(
         )
 
 
+def _kill_group(proc: subprocess.Popen[bytes]) -> None:
+    """Kill the child's whole process group, falling back to the child alone.
+
+    ``start_new_session`` made the child a process-group leader, so signalling
+    the group reaps any helper it forked. If the group is already gone (the
+    child exited between the timeout and here) or the platform lacks ``killpg``,
+    fall back to killing the child directly.
+    """
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError, AttributeError):
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+
+
 def _read_capped(handle: IO[bytes]) -> str:
     """Read at most ``MAX_CAPTURE_BYTES`` + 1 bytes from a spool file, decoded.
 
@@ -196,3 +304,62 @@ def _read_capped(handle: IO[bytes]) -> str:
     """
     handle.seek(0)
     return handle.read(MAX_CAPTURE_BYTES + 1).decode("utf-8", errors="replace")
+
+
+@runtime_checkable
+class ExecutionBackend(Protocol):
+    """How a guarded, in-scope command is actually run.
+
+    One method, so the guard/record path in ``agent.executor`` never knows (or
+    cares) whether a command runs as a hardened host subprocess or inside a
+    throwaway container with a network-namespace egress allow-list. The backend
+    is resolved per engagement and carried on ``GraphDeps``; the executor calls
+    ``backend.run(...)`` exactly where it used to call the module ``run``.
+    """
+
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        timeout: float,
+        cwd: Path,
+        env: Mapping[str, str] | None = None,
+        display_command: str | None = None,
+    ) -> CommandResult:
+        """Execute `argv`, returning its captured, bounded result."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class HostBackend:
+    """The default backend: a hardened host subprocess (no container).
+
+    Adds resource ceilings (``ResourceLimits``) and process-group reaping to the
+    bare ``run``. It is *not* an OS sandbox -- a cleared command still runs as
+    the operator's uid with host network reach -- so it is the right default for
+    the dev loop and a single-operator box, with ``ContainerBackend`` the opt-in
+    for untrusted targets or hard egress control. Egress on this backend is
+    enforced (best-effort) by the proxy vars in ``safe_env`` when the operator
+    configures a filtering proxy; see the egress gate.
+    """
+
+    limits: ResourceLimits = ResourceLimits()
+
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        timeout: float,
+        cwd: Path,
+        env: Mapping[str, str] | None = None,
+        display_command: str | None = None,
+    ) -> CommandResult:
+        """Run `argv` as a hardened host subprocess."""
+        return run(
+            argv,
+            timeout=timeout,
+            cwd=cwd,
+            env=env,
+            display_command=display_command,
+            preexec_fn=_rlimit_preexec(self.limits),
+        )

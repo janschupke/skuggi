@@ -39,7 +39,7 @@ from skuggi.agent.session_archive import SessionArchive
 from skuggi.agent.state import AgentState
 from skuggi.agent.tooldoctor import ToolDoctor
 from skuggi.agent.turn_runner import TurnEvent, TurnRunner
-from skuggi.common import logs
+from skuggi.common import execution, logs
 from skuggi.config.config import (
     Provider,
     Settings,
@@ -371,6 +371,7 @@ class AgentCore:
             turn_id=lambda: self.current_turn_event_id,
             cwd=self.engagement_mgr.recon_cwd(),
             command_timeout_s=self.settings.command_timeout_s,
+            backend=execution.HostBackend(),
             native_structured=self.settings.supports_structured_output(),
             max_command_rounds=self.settings.max_tool_rounds,
             retrieve_k=self.settings.retrieve_k,
