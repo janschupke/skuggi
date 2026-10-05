@@ -489,6 +489,27 @@ class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
             ).fetchall()
         return [CommandRow(*row) for row in rows]
 
+    def recent_commands_for(self, session_id: str, limit: int) -> list[CommandRow]:
+        """The session's most recent ``limit`` commands, oldest-first in the window.
+
+        Bounded in SQL so the agent's cross-turn command recall never loads a whole
+        long session just to keep the tail. ``state["commands"]`` holds only the
+        current turn's trail (reset each turn), so this is what lets the worker see
+        what it ran on earlier turns.
+        """
+        if limit <= 0:
+            return []
+        with self._lock:
+            rows = self._conn.execute(
+                _select_sql(
+                    "commands",
+                    _COMMAND_COLS,
+                    "WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                ),
+                (session_id, limit),
+            ).fetchall()
+        return [CommandRow(*row) for row in reversed(rows)]
+
     def findings_for(
         self, session_id: str, *, status: str | None = None
     ) -> list[FindingRow]:

@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from skuggi.agent.protocol import FindingDraft
     from skuggi.agent.state import AgentState, ExecutorUpdate
     from skuggi.engagement.engagement import EngagementConfig
+    from skuggi.persistence.ledger_schema import CommandRow
 
 log = get_logger(__name__)
 
@@ -59,23 +60,56 @@ def _redactor(deps: GraphDeps) -> Callable[[str], str]:
     return lambda text: redact(text, policy, deps.vault)
 
 
-def _summarize_result(
-    result: execution.CommandResult, clean: Callable[[str], str]
+def _summarize_output(
+    exit_code: int | None, stdout: str, stderr: str, clean: Callable[[str], str]
 ) -> str:
-    """A bounded summary of a command's output for the worker's next request.
+    """A bounded, redacted summary of captured output for a model-facing brief.
 
     ``clean`` redacts the captured output before it becomes model-facing: scan
     output is the single largest source of discovered secrets/PII, so it is
     scrubbed (and any secret vaulted) *before* truncation, so a secret cannot
-    survive by sitting past the cap.
+    survive by sitting past the cap. Works on the primitive fields so both a live
+    ``CommandResult`` (this turn) and a persisted ``CommandRow`` (a prior turn, via
+    :func:`brief_from_row`) summarize identically.
     """
-    parts = [result.stdout.strip()]
-    if result.stderr.strip():
-        parts.append("stderr: " + result.stderr.strip())
+    parts = [stdout.strip()]
+    if stderr.strip():
+        parts.append("stderr: " + stderr.strip())
     text = clean("\n".join(p for p in parts if p))
     if not text:
-        return f"exit={result.exit_code} (no output)"
-    return f"exit={result.exit_code}\n{_head_tail(text, _OUTPUT_SUMMARY_CAP)}"
+        return f"exit={exit_code} (no output)"
+    return f"exit={exit_code}\n{_head_tail(text, _OUTPUT_SUMMARY_CAP)}"
+
+
+def _summarize_result(
+    result: execution.CommandResult, clean: Callable[[str], str]
+) -> str:
+    """A bounded summary of a just-run command's output for the worker."""
+    return _summarize_output(result.exit_code, result.stdout, result.stderr, clean)
+
+
+def brief_from_row(row: CommandRow, clean: Callable[[str], str]) -> CommandBrief:
+    """A redacted :class:`CommandBrief` from a persisted row, for cross-turn recall.
+
+    Mirrors the in-turn brief built in :func:`_run_or_propose`: an executed row is
+    summarized from its captured output (redacted, head+tail bounded); a
+    proposed/blocked/passthrough row carries its reason. The command string and the
+    output are both redacted here -- the ledger stores a row raw (report-facing),
+    but a brief is model-facing and must not reintroduce a secret.
+    """
+    if row.status == "executed":
+        summary = _summarize_output(row.exit_code, row.stdout, row.stderr, clean)
+        exit_code = row.exit_code
+    else:
+        summary = clean(row.reason)
+        exit_code = None
+    return CommandBrief(
+        id=row.id,
+        status=row.status,
+        command=clean(row.command),
+        exit_code=exit_code,
+        summary=summary,
+    )
 
 
 def _head_tail(text: str, cap: int) -> str:

@@ -35,9 +35,15 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from skuggi.agent.executor import _redactor, execute_node, route_after_executor
+from skuggi.agent.executor import (
+    _redactor,
+    brief_from_row,
+    execute_node,
+    route_after_executor,
+)
 from skuggi.agent.prompts import PromptSet, prompt_set
 from skuggi.agent.protocol import (
+    CommandBrief,
     CriticResponse,
     EngagementBrief,
     FindingBrief,
@@ -190,6 +196,24 @@ def _finding_briefs(deps: GraphDeps) -> tuple[FindingBrief, ...]:
         )
         for r in rows
     )
+
+
+def _command_briefs(
+    deps: GraphDeps, state: AgentState, clean: Callable[[str], str]
+) -> tuple[CommandBrief, ...]:
+    """The recent commands for a request: cross-turn via the ledger, redacted.
+
+    ``state["commands"]`` holds only this turn's trail (the planner resets it each
+    turn), so sourcing from it alone meant the worker forgot what it ran on earlier
+    turns. A bounded ledger window restores that cross-turn recall. Each row is
+    re-redacted into a model-facing brief (the ledger stores raw output). Falls back
+    to the in-turn trail in agent-only mode (no ledger), where the state briefs were
+    already redacted when the executor built them.
+    """
+    if deps.ledger is not None and deps.session_id:
+        rows = deps.ledger.recent_commands_for(deps.session_id, deps.commands_limit)
+        return tuple(brief_from_row(row, clean) for row in rows)
+    return tuple(list(state.get("commands", []))[-deps.commands_limit :])
 
 
 # The node each response schema belongs to, so the per-turn latency breakdown
@@ -357,7 +381,7 @@ def build_graph(
         brief = (
             engagement_brief(deps.engagement) if deps.engagement is not None else None
         )
-        commands = list(state.get("commands", []))[-deps.commands_limit :]
+        commands = _command_briefs(deps, state, clean)
         # Redact every free-text field that originates outside the harness
         # before it is assembled into a request: the operator's prompt and
         # history (an accidental paste), the operator's preferences, and the
