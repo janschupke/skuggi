@@ -17,7 +17,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
 from skuggi.agent import prompts
-from skuggi.agent.protocol import CmdProposal, structured_invoke
+from skuggi.agent.invoke import structured_invoke
+from skuggi.agent.protocol import CmdProposal
 from skuggi.config.configs import ConfigError, write_commands
 from skuggi.engagement.engagement import (
     GuardVerdict,

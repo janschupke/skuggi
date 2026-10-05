@@ -27,7 +27,8 @@ from typing import TYPE_CHECKING, NamedTuple
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from skuggi.agent import prompts
-from skuggi.agent.protocol import InstallResearch, structured_invoke
+from skuggi.agent.invoke import structured_invoke
+from skuggi.agent.protocol import InstallResearch
 from skuggi.common.text import safe_cmd_fragment
 from skuggi.tooling import probe, websearch
 from skuggi.tooling.registry import (

@@ -30,7 +30,7 @@ from langchain_core.messages import (
 )
 from pydantic import BaseModel
 
-from skuggi.agent.protocol import structured_invoke
+from skuggi.agent.invoke import structured_invoke
 from skuggi.security.policy import RedactionPolicy
 from skuggi.security.tripwire import scrub
 

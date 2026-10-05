@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from skuggi.agent import prompts
+from skuggi.agent.invoke import structured_invoke
 from skuggi.agent.protocol import (
     SCOPE_FIELDS,
     ScopeEdit,
     ScopeProposal,
-    structured_invoke,
 )
 from skuggi.engagement.engagement import EngagementConfig
 

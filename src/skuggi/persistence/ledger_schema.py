@@ -91,6 +91,14 @@ CREATE TABLE IF NOT EXISTS findings (
     severity    TEXT NOT NULL,
     description TEXT NOT NULL,
     evidence    TEXT NOT NULL DEFAULT '',
+    -- Client-report material (audit E1/E2): the impact, the remediation, and the
+    -- affected asset the finding was proven on (host/port/url/parameter).
+    impact         TEXT NOT NULL DEFAULT '',
+    remediation    TEXT NOT NULL DEFAULT '',
+    affected_host  TEXT NOT NULL DEFAULT '',
+    affected_port  TEXT NOT NULL DEFAULT '',
+    affected_url   TEXT NOT NULL DEFAULT '',
+    affected_param TEXT NOT NULL DEFAULT '',
     -- CVSS v3.1, stored complete so a score reconstructs from (version, vector)
     -- alone -- no agent turn, no network. cvss_severity is the band derived from
     -- the vector; `severity` above stays the display/report value (derived from
@@ -216,6 +224,12 @@ _FINDING_MIGRATIONS = (
     ("reviewed_at", "TEXT"),
     ("cvss_tm_version", "INTEGER"),
     ("cvss_scored_at", "TEXT"),
+    ("impact", "TEXT NOT NULL DEFAULT ''"),
+    ("remediation", "TEXT NOT NULL DEFAULT ''"),
+    ("affected_host", "TEXT NOT NULL DEFAULT ''"),
+    ("affected_port", "TEXT NOT NULL DEFAULT ''"),
+    ("affected_url", "TEXT NOT NULL DEFAULT ''"),
+    ("affected_param", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -287,6 +301,12 @@ class FindingRow:
     reviewed_at: str | None
     cvss_tm_version: int | None
     cvss_scored_at: str | None
+    impact: str
+    remediation: str
+    affected_host: str
+    affected_port: str
+    affected_url: str
+    affected_param: str
     created_at: str
 
 

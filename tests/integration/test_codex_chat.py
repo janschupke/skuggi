@@ -15,7 +15,8 @@ import pytest
 import respx
 from langchain_core.messages import HumanMessage
 
-from skuggi.agent.protocol import CriticResponse, structured_invoke
+from skuggi.agent.invoke import structured_invoke
+from skuggi.agent.protocol import CriticResponse
 from skuggi.providers.codex_chat import (
     CodexAuthError,
     CodexTokenStore,

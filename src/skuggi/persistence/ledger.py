@@ -120,6 +120,24 @@ def _select_sql(table: str, columns: tuple[str, ...], clause: str) -> str:
     return f"SELECT {cols} FROM {table} {clause}"  # noqa: S608
 
 
+def _ref_display(framework: str, ref_id: str) -> tuple[str, str]:
+    """The (title, url) stored for a finding ref.
+
+    A vendored framework (WSTG/ATT&CK/PTES) resolves a title + canonical link; a
+    CVE or CWE has no vendored catalogue here, so the canonical public URL is
+    synthesised (NVD / MITRE) and the title left to the report to format.
+    """
+    if framework in registry.FRAMEWORKS:
+        resolved = registry.resolve(framework, ref_id)
+        return (resolved.title, resolved.url) if resolved else ("", "")
+    if framework == "cve":
+        return ("", f"https://nvd.nist.gov/vuln/detail/{ref_id.upper()}")
+    if framework == "cwe":
+        number = ref_id.upper().removeprefix("CWE-")
+        return ("", f"https://cwe.mitre.org/data/definitions/{number}.html")
+    return ("", "")
+
+
 class Ledger:
     """A thin, typed wrapper over the ledger database."""
 
@@ -231,6 +249,12 @@ class Ledger:
         tm_version: int | None = None,
         refs: Sequence[FindingRefInput] = (),
         author: str = FindingAuthor.AGENT,
+        impact: str = "",
+        remediation: str = "",
+        affected_host: str = "",
+        affected_port: str = "",
+        affected_url: str = "",
+        affected_param: str = "",
     ) -> int:
         """Insert a finding (plus its timeline event and any refs); return its id.
 
@@ -275,26 +299,21 @@ class Ledger:
                     None,
                     tm_version if base else None,
                     created_at if base else None,
+                    impact,
+                    remediation,
+                    affected_host,
+                    affected_port,
+                    affected_url,
+                    affected_param,
                     created_at,
                 ),
             )
             fid = int(cur.lastrowid or 0)
             for ref in refs:
-                resolved = (
-                    registry.resolve(ref.framework, ref.ref_id)
-                    if ref.framework in registry.FRAMEWORKS
-                    else None
-                )
+                title, url = _ref_display(ref.framework, ref.ref_id)
                 self._conn.execute(
                     _insert_sql("finding_refs", _FINDING_REF_COLS[1:]),
-                    (
-                        fid,
-                        ref.framework,
-                        ref.ref_id,
-                        resolved.title if resolved else "",
-                        resolved.url if resolved else "",
-                        int(ref.is_primary),
-                    ),
+                    (fid, ref.framework, ref.ref_id, title, url, int(ref.is_primary)),
                 )
             self._event_locked(
                 session_id=session_id,

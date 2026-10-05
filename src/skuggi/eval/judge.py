@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Protocol
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from skuggi.agent.protocol import structured_invoke
+from skuggi.agent.invoke import structured_invoke
 from skuggi.config.config import Settings
 from skuggi.config.configs import ConfigError
 from skuggi.eval.scorers import Score

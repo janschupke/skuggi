@@ -86,6 +86,43 @@ def _refs_line(refs: list[FindingRefRow]) -> str:
     return "\n\nClassified: " + ", ".join(parts)
 
 
+def _affected(f: FindingRow) -> str:
+    """The affected locus of a finding, as a readable one-liner (or "")."""
+    loc: list[str] = []
+    if f.affected_url:
+        loc.append(f.affected_url)
+    if f.affected_host:
+        host = f.affected_host + (f":{f.affected_port}" if f.affected_port else "")
+        loc.append(host)
+    elif f.affected_port:
+        loc.append(f"port {f.affected_port}")
+    if f.affected_param:
+        loc.append(f"parameter `{f.affected_param}`")
+    return " — ".join(loc)
+
+
+def _severity_summary(findings: list[FindingRow]) -> str:
+    """A severity-count table over the approved findings (the report's at-a-glance)."""
+    if not findings:
+        return "No approved findings."
+    counts: dict[str, int] = {}
+    for f in findings:
+        counts[f.severity] = counts.get(f.severity, 0) + 1
+    ordered = [s for s in _SEVERITY_ORDER if s in counts]
+    ordered += sorted(set(counts) - set(_SEVERITY_ORDER))
+    rows = "\n".join(f"| {s.upper()} | {counts[s]} |" for s in ordered)
+    return f"| Severity | Count |\n| --- | --- |\n{rows}\n\n**Total: {len(findings)}**"
+
+
+_LIMITATIONS = (
+    "This report covers only the hosts, networks and methods authorized in the "
+    "scope below; anything outside it was not tested. Testing was time-boxed to "
+    "the engagement window, so an absence of findings in an area is not a proof "
+    "of its absence of vulnerabilities. Findings reflect the state of the targets "
+    "at the time of testing."
+)
+
+
 def _fenced(text: str) -> str:
     """Wrap `text` in a code fence longer than any backtick run it contains.
 
@@ -120,8 +157,15 @@ def _findings(findings: list[FindingRow], refs: _Refs | None = None) -> str:
         for f in group:
             src = f" _(from cmd:{f.command_id})_" if f.command_id is not None else ""
             out.append(f"\n**[{f.id}] {f.title}**{src}\n\n{f.description}")
+            affected = _affected(f)
+            if affected:
+                out.append(f"\n_Affected:_ {affected}")
             out.append(_cvss_line(f))
             out.append(_refs_line(refs.get(f.id, [])))
+            if f.impact:
+                out.append(f"\n**Impact:** {f.impact}")
+            if f.remediation:
+                out.append(f"\n**Remediation:** {f.remediation}")
             if f.evidence:
                 out.append(_fenced(f.evidence))
     return "\n".join(p for p in out if p)
@@ -170,7 +214,9 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
     scope = engagement.describe() if engagement is not None else ""
     return join_blocks(
         header,
+        labeled("Summary", _severity_summary(findings), heading=True),
         labeled("Scope", f"```\n{scope}\n```" if scope else "", heading=True),
+        labeled("Methodology & limitations", _LIMITATIONS, heading=True),
         labeled("Findings", _findings(findings, refs), heading=True),
         labeled("Command log", _command_log(commands, engagement), heading=True),
     )

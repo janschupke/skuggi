@@ -14,7 +14,8 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from skuggi.agent import prompts
-from skuggi.agent.protocol import ConfigProposal, structured_invoke
+from skuggi.agent.invoke import structured_invoke
+from skuggi.agent.protocol import ConfigProposal
 from skuggi.config import editing
 from skuggi.config.config import config_path, write_config
 

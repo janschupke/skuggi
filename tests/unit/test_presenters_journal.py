@@ -37,6 +37,12 @@ def _finding(
         reviewed_at=None,
         cvss_tm_version=tm,
         cvss_scored_at=None,
+        impact="",
+        remediation="",
+        affected_host="",
+        affected_port="",
+        affected_url="",
+        affected_param="",
         created_at="2026-10-03T00:00:00+00:00",
     )
 

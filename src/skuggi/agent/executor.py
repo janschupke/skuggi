@@ -305,6 +305,7 @@ def record_finding_drafts(
             for ref in finding.refs
         ]
         try:
+            affected = finding.affected
             ledger.record_finding(
                 session_id=session_id,
                 title=finding.title,
@@ -317,6 +318,12 @@ def record_finding_drafts(
                 tm_version=tm_version,
                 refs=refs,
                 author=FindingAuthor.AGENT,
+                impact=finding.impact,
+                remediation=finding.remediation,
+                affected_host=affected.host if affected else "",
+                affected_port=affected.port if affected else "",
+                affected_url=affected.url if affected else "",
+                affected_param=affected.parameter if affected else "",
             )
         except Exception:
             # Evidence loss: a finding the agent produced did not persist. This is

@@ -270,3 +270,32 @@ def test_no_network_fetcher_refuses_http_and_file_but_serves_data() -> None:
         _no_network_fetcher("file:///etc/passwd")
     served = _no_network_fetcher("data:text/plain;base64,aGk=")
     assert served["string"] == b"hi"
+
+
+def test_report_renders_impact_remediation_affected_and_summary(tmp_path: Path) -> None:
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme ext", mode="pentest")
+        fid = led.record_finding(
+            session_id="s1",
+            title="SQLi in login",
+            severity="high",
+            description="unparameterized query",
+            impact="full database read",
+            remediation="use parameterized queries",
+            affected_host="10.0.0.5",
+            affected_port="443",
+            affected_url="/login",
+            affected_param="user",
+        )
+        led.set_finding_status(fid, "approved")
+        result = write_report("s1", led, tmp_path / "reports")
+    body = (result if isinstance(result, Path) else result[0]).read_text()
+    assert "**Impact:** full database read" in body
+    assert "**Remediation:** use parameterized queries" in body
+    assert "_Affected:_" in body
+    assert "10.0.0.5:443" in body
+    assert "/login" in body
+    assert "parameter `user`" in body
+    assert "## Summary" in body
+    assert "| HIGH | 1 |" in body
+    assert "Methodology & limitations" in body

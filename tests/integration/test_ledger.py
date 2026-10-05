@@ -378,3 +378,31 @@ def test_severity_only_finding_needs_no_cvss(tmp_path: Path) -> None:
         assert row is not None
         assert row.severity == "medium"
         assert row.cvss_vector is None
+
+
+def test_finding_stores_impact_remediation_affected_and_cve_ref(tmp_path: Path) -> None:
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="e", mode="pentest")
+        fid = led.record_finding(
+            session_id="s1",
+            title="Log4Shell",
+            severity="critical",
+            description="d",
+            impact="RCE on the app server",
+            remediation="upgrade log4j to 2.17+",
+            affected_host="10.0.0.5",
+            affected_port="8080",
+            affected_url="/api",
+            affected_param="q",
+            refs=[FindingRefInput("cve", "CVE-2021-44228")],
+        )
+        [finding] = led.findings_for("s1")
+        assert finding.impact == "RCE on the app server"
+        assert finding.remediation == "upgrade log4j to 2.17+"
+        assert finding.affected_host == "10.0.0.5"
+        assert finding.affected_port == "8080"
+        assert finding.affected_url == "/api"
+        assert finding.affected_param == "q"
+        [ref] = led.finding_refs_for(fid)
+        assert ref.framework == "cve"
+        assert ref.url == "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"

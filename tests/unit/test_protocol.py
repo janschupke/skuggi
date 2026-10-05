@@ -17,9 +17,11 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import ValidationError
 
+from skuggi.agent.invoke import format_instructions, structured_invoke
 from skuggi.agent.protocol import (
     PHASES,
     STANCES,
+    AffectedAsset,
     CommandBrief,
     CriticResponse,
     EngagementBrief,
@@ -31,11 +33,9 @@ from skuggi.agent.protocol import (
     Severity,
     WorkerResponse,
     clamp_phase,
-    format_instructions,
     render_answer,
     render_request,
     render_response,
-    structured_invoke,
 )
 from skuggi.common import palette
 from tests.fakes import ScriptedChatModel
@@ -338,3 +338,30 @@ def test_findings_block_feeds_rejection_reason_back() -> None:
     assert "[1] HIGH: real SQLi" in block
     assert "[2] REJECTED not exploitable -- false positive, WAF blocks it" in block
     assert "do not re-assert" in block
+
+
+def test_finding_draft_carries_impact_remediation_and_affected() -> None:
+    draft = FindingDraft(
+        title="SQLi",
+        description="d",
+        severity="high",
+        impact="full DB read",
+        remediation="use parameterized queries",
+        affected=AffectedAsset(
+            host="10.0.0.5", port="443", url="/login", parameter="u"
+        ),
+    )
+    assert draft.impact == "full DB read"
+    assert draft.remediation == "use parameterized queries"
+    assert draft.affected is not None
+    assert not draft.affected.is_empty()
+
+
+def test_finding_ref_accepts_cve_and_cwe() -> None:
+    assert FindingRefDraft(framework="cve", ref_id="CVE-2021-44228").ref_id
+    assert FindingRefDraft(framework="cwe", ref_id="CWE-89").ref_id
+
+
+def test_finding_ref_rejects_a_malformed_cve() -> None:
+    with pytest.raises(ValueError, match="unknown cve id"):
+        FindingRefDraft(framework="cve", ref_id="not-a-cve")

@@ -22,7 +22,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from skuggi.agent.protocol import structured_invoke
+from skuggi.agent.invoke import structured_invoke
 from skuggi.common.logs import get_logger
 
 log = get_logger(__name__)
