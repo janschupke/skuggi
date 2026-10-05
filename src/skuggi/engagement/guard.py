@@ -76,6 +76,10 @@ class ParsedCommand:
     # bare tool name. Authorization is keyed on the basename, so a pathed argv[0]
     # would run an arbitrary binary under a registered tool's authority -- denied.
     binary_is_path: bool = False
+    # A transport/pivot tool (ssh/proxychains/…). Denied when invoked directly --
+    # its payload is unconstrainable; pivoting goes through a foothold (see guard
+    # ``_authorization_verdict`` and ``engagement.pivot``).
+    transport: bool = False
 
 
 class GuardVerdict(NamedTuple):
@@ -289,6 +293,7 @@ def parse_command(raw: str, registry: ToolRegistry) -> ParsedCommand:
         target_file=any(flag in argv for flag in target_file_flags),
         input_files=_flag_values(argv, input_file_flags),
         binary_is_path=Path(argv[0]).name != argv[0],
+        transport=spec.transport if spec else False,
     )
 
 
@@ -331,7 +336,7 @@ def _datafiles_in_scope(
     return None
 
 
-def _authorization_verdict(
+def _authorization_verdict(  # noqa: PLR0911 -- one guard clause per denial reason
     cmd: ParsedCommand, engagement: EngagementConfig
 ) -> GuardVerdict | None:
     """Deny unless the command's tool and method are authorized (or ``*``)."""
@@ -343,6 +348,13 @@ def _authorization_verdict(
         )
     if cmd.method is None:
         return GuardVerdict(False, f"tool {cmd.binary!r} is not in the tool registry")
+    if cmd.transport:
+        return GuardVerdict(
+            False,
+            f"tool {cmd.binary!r} is a pivot/transport tool and cannot be run "
+            "directly (its remote payload is not scope-checkable) -- register a "
+            "foothold with `set foothold` and skuggi routes commands through it",
+        )
     # ``*`` in the allow-list authorizes every tool / method; otherwise the
     # binary / method must be named.
     tools = engagement.allowed_tools

@@ -115,6 +115,13 @@ class ToolSpec(BaseModel):
     # evidence dir -- so the tool can only ever READ evidence, never ``/etc/shadow``
     # or a sibling outside the case. See ``engagement.check_command``.
     positional_file: bool = False
+    # A transport/pivot tool (ssh, proxychains, socat, chisel): it carries another
+    # command to run through a jump host, so its *payload* cannot be scope-checked
+    # statically. The guard therefore denies it when the worker invokes it directly;
+    # sanctioned pivoting goes through an operator-registered foothold, whose wrapped
+    # command the executor runs after the scope check on the real target (see
+    # engagement.pivot and executor._run_or_propose).
+    transport: bool = False
     requires_target: bool = True
     install: dict[str, str] = Field(default_factory=dict)
     # Optional explicit risk tier. Unset -> derived from ``method`` by

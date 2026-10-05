@@ -38,6 +38,7 @@ REGISTRY = ToolRegistry(
             target_flags=("-t",),
             input_file_flags=("-P", "-L"),
         ),
+        ToolSpec(name="ssh", binary="ssh", method="transport", transport=True),
     )
 )
 
@@ -147,6 +148,24 @@ def test_unauthorized_method_is_denied() -> None:
     )
     assert not verdict.allowed
     assert "method" in verdict.reason
+
+
+def test_transport_tool_is_denied_even_when_authorized() -> None:
+    """A pivot/transport tool cannot be run directly, even if scope lists it.
+
+    Its remote payload is unconstrainable, so sanctioned pivoting goes through a
+    registered foothold -- the denial points the operator there (pivot/P2).
+    """
+    verdict = check_command(
+        parse_command("ssh root@scanme.example.com -- id", REGISTRY),
+        _engagement(
+            allowed_tools=frozenset({"ssh"}),
+            allowed_methods=frozenset({"transport"}),
+        ),
+        now=NOW,
+    )
+    assert not verdict.allowed
+    assert "set foothold" in verdict.reason
 
 
 def test_wildcard_tool_authorizes_an_unlisted_binary() -> None:

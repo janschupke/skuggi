@@ -630,6 +630,52 @@
       "modes": [
         "blueteam"
       ]
+    },
+    {
+      "name": "ssh",
+      "binary": "ssh",
+      "method": "transport",
+      "transport": true,
+      "risk": "destructive",
+      "install": {
+        "brew": "brew install openssh",
+        "apt": "apt-get install -y openssh-client"
+      }
+    },
+    {
+      "name": "proxychains",
+      "binary": "proxychains4",
+      "method": "transport",
+      "transport": true,
+      "requires_target": false,
+      "risk": "destructive",
+      "install": {
+        "brew": "brew install proxychains-ng",
+        "apt": "apt-get install -y proxychains4"
+      }
+    },
+    {
+      "name": "socat",
+      "binary": "socat",
+      "method": "transport",
+      "transport": true,
+      "requires_target": false,
+      "risk": "destructive",
+      "install": {
+        "brew": "brew install socat",
+        "apt": "apt-get install -y socat"
+      }
+    },
+    {
+      "name": "chisel",
+      "binary": "chisel",
+      "method": "transport",
+      "transport": true,
+      "requires_target": false,
+      "risk": "destructive",
+      "install": {
+        "brew": "brew install chisel"
+      }
     }
   ]
 }
