@@ -37,7 +37,7 @@ from skuggi.common.clock import now_iso
 from skuggi.common.execution import CommandResult
 from skuggi.common.paths import ensure_parent
 from skuggi.common.sqlitedb import harden
-from skuggi.frameworks import cvss, registry
+from skuggi.frameworks import cvss
 from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
     _COMMAND_COLS,
@@ -45,6 +45,7 @@ from skuggi.persistence.ledger_schema import (
     _EVENT_COLS,
     _EVIDENCE_COLS,
     _FINDING_COLS,
+    _FINDING_EVIDENCE_COLS,
     _FINDING_MIGRATIONS,
     _FINDING_REF_COLS,
     _INDEXES,
@@ -60,6 +61,8 @@ from skuggi.persistence.ledger_schema import (
     EventRow,
     EvidenceRow,
     FindingAuthor,
+    FindingEvidenceInput,
+    FindingEvidenceRow,
     FindingRefInput,
     FindingRefRow,
     FindingRow,
@@ -68,6 +71,9 @@ from skuggi.persistence.ledger_schema import (
     SessionRow,
     ThreadSummary,
     ThreatModelVersionRow,
+    _insert_sql,
+    _ref_display,
+    _select_sql,
 )
 
 # The row types and status/kind vocabularies live in ``ledger_schema`` (a pure,
@@ -82,6 +88,8 @@ __all__ = [
     "EventRow",
     "EvidenceRow",
     "FindingAuthor",
+    "FindingEvidenceInput",
+    "FindingEvidenceRow",
     "FindingRefInput",
     "FindingRefRow",
     "FindingRow",
@@ -105,37 +113,6 @@ def _effective_score(
         return None
     effective = cvss.merged(vector, env_metrics) if env_metrics else vector
     return cvss.score(effective)
-
-
-def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
-    """An INSERT statement for `columns` with positional placeholders."""
-    placeholders = ", ".join("?" * len(columns))
-    cols = ", ".join(columns)
-    return f"INSERT INTO {table} ({cols}) VALUES ({placeholders})"  # noqa: S608
-
-
-def _select_sql(table: str, columns: tuple[str, ...], clause: str) -> str:
-    """A SELECT of `columns` from `table` with a trailing WHERE/ORDER clause."""
-    cols = ", ".join(columns)
-    return f"SELECT {cols} FROM {table} {clause}"  # noqa: S608
-
-
-def _ref_display(framework: str, ref_id: str) -> tuple[str, str]:
-    """The (title, url) stored for a finding ref.
-
-    A vendored framework (WSTG/ATT&CK/PTES) resolves a title + canonical link; a
-    CVE or CWE has no vendored catalogue here, so the canonical public URL is
-    synthesised (NVD / MITRE) and the title left to the report to format.
-    """
-    if framework in registry.FRAMEWORKS:
-        resolved = registry.resolve(framework, ref_id)
-        return (resolved.title, resolved.url) if resolved else ("", "")
-    if framework == "cve":
-        return ("", f"https://nvd.nist.gov/vuln/detail/{ref_id.upper()}")
-    if framework == "cwe":
-        number = ref_id.upper().removeprefix("CWE-")
-        return ("", f"https://cwe.mitre.org/data/definitions/{number}.html")
-    return ("", "")
 
 
 class Ledger:
@@ -246,6 +223,7 @@ class Ledger:
         env_metrics: dict[str, str] | None = None,
         tm_version: int | None = None,
         refs: Sequence[FindingRefInput] = (),
+        evidence_items: Sequence[FindingEvidenceInput] = (),
         author: str = FindingAuthor.AGENT,
         impact: str = "",
         remediation: str = "",
@@ -312,6 +290,11 @@ class Ledger:
                 self._conn.execute(
                     _insert_sql("finding_refs", _FINDING_REF_COLS[1:]),
                     (fid, ref.framework, ref.ref_id, title, url, int(ref.is_primary)),
+                )
+            for ev in evidence_items:
+                self._conn.execute(
+                    _insert_sql("finding_evidence", _FINDING_EVIDENCE_COLS[1:]),
+                    (fid, ev.kind, ev.content, ev.media_path, created_at),
                 )
             self._event_locked(
                 session_id=session_id,
@@ -608,6 +591,19 @@ class Ledger:
                 (finding_id,),
             ).fetchall()
         return [FindingRefRow(*row) for row in rows]
+
+    def finding_evidence_for(self, finding_id: int) -> list[FindingEvidenceRow]:
+        """The structured evidence items attached to a finding, in insert order (E4)."""
+        with self._lock:
+            rows = self._conn.execute(
+                _select_sql(
+                    "finding_evidence",
+                    _FINDING_EVIDENCE_COLS,
+                    "WHERE finding_id = ? ORDER BY id",
+                ),
+                (finding_id,),
+            ).fetchall()
+        return [FindingEvidenceRow(*row) for row in rows]
 
     # ----- threat-model versioning ------------------------------------------
 

@@ -10,7 +10,7 @@ import pytest
 
 from skuggi.common.execution import CommandResult
 from skuggi.frameworks import cvss
-from skuggi.persistence import ledger as ledger_mod
+from skuggi.persistence import ledger_schema
 from skuggi.persistence.ledger import FindingRefInput, open_ledger
 
 
@@ -419,7 +419,7 @@ def test_record_finding_rolls_back_on_a_mid_write_failure(
     so the ledger never holds a half-written finding without its refs.
     """
     calls = {"n": 0}
-    real = ledger_mod._ref_display
+    real = ledger_schema._ref_display
 
     def flaky(framework: str, ref_id: str) -> tuple[str, str]:
         calls["n"] += 1
@@ -428,7 +428,7 @@ def test_record_finding_rolls_back_on_a_mid_write_failure(
             raise ValueError(msg)
         return real(framework, ref_id)
 
-    monkeypatch.setattr(ledger_mod, "_ref_display", flaky)
+    monkeypatch.setattr("skuggi.persistence.ledger._ref_display", flaky)
     with open_ledger(tmp_path / "l.db") as led:
         led.start_session("s1", engagement_name="e", mode="pentest")
         with pytest.raises(ValueError, match="boom"):

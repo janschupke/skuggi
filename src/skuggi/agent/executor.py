@@ -24,7 +24,7 @@ from skuggi.common import execution
 from skuggi.common.logs import get_logger
 from skuggi.engagement.engagement import ParsedCommand, check_command, parse_command
 from skuggi.engagement.risk import risk_tier
-from skuggi.persistence.ledger import FindingRefInput, Ledger
+from skuggi.persistence.ledger import FindingEvidenceInput, FindingRefInput, Ledger
 from skuggi.persistence.ledger_schema import FindingAuthor
 from skuggi.security.policy import RedactionPolicy
 from skuggi.security.redaction import redact
@@ -304,6 +304,12 @@ def record_finding_drafts(
             )
             for ref in finding.refs
         ]
+        evidence_items = [
+            FindingEvidenceInput(
+                kind=item.kind, content=item.content, media_path=item.media_path
+            )
+            for item in finding.evidence_items
+        ]
         try:
             affected = finding.affected
             ledger.record_finding(
@@ -317,6 +323,7 @@ def record_finding_drafts(
                 env_metrics=env_metrics,
                 tm_version=tm_version,
                 refs=refs,
+                evidence_items=evidence_items,
                 author=FindingAuthor.AGENT,
                 impact=finding.impact,
                 remediation=finding.remediation,

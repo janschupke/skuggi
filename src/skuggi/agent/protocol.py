@@ -252,6 +252,25 @@ class FindingRefDraft(BaseModel):
         return self
 
 
+EvidenceKind = Literal["request", "response", "screenshot", "image", "log"]
+
+
+class FindingEvidenceItem(BaseModel):
+    """One structured proof item a worker attaches to a finding (audit E4).
+
+    ``kind`` names what it is; a text item (request/response/log) carries its text
+    in ``content``; a screenshot/image carries a workspace-relative ``media_path``
+    (confined and embedded at report time, never fetched from the network). Like
+    ``FindingDraft.evidence``, this is raw proof and never reaches the model.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: EvidenceKind
+    content: str = ""
+    media_path: str = ""
+
+
 class AffectedAsset(BaseModel):
     """Where a finding lives: the host/port/URL/parameter it was proven on.
 
@@ -293,6 +312,8 @@ class FindingDraft(BaseModel):
     impact: str = ""
     remediation: str = ""
     affected: AffectedAsset | None = None
+    # Structured proof (request/response pairs, screenshots, logs) -- audit E4.
+    evidence_items: tuple[FindingEvidenceItem, ...] = ()
     cvss_vector: str = ""
     severity: Severity | None = None
     refs: tuple[FindingRefDraft, ...] = ()

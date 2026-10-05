@@ -157,11 +157,13 @@ class Journal:
         Markdown and both paths are returned.
         """
         core = self._core
+        ws = core.workspace
         return reports.write_report(
             core.session_id,
             core.ledger,
             core.reports_dir,
             engagement=core.engagement,
+            media_root=ws.root if ws is not None else None,
             pdf=pdf,
         )
 

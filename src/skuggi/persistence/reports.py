@@ -10,17 +10,20 @@ the harness writes.
 
 from __future__ import annotations
 
+import base64
 import difflib
+import mimetypes
 from datetime import UTC, datetime
 from pathlib import Path
 
 from skuggi.common import palette
 from skuggi.common.clock import file_stamp, now_iso
-from skuggi.common.paths import ensure_dir
+from skuggi.common.paths import confine_under, ensure_dir
 from skuggi.common.text import join_blocks, labeled, slug
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.persistence.ledger import (
     CommandRow,
+    FindingEvidenceRow,
     FindingRefRow,
     FindingRow,
     Ledger,
@@ -28,6 +31,7 @@ from skuggi.persistence.ledger import (
 )
 
 _Refs = dict[int, list[FindingRefRow]]
+_Evidence = dict[int, list[FindingEvidenceRow]]
 
 # Most-severe first; anything unrecognized sorts last under "other".
 _SEVERITY_ORDER = palette.severities()
@@ -140,10 +144,56 @@ def _fenced(text: str) -> str:
     return f"\n{fence}\n{text}\n{fence}"
 
 
-def _findings(findings: list[FindingRow], refs: _Refs | None = None) -> str:
+def _image_data_uri(media_path: str, media_root: Path | None) -> str:
+    """A ``data:`` URI for a workspace-confined image, or "" when unusable (E4/B4).
+
+    The path is confined under ``media_root`` (a traversal/symlink escape yields ""),
+    must be an existing image file, and is inlined as base64 so the PDF renders it
+    with no network fetch (the report's fetcher serves only ``data:``).
+    """
+    if media_root is None or not media_path:
+        return ""
+    try:
+        path = confine_under(media_root, media_path)
+    except ValueError:
+        return ""
+    if not path.is_file():
+        return ""
+    mime = mimetypes.guess_type(str(path))[0] or ""
+    if not mime.startswith("image/"):
+        return ""
+    data = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{data}"
+
+
+def _evidence_items_block(
+    items: list[FindingEvidenceRow], media_root: Path | None
+) -> str:
+    """Render a finding's structured evidence: fenced text, embedded images (E4)."""
+    out: list[str] = []
+    for item in items:
+        label = item.kind.capitalize()
+        if item.kind in ("screenshot", "image"):
+            uri = _image_data_uri(item.media_path, media_root)
+            if uri:
+                out.append(f"\n_{label}:_\n\n![{item.media_path}]({uri})")
+            else:
+                out.append(f"\n_{label}:_ `{item.media_path}` (not embedded)")
+        elif item.content:
+            out.append(f"\n_{label}:_{_fenced(item.content)}")
+    return "\n".join(out)
+
+
+def _findings(
+    findings: list[FindingRow],
+    refs: _Refs | None = None,
+    evidence: _Evidence | None = None,
+    media_root: Path | None = None,
+) -> str:
     if not findings:
         return "_No findings recorded._"
     refs = refs or {}
+    evidence = evidence or {}
     by_sev: dict[str, list[FindingRow]] = {}
     for f in findings:
         by_sev.setdefault(f.severity, []).append(f)
@@ -168,6 +218,7 @@ def _findings(findings: list[FindingRow], refs: _Refs | None = None) -> str:
                 out.append(f"\n**Remediation:** {f.remediation}")
             if f.evidence:
                 out.append(_fenced(f.evidence))
+            out.append(_evidence_items_block(evidence.get(f.id, []), media_root))
     return "\n".join(p for p in out if p)
 
 
@@ -179,6 +230,8 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
     engagement: EngagementConfig | None = None,
     generated_label: str | None = None,
     refs: _Refs | None = None,
+    evidence: _Evidence | None = None,
+    media_root: Path | None = None,
     revision: int = 1,
     previous: str | None = None,
     excluded: int = 0,
@@ -217,17 +270,22 @@ def render_report(  # noqa: PLR0913 -- a report is composed from its ledger part
         labeled("Summary", _severity_summary(findings), heading=True),
         labeled("Scope", f"```\n{scope}\n```" if scope else "", heading=True),
         labeled("Methodology & limitations", _LIMITATIONS, heading=True),
-        labeled("Findings", _findings(findings, refs), heading=True),
+        labeled(
+            "Findings",
+            _findings(findings, refs, evidence, media_root),
+            heading=True,
+        ),
         labeled("Command log", _command_log(commands, engagement), heading=True),
     )
 
 
-def write_report(
+def write_report(  # noqa: PLR0913 -- a report write is composed from its ledger parts
     session_id: str,
     ledger: Ledger,
     reports_dir: Path,
     *,
     engagement: EngagementConfig | None = None,
+    media_root: Path | None = None,
     pdf: bool = False,
 ) -> Path | tuple[Path, Path]:
     """Render the session's report and write it as a timestamped Markdown file.
@@ -248,6 +306,7 @@ def write_report(
     findings = ledger.approved_findings_for(session_id)
     excluded = len(ledger.findings_for(session_id)) - len(findings)
     refs = {f.id: ledger.finding_refs_for(f.id) for f in findings}
+    evidence = {f.id: ledger.finding_evidence_for(f.id) for f in findings}
 
     reports_dir = ensure_dir(reports_dir)
     prefix = f"{slug(session.engagement_name)}-{session_id[:8]}-"
@@ -265,6 +324,8 @@ def write_report(
         engagement=engagement,
         generated_label=generated_label,
         refs=refs,
+        evidence=evidence,
+        media_root=media_root,
         revision=len(prior) + 1,
         previous=prior[-1].name if prior else None,
         excluded=excluded,

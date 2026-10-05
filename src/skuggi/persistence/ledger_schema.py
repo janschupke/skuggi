@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from enum import StrEnum
 
+from skuggi.frameworks import registry
+
 
 class CommandStatus(StrEnum):
     """How a recorded command relates to execution."""
@@ -140,6 +142,14 @@ CREATE TABLE IF NOT EXISTS finding_refs (
     url         TEXT NOT NULL DEFAULT '',
     is_primary  INTEGER NOT NULL DEFAULT 0   -- the driver framework's id
 );
+CREATE TABLE IF NOT EXISTS finding_evidence (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    finding_id  INTEGER NOT NULL REFERENCES findings(id),
+    kind        TEXT NOT NULL,       -- request | response | screenshot | image | log
+    content     TEXT NOT NULL DEFAULT '',  -- inline text (request/response/log)
+    media_path  TEXT NOT NULL DEFAULT '',  -- workspace-confined path (screenshot/image)
+    created_at  TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id  TEXT NOT NULL REFERENCES sessions(session_id),
@@ -196,6 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_findings_session_status ON findings(session_id, s
 CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_events_thread ON events(thread_id);
 CREATE INDEX IF NOT EXISTS idx_finding_refs_finding ON finding_refs(finding_id);
+CREATE INDEX IF NOT EXISTS idx_finding_evidence_finding ON finding_evidence(finding_id);
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit(session_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_session ON evidence(session_id);
 CREATE INDEX IF NOT EXISTS idx_procedure_session ON procedure(session_id);
@@ -324,6 +335,34 @@ class FindingRefRow:
 
 
 @dataclass(frozen=True, slots=True)
+class FindingEvidenceRow:
+    """One structured evidence item attached to a finding (audit E4).
+
+    ``kind`` is request/response/screenshot/image/log. Text proof (a request,
+    response or log excerpt) lives in ``content``; a screenshot/image is a
+    workspace-confined ``media_path`` the report embeds. Evidence is raw proof and
+    MUST NOT reach the model -- keep it out of any model-facing projection, like
+    ``FindingRow.evidence``.
+    """
+
+    id: int
+    finding_id: int
+    kind: str
+    content: str
+    media_path: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class FindingEvidenceInput:
+    """A structured evidence item to attach to a finding (request/response/image)."""
+
+    kind: str
+    content: str = ""
+    media_path: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class FindingRefInput:
     """A framework id to attach to a finding; the ledger resolves its title + link."""
 
@@ -425,8 +464,40 @@ _SESSION_COLS = tuple(f.name for f in fields(SessionRow))
 _COMMAND_COLS = tuple(f.name for f in fields(CommandRow))
 _FINDING_COLS = tuple(f.name for f in fields(FindingRow))
 _FINDING_REF_COLS = tuple(f.name for f in fields(FindingRefRow))
+_FINDING_EVIDENCE_COLS = tuple(f.name for f in fields(FindingEvidenceRow))
 _TM_VERSION_COLS = tuple(f.name for f in fields(ThreatModelVersionRow))
 _EVENT_COLS = tuple(f.name for f in fields(EventRow))
 _AUDIT_COLS = tuple(f.name for f in fields(AuditRow))
 _EVIDENCE_COLS = tuple(f.name for f in fields(EvidenceRow))
 _PROCEDURE_COLS = tuple(f.name for f in fields(ProcedureRow))
+
+
+def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
+    """An INSERT statement for `columns` with positional placeholders."""
+    placeholders = ", ".join("?" * len(columns))
+    cols = ", ".join(columns)
+    return f"INSERT INTO {table} ({cols}) VALUES ({placeholders})"  # noqa: S608
+
+
+def _select_sql(table: str, columns: tuple[str, ...], clause: str) -> str:
+    """A SELECT of `columns` from `table` with a trailing WHERE/ORDER clause."""
+    cols = ", ".join(columns)
+    return f"SELECT {cols} FROM {table} {clause}"  # noqa: S608
+
+
+def _ref_display(framework: str, ref_id: str) -> tuple[str, str]:
+    """The (title, url) stored for a finding ref.
+
+    A vendored framework (WSTG/ATT&CK/PTES) resolves a title + canonical link; a
+    CVE or CWE has no vendored catalogue here, so the canonical public URL is
+    synthesised (NVD / MITRE) and the title left to the report to format.
+    """
+    if framework in registry.FRAMEWORKS:
+        resolved = registry.resolve(framework, ref_id)
+        return (resolved.title, resolved.url) if resolved else ("", "")
+    if framework == "cve":
+        return ("", f"https://nvd.nist.gov/vuln/detail/{ref_id.upper()}")
+    if framework == "cwe":
+        number = ref_id.upper().removeprefix("CWE-")
+        return ("", f"https://cwe.mitre.org/data/definitions/{number}.html")
+    return ("", "")

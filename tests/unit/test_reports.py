@@ -11,10 +11,16 @@ from weasyprint.urls import URLFetchingError
 from skuggi.common.execution import CommandResult
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.persistence import pdf as pdf_mod
-from skuggi.persistence.ledger import FindingRefInput, Ledger, open_ledger
+from skuggi.persistence.ledger import (
+    FindingEvidenceInput,
+    FindingRefInput,
+    Ledger,
+    open_ledger,
+)
 from skuggi.persistence.pdf import _no_network_fetcher
 from skuggi.persistence.reports import (
     _fenced,
+    _image_data_uri,
     _local_stamp,
     append_changelog,
     render_report,
@@ -299,3 +305,50 @@ def test_report_renders_impact_remediation_affected_and_summary(tmp_path: Path) 
     assert "## Summary" in body
     assert "| HIGH | 1 |" in body
     assert "Methodology & limitations" in body
+
+
+def test_structured_evidence_round_trips_and_renders(tmp_path: Path) -> None:
+    """A finding's request/response evidence persists and renders fenced (E4)."""
+    with open_ledger(tmp_path / "l.db") as led:
+        led.start_session("s1", engagement_name="acme ext", mode="pentest")
+        fid = led.record_finding(
+            session_id="s1",
+            title="SQLi in id",
+            severity="high",
+            description="union-based",
+            evidence_items=[
+                FindingEvidenceInput(kind="request", content="GET /x?id=1' --"),
+                FindingEvidenceInput(kind="response", content="SQL syntax error"),
+            ],
+        )
+        led.set_finding_status(fid, "approved")
+        items = led.finding_evidence_for(fid)
+        assert [(i.kind, i.content) for i in items] == [
+            ("request", "GET /x?id=1' --"),
+            ("response", "SQL syntax error"),
+        ]
+        session = led.session("s1")
+        assert session is not None
+        report = render_report(
+            session,
+            led.commands_for("s1"),
+            led.approved_findings_for("s1"),
+            evidence={fid: items},
+        )
+    assert "_Request:_" in report
+    assert "GET /x?id=1' --" in report
+    assert "_Response:_" in report
+
+
+def test_image_evidence_embeds_a_data_uri_when_confined(tmp_path: Path) -> None:
+    media = tmp_path / "ws"
+    (media / "evidence").mkdir(parents=True)
+    png = media / "evidence" / "shot.png"
+    # a 1x1 PNG header is enough for mimetype + embedding
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    uri = _image_data_uri("evidence/shot.png", media)
+    assert uri.startswith("data:image/png;base64,")
+    # an escape attempt yields nothing (no embed)
+    assert _image_data_uri("../secret.png", media) == ""
+    # a missing file yields nothing
+    assert _image_data_uri("evidence/absent.png", media) == ""
