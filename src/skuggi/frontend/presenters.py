@@ -16,14 +16,8 @@ from skuggi.common import palette
 from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.frontend import render, verbs
 from skuggi.frontend.outcomes import (
-    AddedLoot,
-    AddedNote,
-    AddOutcome,
-    AddUsage,
-    BadSeverity,
     EngagementAdopted,
     EngagementScaffolded,
-    FindingRecorded,
     Installed,
     InstallFailed,
     InstallOutcome,
@@ -42,7 +36,6 @@ from skuggi.frontend.outcomes import (
     ModelOutcome,
     ModelSwitched,
     ModelUsage,
-    NoEngagement,
     ProviderError,
     ProviderNoCredential,
     ProviderOutcome,
@@ -193,34 +186,6 @@ def present_memory(outcome: MemoryOutcome) -> Styled:  # noqa: PLR0911 -- one re
             if not rows:
                 return empty("memories")
             return [render.plain(f"[{r.id}] {r.text} ({r.source})") for r in rows]
-
-
-def present_add(outcome: AddOutcome, surface: verbs.Surface) -> Styled:
-    """Render note/loot/usage add outcomes.
-
-    A recorded FINDING is NOT handled here (its severity is painted by
-    ``presenters_journal.present_finding_recorded``); the shared ``add`` action
-    branches on ``FindingRecorded`` before calling this.
-    """
-    match outcome:
-        case AddUsage(form):
-            return usage(f"add {form}", surface)
-        case NoEngagement(kind):
-            fix = verbs.cmd("engagement setup", surface)
-            return [
-                render.warning(f"no engagement loaded -- run {fix} to record {kind}s")
-            ]
-        case BadSeverity(value, allowed):
-            choices = ", ".join(allowed)
-            return [
-                render.danger(f"unknown severity {value!r}; choose one of: {choices}")
-            ]
-        case AddedNote(path):
-            return [render.success(f"noted {path}")]
-        case AddedLoot(path):
-            return [render.success(f"loot recorded {path}")]
-        case FindingRecorded():  # pragma: no cover -- caller renders findings
-            return []
 
 
 def present_install(outcome: InstallOutcome) -> Styled:

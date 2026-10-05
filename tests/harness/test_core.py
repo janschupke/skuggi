@@ -644,3 +644,23 @@ def test_threat_model_versioning_flags_and_rescore(core: AgentCore) -> None:
     assert fresh.cvss_tm_version == 2
     assert fresh.cvss_environmental is not None
     assert "CR:" not in (fresh.cvss_vector or "")
+
+
+def test_add_credential_vaults_the_secret_and_lists_it(core: AgentCore) -> None:
+    """A credential's secret goes to the vault, never the ledger (audit E8/E9)."""
+    cid = core.journal.add_credential(
+        host="10.0.0.5", service="ssh", username="root", secret="hunter2"
+    )
+    assert cid is not None
+    [cred] = core.journal.credentials()
+    assert (cred.host, cred.service, cred.username) == ("10.0.0.5", "ssh", "root")
+    # The stored secret_ref is a vault placeholder, not the plaintext.
+    assert cred.secret_ref.startswith("«CRED:")
+    assert "hunter2" not in cred.secret_ref
+    # The vault rehydrates the placeholder back to the real secret at exec time.
+    assert core.vault is not None
+    assert core.vault.rehydrate(cred.secret_ref) == "hunter2"
+    # And the plaintext is absent from the ledger database file on disk.
+    ws = core.workspace
+    assert ws is not None
+    assert b"hunter2" not in ws.ledger_path.read_bytes()

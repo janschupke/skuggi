@@ -15,9 +15,17 @@ from typing import TYPE_CHECKING
 from skuggi.common import palette
 from skuggi.frontend import presenters, render, verbs
 from skuggi.frontend.outcomes import (
+    AddedCredential,
+    AddedLoot,
+    AddedNote,
+    AddOutcome,
+    AddUsage,
+    BadSeverity,
+    FindingRecorded,
     Indexed,
     IngestOutcome,
     IngestUsage,
+    NoEngagement,
     ReplayEmpty,
     ReplayList,
     ReportNoteAdded,
@@ -31,7 +39,7 @@ from skuggi.frontend.render import Styled
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from skuggi.persistence.ledger import CoverageRow, FindingRow
+    from skuggi.persistence.ledger import CoverageRow, CredentialRow, FindingRow
 
 
 def present_report(outcome: ReportOutcome, surface: verbs.Surface) -> Styled:
@@ -100,6 +108,24 @@ def present_findings_list(
     ]
 
 
+def present_credentials(rows: Sequence[CredentialRow]) -> Styled:
+    """Render ``show creds``: one line per credential, the secret masked (E8/E9).
+
+    The stored ``secret_ref`` is a vault placeholder, so even this listing never
+    shows a plaintext secret -- only whether one is held, and whether it validated.
+    """
+    if not rows:
+        return presenters.empty("creds")
+    lines: Styled = []
+    for c in rows:
+        who = f"{c.username}@{c.host}" if c.host else (c.username or "?")
+        svc = f" [{c.service}]" if c.service else ""
+        mark = "✓" if c.validated else "·"
+        held = "secret held" if c.secret_ref else "no secret"
+        lines.append(render.info(f"{mark} {who}{svc} — {held} ({c.source or '?'})"))
+    return lines
+
+
 def present_coverage(rows: Sequence[CoverageRow], enabled: tuple[str, ...]) -> Styled:
     """Render ``show coverage``: exercised methodology ids vs the enabled taxonomy (E7).
 
@@ -158,3 +184,34 @@ def present_finding_recorded(row: FindingRow) -> Styled:
             ]
         )
     ]
+
+
+def present_add(outcome: AddOutcome, surface: verbs.Surface) -> Styled:  # noqa: PLR0911 -- one case per add outcome
+    """Render note/loot/usage add outcomes.
+
+    A recorded FINDING is NOT handled here (its severity is painted by
+    ``presenters_journal.present_finding_recorded``); the shared ``add`` action
+    branches on ``FindingRecorded`` before calling this.
+    """
+    match outcome:
+        case AddUsage(form):
+            return presenters.usage(f"add {form}", surface)
+        case NoEngagement(kind):
+            fix = verbs.cmd("engagement setup", surface)
+            return [
+                render.warning(f"no engagement loaded -- run {fix} to record {kind}s")
+            ]
+        case BadSeverity(value, allowed):
+            choices = ", ".join(allowed)
+            return [
+                render.danger(f"unknown severity {value!r}; choose one of: {choices}")
+            ]
+        case AddedNote(path):
+            return [render.success(f"noted {path}")]
+        case AddedLoot(path):
+            return [render.success(f"loot recorded {path}")]
+        case AddedCredential(host, username):
+            who = f"{username}@{host}" if host else username
+            return [render.success(f"credential stored for {who} (secret vaulted)")]
+        case FindingRecorded():  # pragma: no cover -- caller renders findings
+            return []

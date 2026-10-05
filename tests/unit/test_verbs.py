@@ -41,7 +41,7 @@ def test_grouping_verbs_carry_nouns() -> None:
         "wordlist",
         "thread",
     }
-    assert verbs.noun_names("add") == {"note", "loot", "finding", "memory"}
+    assert verbs.noun_names("add") == {"note", "loot", "cred", "finding", "memory"}
     assert verbs.noun_names("remove") == {"memory", "grants"}
 
 

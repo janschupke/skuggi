@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from skuggi.agent.core import AgentCore
-    from skuggi.persistence.ledger import FindingRow
+    from skuggi.persistence.ledger import CredentialRow, FindingRow
 
 
 class Journal:
@@ -149,6 +149,41 @@ class Journal:
         if ws is None:
             return ""
         return journal_io.read_entries(ws.loot_file)
+
+    def add_credential(  # noqa: PLR0913 -- a credential is several named fields
+        self,
+        *,
+        host: str = "",
+        service: str = "",
+        username: str = "",
+        secret: str = "",
+        source: str = "operator",
+        validated: bool = False,
+    ) -> int | None:
+        """Store a captured credential: secret in the vault, row in the ledger (E8/E9).
+
+        Returns the credential id, or ``None`` when there is no engagement vault to
+        hold the secret. The secret is interned as a ``«CRED:id»`` placeholder so a
+        command the worker runs rehydrates it at exec, and the plaintext never lands
+        in the ledger, a brief or the model's context.
+        """
+        core = self._core
+        if core.vault is None:
+            return None
+        secret_ref = core.vault.intern(secret, "CRED", source=source) if secret else ""
+        return core.ledger.record_credential(
+            session_id=core.session_id,
+            host=host,
+            service=service,
+            username=username,
+            secret_ref=secret_ref,
+            source=source,
+            validated=validated,
+        )
+
+    def credentials(self) -> list[CredentialRow]:
+        """The captured credentials for this session (E8/E9)."""
+        return self._core.ledger.credentials_for(self._core.session_id)
 
     def write_report(self, *, pdf: bool = False) -> Path | tuple[Path, Path]:
         """Write the session's Markdown report and return its path.

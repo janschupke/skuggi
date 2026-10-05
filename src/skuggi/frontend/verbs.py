@@ -129,6 +129,7 @@ VERBS: tuple[Verb, ...] = (
             Noun("loot", "captured loot"),
             Noun("findings", "recorded findings"),
             Noun("coverage", "exercised WSTG/ATT&CK ids vs the enabled taxonomy"),
+            Noun("creds", "captured credentials (secrets masked)"),
             Noun("history", "recent messages on this thread", "[n]"),
             Noun("trace", "the worker's tool calls on this thread"),
             Noun("threads", "conversation threads"),
@@ -177,6 +178,11 @@ VERBS: tuple[Verb, ...] = (
         nouns=(
             Noun("note", "record a note", "<text>"),
             Noun("loot", "record a loot item", "<text>"),
+            Noun(
+                "cred",
+                "store a captured credential (secret goes to the vault)",
+                "<host> <service> <user> <secret>",
+            ),
             Noun("finding", "record a finding", "<severity|CVSS> <title>"),
             Noun("memory", "remember an operator preference", "<entry>"),
         ),

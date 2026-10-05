@@ -38,12 +38,12 @@ from skuggi.common.execution import CommandResult
 from skuggi.common.paths import ensure_parent
 from skuggi.common.sqlitedb import harden
 from skuggi.frameworks import cvss
+from skuggi.persistence.artifacts import ArtifactsLedgerMixin
 from skuggi.persistence.custody import CustodyLedgerMixin
 from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
     _COMMAND_COLS,
     _COMMAND_MIGRATIONS,
-    _COVERAGE_COLS,
     _EVENT_COLS,
     _FINDING_COLS,
     _FINDING_EVIDENCE_COLS,
@@ -58,6 +58,7 @@ from skuggi.persistence.ledger_schema import (
     CommandRow,
     CommandStatus,
     CoverageRow,
+    CredentialRow,
     EventKind,
     EventRow,
     EvidenceRow,
@@ -87,6 +88,7 @@ __all__ = [
     "CommandRow",
     "CommandStatus",
     "CoverageRow",
+    "CredentialRow",
     "EventKind",
     "EventRow",
     "EvidenceRow",
@@ -118,7 +120,7 @@ def _effective_score(
     return cvss.score(effective)
 
 
-class Ledger(CustodyLedgerMixin):
+class Ledger(ArtifactsLedgerMixin, CustodyLedgerMixin):
     """A thin, typed wrapper over the ledger database."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
@@ -512,37 +514,6 @@ class Ledger(CustodyLedgerMixin):
                 (engagement_name, FindingStatus.APPROVED),
             ).fetchall()
         return dedup_findings([FindingRow(*row) for row in rows])
-
-    def record_coverage(
-        self,
-        *,
-        session_id: str,
-        framework: str,
-        ref_id: str,
-        status: str = "exercised",
-        note: str = "",
-    ) -> None:
-        """Mark a methodology id exercised/skipped for a session, idempotently (E7)."""
-        with self._lock, self._conn:
-            self._conn.execute(
-                "INSERT OR IGNORE INTO coverage"
-                " (session_id, framework, ref_id, status, note, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, framework, ref_id, status, note, now_iso()),
-            )
-
-    def coverage_for(self, session_id: str) -> list[CoverageRow]:
-        """Every recorded coverage id for a session, framework then id order (E7)."""
-        with self._lock:
-            rows = self._conn.execute(
-                _select_sql(
-                    "coverage",
-                    _COVERAGE_COLS,
-                    "WHERE session_id = ? ORDER BY framework, ref_id",
-                ),
-                (session_id,),
-            ).fetchall()
-        return [CoverageRow(*row) for row in rows]
 
     def set_finding_status(
         self, finding_id: int, status: str, *, reason: str = ""

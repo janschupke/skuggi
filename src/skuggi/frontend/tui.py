@@ -171,6 +171,7 @@ class Tui:
         self._add_nouns: dict[str, Callable[[str], None]] = {
             "note": self._styled(control.add_record_for("note")),
             "loot": self._styled(control.add_record_for("loot")),
+            "cred": self._styled(control.add_record_for("cred")),
             "finding": self._styled(control.add_record_for("finding")),
             "memory": self._styled(control.add_memory),
         }

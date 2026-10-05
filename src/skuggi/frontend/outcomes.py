@@ -238,6 +238,14 @@ class AddedLoot:
 
 
 @dataclass(frozen=True, slots=True)
+class AddedCredential:
+    """A credential was stored (secret in the vault); names host/user for the echo."""
+
+    host: str
+    username: str
+
+
+@dataclass(frozen=True, slots=True)
 class BadSeverity:
     """The finding severity was not one of `allowed`."""
 
@@ -253,7 +261,13 @@ class FindingRecorded:
 
 
 AddOutcome = (
-    AddUsage | NoEngagement | AddedNote | AddedLoot | BadSeverity | FindingRecorded
+    AddUsage
+    | NoEngagement
+    | AddedNote
+    | AddedLoot
+    | AddedCredential
+    | BadSeverity
+    | FindingRecorded
 )
 
 

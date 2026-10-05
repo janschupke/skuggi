@@ -24,6 +24,7 @@ from skuggi.common.paths import packaged_template
 from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import ThreatModel
 from skuggi.frontend.outcomes import (
+    AddedCredential,
     AddedLoot,
     AddedNote,
     AddOutcome,
@@ -322,7 +323,7 @@ def _run_add_finding(core: AgentCore, rest: str) -> AddOutcome:
     return FindingRecorded(row)
 
 
-def run_add(core: AgentCore, arg: str) -> AddOutcome:
+def run_add(core: AgentCore, arg: str) -> AddOutcome:  # noqa: PLR0911 -- one branch per add noun
     """Record a note, loot item or finding, mapping each case to a typed outcome."""
     sub, _, rest = arg.partition(" ")
     sub, rest = sub.strip().lower(), rest.strip()
@@ -336,9 +337,26 @@ def run_add(core: AgentCore, arg: str) -> AddOutcome:
             return AddUsage("loot <text>")
         path = core.journal.add_loot(rest)
         return AddedLoot(path) if path is not None else NoEngagement("loot")
+    if sub == "cred":
+        return _run_add_cred(core, rest)
     if sub == "finding":
         return _run_add_finding(core, rest)
-    return AddUsage("note <text> | loot <text> | finding <severity> <title>")
+    return AddUsage(
+        "note <text> | loot <text> | cred <host> <service> <user> <secret>"
+        " | finding <severity> <title>"
+    )
+
+
+def _run_add_cred(core: AgentCore, rest: str) -> AddOutcome:
+    """Store a captured credential (``add cred <host> <service> <user> <secret>``)."""
+    parts = rest.split()
+    if len(parts) < 4:  # noqa: PLR2004 -- host, service, user, secret
+        return AddUsage("cred <host> <service> <user> <secret>")
+    host, service, username, secret = parts[0], parts[1], parts[2], " ".join(parts[3:])
+    cid = core.journal.add_credential(
+        host=host, service=service, username=username, secret=secret
+    )
+    return AddedCredential(host, username) if cid is not None else NoEngagement("cred")
 
 
 # ----- findings review (approve / reject) -----------------------------------

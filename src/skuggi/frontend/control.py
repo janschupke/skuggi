@@ -89,6 +89,11 @@ def show_config(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.
     return [render.plain(core.config.summary())]
 
 
+def show_creds(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
+    """Captured credentials, secrets masked (the vault placeholder, never plaintext)."""
+    return presenters_journal.present_credentials(core.journal.credentials())
+
+
 def show_coverage(
     core: AgentCore, _rest: str, _surface: verbs.Surface
 ) -> render.Styled:
@@ -234,7 +239,7 @@ def add_record_for(noun: str) -> Action:
 
     A finding keeps its severity colour via
     :func:`presenters_journal.present_finding_recorded`; a note/loot renders through
-    the shared :func:`presenters.present_add`. Branching here (not in each
+    the shared :func:`presenters_journal.present_add`. Branching here (not in each
     front-end) is what removed the duplicated ``FindingRecorded`` special-case.
     """
 
@@ -242,7 +247,7 @@ def add_record_for(noun: str) -> Action:
         outcome = dispatch.run_add(core, f"{noun} {rest}".strip())
         if isinstance(outcome, FindingRecorded):
             return presenters_journal.present_finding_recorded(outcome.row)
-        return presenters.present_add(outcome, surface)
+        return presenters_journal.present_add(outcome, surface)
 
     return action
 
@@ -306,6 +311,7 @@ SHOW_ACTIONS: dict[str, Action] = {
     "config": show_config,
     "findings": show_findings,
     "coverage": show_coverage,
+    "creds": show_creds,
     "env": show_env,
     "case": show_case,
 }

@@ -6,7 +6,12 @@ from pathlib import Path
 
 from skuggi.frontend import outcomes, presenters_journal
 from skuggi.frontend.render import Styled, to_markup
-from skuggi.persistence.ledger import CoverageRow, FindingRow, SessionRow
+from skuggi.persistence.ledger import (
+    CoverageRow,
+    CredentialRow,
+    FindingRow,
+    SessionRow,
+)
 
 
 def _texts(lines: Styled) -> list[str]:
@@ -144,3 +149,30 @@ def test_present_coverage_lists_exercised_and_gaps() -> None:
 
 def test_present_coverage_empty() -> None:
     assert _texts(presenters_journal.present_coverage([], ())) == ["(no coverage yet)"]
+
+
+def _credential(validated: int = 0, secret_ref: str = "«CRED:aa22bb»") -> CredentialRow:  # noqa: S107 -- a vault placeholder, not a password
+    return CredentialRow(
+        id=1,
+        session_id="s1",
+        host="10.0.0.5",
+        service="ssh",
+        username="root",
+        secret_ref=secret_ref,
+        source="operator",
+        validated=validated,
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+
+
+def test_present_credentials_masks_the_secret() -> None:
+    texts = _texts(presenters_journal.present_credentials([_credential(validated=1)]))
+    joined = "\n".join(texts)
+    assert "root@10.0.0.5" in joined
+    assert "ssh" in joined
+    assert "secret held" in joined
+    assert "«CRED:aa22bb»" not in joined  # the placeholder itself is not shown
+
+
+def test_present_credentials_empty() -> None:
+    assert _texts(presenters_journal.present_credentials([])) == ["(no creds yet)"]
