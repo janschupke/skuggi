@@ -393,6 +393,7 @@ def _plan_update(
             "draft": answer,
             "phase": current,
             "commands": [],
+            "lookups": [],
             "command_rounds": 0,
         }
     # Advance the phase at most once per turn (on the first pass), so a
@@ -402,8 +403,9 @@ def _plan_update(
         "plan_action": "plan",
         "plan": list(resp.steps),
         "phase": phase,
-        # Reset this turn's command trail and round counter for the new pass.
+        # Reset this turn's command trail, lookup results and round counter.
         "commands": [],
+        "lookups": [],
         "command_rounds": 0,
     }
 
@@ -479,6 +481,7 @@ def build_graph(
             loot=_loot_briefs(deps, clean),
             notes=_note_briefs(deps, clean),
             recent_commands=tuple(commands),
+            lookup_results=tuple(state.get("lookups", [])),
             **extra,  # type: ignore[arg-type]
         )
 

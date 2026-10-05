@@ -46,6 +46,9 @@ class AgentState(_MessageChannels, total=False):
     plan: list[str]
     context: str
     commands: list[CommandBrief]
+    # Results of the worker's read-only `lookup` queries this turn (reset each turn,
+    # like ``commands``); the executor appends, the worker reads them back.
+    lookups: list[str]
     worker: WorkerResponse | None
     draft: str
     approved: bool
@@ -68,6 +71,7 @@ class PlanUpdate(TypedDict, total=False):
     phase: Phase
     draft: str
     commands: list[CommandBrief]
+    lookups: list[str]
     command_rounds: int
 
 
@@ -85,9 +89,10 @@ class WorkerUpdate(TypedDict, total=False):
 
 
 class ExecutorUpdate(TypedDict, total=False):
-    """Written by the executor: the growing command trail + the round counter."""
+    """Written by the executor: the command trail, lookup results + round counter."""
 
     commands: list[CommandBrief]
+    lookups: list[str]
     command_rounds: int
 
 

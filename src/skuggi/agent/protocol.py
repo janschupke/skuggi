@@ -246,6 +246,9 @@ class RequestContext(BaseModel):
     loot: tuple[LootBrief, ...] = ()
     notes: tuple[NoteBrief, ...] = ()
     recent_commands: tuple[CommandBrief, ...] = ()
+    # Results of the worker's own read-only `lookup` queries this turn, resolved by
+    # the executor and fed back so the worker can look past the bounded briefs.
+    lookup_results: tuple[str, ...] = ()
     plan: tuple[str, ...] = ()  # planner output, for the worker
     prior_critique: str = ""  # critic output, for the planner's next pass
     draft: str = ""  # worker output, for the critic
@@ -396,6 +399,7 @@ class WorkerResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     command: str | None = None
+    lookup: str = ""
     summary: str = ""
     stance: Stance = "cautious"
     conclusions: str = ""
@@ -614,6 +618,7 @@ def render_request(ctx: RequestContext) -> str:
         labeled("Captured loot", _loot_block(ctx.loot)),
         labeled("Notes", _notes_block(ctx.notes)),
         labeled("Recent commands", _commands_block(ctx.recent_commands)),
+        labeled("Lookup results", "\n\n".join(ctx.lookup_results)),
         labeled("Data files", ctx.data_files),
         labeled("Retrieved context", ctx.retrieved_context),
         labeled("Plan", steps),

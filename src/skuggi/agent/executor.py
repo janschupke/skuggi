@@ -42,11 +42,18 @@ if TYPE_CHECKING:
     from skuggi.engagement.engagement import EngagementConfig
     from skuggi.persistence.ledger_schema import CommandRow
 
+    # The session's bound redactor (``_redactor``): free text in -> scrubbed out.
+    Redact = Callable[[str], str]
+
 log = get_logger(__name__)
 
 # How much captured command output the executor hands back to the worker as the
 # command's summary -- enough to decide the next step without dumping a whole scan.
 _OUTPUT_SUMMARY_CAP = 1_500
+# A larger budget for an explicit `lookup command <id>`: the worker asked to
+# re-read a command's full output, so give far more than the turn summary (still
+# head+tail bounded, still under the 256 KiB capture ceiling).
+_LOOKUP_OUTPUT_CAP = 8_000
 
 
 def _redactor(deps: GraphDeps) -> Callable[[str], str]:
@@ -61,7 +68,12 @@ def _redactor(deps: GraphDeps) -> Callable[[str], str]:
 
 
 def _summarize_output(
-    exit_code: int | None, stdout: str, stderr: str, clean: Callable[[str], str]
+    exit_code: int | None,
+    stdout: str,
+    stderr: str,
+    clean: Redact,
+    *,
+    cap: int = _OUTPUT_SUMMARY_CAP,
 ) -> str:
     """A bounded, redacted summary of captured output for a model-facing brief.
 
@@ -70,7 +82,8 @@ def _summarize_output(
     scrubbed (and any secret vaulted) *before* truncation, so a secret cannot
     survive by sitting past the cap. Works on the primitive fields so both a live
     ``CommandResult`` (this turn) and a persisted ``CommandRow`` (a prior turn, via
-    :func:`brief_from_row`) summarize identically.
+    :func:`brief_from_row`) summarize identically. ``cap`` is the head+tail budget;
+    a ``lookup command <id>`` passes a larger one to re-read the full output.
     """
     parts = [stdout.strip()]
     if stderr.strip():
@@ -78,17 +91,15 @@ def _summarize_output(
     text = clean("\n".join(p for p in parts if p))
     if not text:
         return f"exit={exit_code} (no output)"
-    return f"exit={exit_code}\n{_head_tail(text, _OUTPUT_SUMMARY_CAP)}"
+    return f"exit={exit_code}\n{_head_tail(text, cap)}"
 
 
-def _summarize_result(
-    result: execution.CommandResult, clean: Callable[[str], str]
-) -> str:
+def _summarize_result(result: execution.CommandResult, clean: Redact) -> str:
     """A bounded summary of a just-run command's output for the worker."""
     return _summarize_output(result.exit_code, result.stdout, result.stderr, clean)
 
 
-def brief_from_row(row: CommandRow, clean: Callable[[str], str]) -> CommandBrief:
+def brief_from_row(row: CommandRow, clean: Redact) -> CommandBrief:
     """A redacted :class:`CommandBrief` from a persisted row, for cross-turn recall.
 
     Mirrors the in-turn brief built in :func:`_run_or_propose`: an executed row is
@@ -129,8 +140,110 @@ def _head_tail(text: str, cap: int) -> str:
     return f"{text[:head]}\n...[{elided} chars elided]...\n{text[-tail:]}"
 
 
+_LOOKUP_TARGETS = ("findings", "loot", "creds", "notes", "command")
+
+
+def _lookup_findings(ledger: Ledger, sid: str, name: str, q: str, clean: Redact) -> str:
+    rows = ledger.findings_for_engagement(name) if name else ledger.findings_for(sid)
+    hits = [
+        r for r in rows if not q or q in r.title.lower() or q in r.affected_host.lower()
+    ]
+    lines = [
+        f"[{r.id}] {r.severity.upper()} {clean(r.title)}"
+        f" @ {r.affected_host or '-'} [{r.status}]"
+        for r in hits[:50]
+    ]
+    return "\n".join(lines) or "(no matching findings)"
+
+
+def _lookup_loot(ledger: Ledger, sid: str, name: str, q: str, clean: Redact) -> str:
+    rows = ledger.loot_for_engagement(name) if name else ledger.loot_for(sid)
+    hits = [
+        r
+        for r in rows
+        if not q or q in r.label.lower() or q in r.host.lower() or q in r.kind.lower()
+    ]
+    lines = [f"[{r.id}] {r.kind} {r.host}: {clean(r.label)}" for r in hits[:50]]
+    return "\n".join(lines) or "(no matching loot)"
+
+
+def _lookup_creds(ledger: Ledger, sid: str, name: str, q: str) -> str:
+    # No redactor: a credential row carries only identifiers + a vault placeholder.
+    rows = (
+        ledger.credentials_for_engagement(name) if name else ledger.credentials_for(sid)
+    )
+    hits = [r for r in rows if not q or q in r.host.lower() or q in r.username.lower()]
+    lines = [
+        f"[{r.id}] {r.username or '?'}@{r.host or '?'} ({r.service or '-'})"
+        f" secret={r.secret_ref or '-'}"
+        for r in hits[:50]
+    ]
+    return "\n".join(lines) or "(no matching credentials)"
+
+
+def _lookup_notes(ledger: Ledger, sid: str, name: str, q: str, clean: Redact) -> str:
+    rows = ledger.notes_for_engagement(name) if name else ledger.notes_for(sid)
+    hits = [r for r in rows if not q or q in r.text.lower() or q in r.subject.lower()]
+    lines = [
+        f"[{r.id}] {r.subject} ({r.host or '-'}): {clean(r.text)}" for r in hits[:50]
+    ]
+    return "\n".join(lines) or "(no matching notes)"
+
+
+def _lookup_command(ledger: Ledger, rest: str, q: str, clean: Redact) -> str:
+    row = ledger.command(int(q)) if q.isdigit() else None
+    if row is None:
+        return f"(no command with id {rest!r})"
+    body = _summarize_output(
+        row.exit_code, row.stdout, row.stderr, clean, cap=_LOOKUP_OUTPUT_CAP
+    )
+    return f"[{row.id}] {row.status} {clean(row.command)}\n{body}"
+
+
+# Accepted lookup targets, normalized (singular) to their resolver.
+_LOOKUP_ALIASES = {
+    "finding": "finding",
+    "loot": "loot",
+    "cred": "cred",
+    "credential": "cred",
+    "note": "note",
+    "command": "command",
+    "cmd": "command",
+    "output": "command",
+}
+
+
+def resolve_lookup(deps: GraphDeps, lookup: str) -> str:
+    """Resolve a worker's read-only `lookup` against the engagement's record.
+
+    Read-only by construction -- it only queries the ledger -- so it is safe to run
+    without the operator and regardless of autonomy. Every free-text field is
+    redacted (a vaulted secret stays a placeholder), and credential/loot rows carry
+    only placeholders already. Returns a compact text block for the worker to read.
+    """
+    ledger = deps.ledger
+    if ledger is None or not deps.session_id:
+        return "(no engagement record available)"
+    clean = _redactor(deps)
+    sid = deps.session_id
+    name = deps.engagement.name if deps.engagement is not None else ""
+    target, _, rest = lookup.strip().partition(" ")
+    q = rest.strip().lower()
+    resolvers: dict[str, Callable[[], str]] = {
+        "finding": lambda: _lookup_findings(ledger, sid, name, q, clean),
+        "loot": lambda: _lookup_loot(ledger, sid, name, q, clean),
+        "cred": lambda: _lookup_creds(ledger, sid, name, q),
+        "note": lambda: _lookup_notes(ledger, sid, name, q, clean),
+        "command": lambda: _lookup_command(ledger, rest, q, clean),
+    }
+    resolver = resolvers.get(_LOOKUP_ALIASES.get(target.lower().rstrip("s"), ""))
+    if resolver is None:
+        return f"(unknown lookup target {target!r}; use {' | '.join(_LOOKUP_TARGETS)})"
+    return resolver()
+
+
 def execute_node(state: AgentState, deps: GraphDeps, work_dir: Path) -> ExecutorUpdate:
-    """Run (autonomous) or propose the worker's command, recording any findings."""
+    """Run/propose the worker's command, resolve a lookup, and record any findings."""
     resp = state.get("worker")
     if resp is None:
         return {}
@@ -153,6 +266,11 @@ def execute_node(state: AgentState, deps: GraphDeps, work_dir: Path) -> Executor
         updates["commands"] = commands
         if ran:
             updates["command_rounds"] = rounds + 1
+    elif resp.command is None and resp.lookup:
+        lookups = list(state.get("lookups", []))
+        lookups.append(f"{resp.lookup} ->\n{resolve_lookup(deps, resp.lookup)}")
+        updates["lookups"] = lookups
+        updates["command_rounds"] = rounds + 1
     _record_findings(deps, resp, command_id)
     return updates
 
@@ -172,6 +290,13 @@ def route_after_executor(  # noqa: PLR0911 -- a flat guard ladder reads clearer 
     """
     resp = state.get("worker")
     if resp is None:
+        return "critic"
+    # A read-only lookup just resolved: loop back so the worker reads the result and
+    # decides, regardless of autonomy (nothing was executed). Bounded by the shared
+    # round budget so repeated lookups cannot spin forever.
+    if resp.command is None and resp.lookup:
+        if (state.get("command_rounds") or 0) < deps.max_command_rounds:
+            return "worker"
         return "critic"
     autonomous = deps.engagement is not None and deps.engagement.autonomous
     if not autonomous and resp.command is None and not resp.findings:
