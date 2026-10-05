@@ -564,8 +564,9 @@ class Daemon:
         # messages are buffered then emitted once the browser flow completes.
         messages: list[str] = []
         try:
-            with self._lock:
-                account = self.core.login_chatgpt(messages.append)
+            # Already under the handler lock (handle_request); re-acquiring the
+            # non-reentrant lock here would deadlock the daemon permanently.
+            account = self.core.login_chatgpt(messages.append)
         except (RuntimeError, ImportError) as exc:
             yield from (f"{m}\n" for m in messages)
             yield f"login failed: {exc}\n"

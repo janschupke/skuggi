@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -614,3 +615,29 @@ def test_attach_set_model_round_trips_a_choose_frame(daemon: Daemon) -> None:
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
     assert any("choose" in f for f in emitted)  # the model picker frame
+
+
+def test_login_does_not_deadlock(daemon: Daemon) -> None:
+    """Regression for audit B2: _login must not re-acquire the handler lock.
+
+    Driven in a thread with a timeout so a regression (the non-reentrant lock
+    re-acquired under handle_request's lock) fails loudly instead of hanging the
+    whole suite.
+    """
+
+    def fake_login(notify: object = None) -> str:
+        if callable(notify):
+            notify("opening browser")
+        return "acct"
+
+    daemon.core.login_chatgpt = fake_login  # type: ignore[method-assign]
+    out: list[str] = []
+
+    def run() -> None:
+        out.append(chunks(daemon, {"op": "input", "text": "login"}))
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout=5.0)
+    assert not t.is_alive(), "login deadlocked (re-acquired the handler lock)"
+    assert "logged in to chatgpt" in out[0]
