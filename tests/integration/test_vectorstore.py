@@ -180,3 +180,34 @@ def test_a_macro_document_is_skipped_not_fatal(
 
     assert added > 0  # the clean file made it in
     assert store.search("herons", k=1)
+
+
+def test_reingesting_a_source_replaces_not_duplicates(tmp_path: Path) -> None:
+    """A second /ingest of the same file must not double its chunks (audit B7)."""
+    index = tmp_path / "idx"
+    store = Store(index, CountingFakeEmbeddings())
+    path = tmp_path / "doc.md"
+    path.write_text("alpha content about badgers", encoding="utf-8")
+
+    first = store.ingest([path])
+    second = store.ingest([path])
+    assert first == second  # same source, same chunk count
+
+    hits = store.search("badgers", k=50)
+    from_this = [h for h in hits if h.metadata["source"] == str(path)]
+    assert len(from_this) == first  # not 2x -- the old copy was dropped
+
+
+def test_sources_map_survives_persist_and_reload(tmp_path: Path) -> None:
+    index = tmp_path / "idx"
+    path = tmp_path / "doc.md"
+    path.write_text("gamma content", encoding="utf-8")
+    first = Store(index, CountingFakeEmbeddings())
+    first.ingest([path])
+    first.persist()
+    assert (index / "sources.json").is_file()
+
+    reloaded = Store(index, CountingFakeEmbeddings())
+    n = reloaded.ingest([path])  # re-ingest after reload still de-dupes
+    hits = reloaded.search("gamma", k=50)
+    assert len([h for h in hits if h.metadata["source"] == str(path)]) == n

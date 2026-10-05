@@ -86,6 +86,23 @@ def _refs_line(refs: list[FindingRefRow]) -> str:
     return "\n\nClassified: " + ", ".join(parts)
 
 
+def _fenced(text: str) -> str:
+    """Wrap `text` in a code fence longer than any backtick run it contains.
+
+    Evidence is target-derived; a bare ```` ``` ```` fence would let a line of
+    backticks in the evidence break out of the block and inject Markdown into the
+    report. The fence is sized to one backtick longer than the longest run inside
+    (minimum three), which CommonMark guarantees cannot be closed early (audit B4).
+    """
+    longest = 0
+    run = 0
+    for char in text:
+        run = run + 1 if char == "`" else 0
+        longest = max(longest, run)
+    fence = "`" * max(3, longest + 1)
+    return f"\n{fence}\n{text}\n{fence}"
+
+
 def _findings(findings: list[FindingRow], refs: _Refs | None = None) -> str:
     if not findings:
         return "_No findings recorded._"
@@ -106,7 +123,7 @@ def _findings(findings: list[FindingRow], refs: _Refs | None = None) -> str:
             out.append(_cvss_line(f))
             out.append(_refs_line(refs.get(f.id, [])))
             if f.evidence:
-                out.append(f"\n```\n{f.evidence}\n```")
+                out.append(_fenced(f.evidence))
     return "\n".join(p for p in out if p)
 
 

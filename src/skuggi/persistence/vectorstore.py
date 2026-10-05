@@ -11,8 +11,10 @@ that's fine for a single-user local store.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+from uuid import uuid4
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -74,6 +76,9 @@ class Store:
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
         self._vs: FAISS | None = self._try_load()
+        # source path -> the chunk ids it produced, so a re-ingest of a source
+        # REPLACES its chunks instead of appending a duplicate copy (audit B7).
+        self._sources: dict[str, list[str]] = self._load_sources()
 
     @classmethod
     def from_settings(cls, settings: Settings, embeddings: Embeddings) -> Store:
@@ -109,6 +114,25 @@ class Store:
                 )
                 raise VectorStoreError(msg)
 
+    @property
+    def _sources_path(self) -> Path:
+        """Where the source -> chunk-ids map is persisted (beside the index)."""
+        return self.path / "sources.json"
+
+    def _load_sources(self) -> dict[str, list[str]]:
+        """Load the source -> chunk-ids map, or empty when none/unreadable."""
+        try:
+            raw = json.loads(self._sources_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(src): [str(i) for i in ids]
+            for src, ids in raw.items()
+            if isinstance(ids, list)
+        }
+
     def search(self, query: str, k: int = 4) -> list[Document]:
         """Return the top-k matches, or nothing when no index exists yet."""
         if self._vs is None:
@@ -130,25 +154,51 @@ class Store:
     def ingest(self, paths: Iterable[Path]) -> int:
         """Embed the given files or directories, returning the chunk count.
 
-        `errors="replace"` is kept deliberately over a document loader: ingest
-        must never fail the whole run because one file has a stray byte.
+        Re-ingesting a source REPLACES its chunks: the prior chunks for that
+        source are deleted from the index before the new ones are added, so a
+        second `/ingest` of the same path does not silently double every chunk
+        (which bloated the index, skewed retrieval and repeated embedding spend).
+        `errors="replace"` is kept so one stray byte never fails the whole run.
         """
-        sources: list[Document] = []
+        chunks_by_source: dict[str, list[Document]] = {}
         for path in self._files(paths):
             content = self._read_source(path)
             if content is None:
                 continue
-            sources.append(
-                Document(page_content=content, metadata={"source": str(path)})
-            )
-        docs = self._splitter.split_documents(sources)
-        if not docs:
+            src = str(path)
+            doc = Document(page_content=content, metadata={"source": src})
+            chunks = self._splitter.split_documents([doc])
+            if chunks:
+                chunks_by_source[src] = chunks
+        if not chunks_by_source:
             return 0
+        self._drop_sources(chunks_by_source.keys())
+        total = 0
+        for src, chunks in chunks_by_source.items():
+            ids = [str(uuid4()) for _ in chunks]
+            if self._vs is None:
+                self._vs = FAISS.from_documents(chunks, self.embeddings, ids=ids)
+            else:
+                self._vs.add_documents(chunks, ids=ids)
+            self._sources[src] = ids
+            total += len(chunks)
+        return total
+
+    def _drop_sources(self, sources: Iterable[str]) -> None:
+        """Delete the live chunks for each named source before it is re-added."""
         if self._vs is None:
-            self._vs = FAISS.from_documents(docs, self.embeddings)
-        else:
-            self._vs.add_documents(docs)
-        return len(docs)
+            return
+        stale = [cid for src in sources for cid in self._sources.get(src, [])]
+        if not stale:
+            return
+        try:
+            self._vs.delete(stale)
+        except (ValueError, KeyError) as exc:  # best effort: a dessynced map
+            log.warning(
+                "could not drop %d stale chunk(s) on re-ingest: %s", len(stale), exc
+            )
+        for src in list(sources):
+            self._sources.pop(src, None)
 
     def _read_source(self, path: Path) -> str | None:
         """The text of one ingest source, or None to skip it.
@@ -172,8 +222,21 @@ class Store:
         return path.read_text(encoding="utf-8", errors="replace")
 
     def persist(self) -> None:
-        """Write the index to disk; a no-op when nothing has been ingested."""
+        """Write the index to disk; a no-op when nothing has been ingested.
+
+        The FAISS files are written to a temp dir and atomically moved into place
+        so a crash mid-write cannot leave a half-written index beside a stale
+        docstore. The source -> chunk-ids map is written alongside.
+        """
         if self._vs is None:
             return
         ensure_dir(self.path)
-        self._vs.save_local(str(self.path))
+        tmp = self.path / ".tmp-save"
+        ensure_dir(tmp)
+        self._vs.save_local(str(tmp))
+        for name in ("index.faiss", "index.pkl"):
+            (tmp / name).replace(self.path / name)
+        tmp.rmdir()
+        self._sources_path.write_text(
+            json.dumps(self._sources, indent=2, sort_keys=True), encoding="utf-8"
+        )

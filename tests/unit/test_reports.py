@@ -6,12 +6,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from weasyprint.urls import URLFetchingError
 
 from skuggi.common.execution import CommandResult
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.persistence import pdf as pdf_mod
 from skuggi.persistence.ledger import FindingRefInput, Ledger, open_ledger
+from skuggi.persistence.pdf import _no_network_fetcher
 from skuggi.persistence.reports import (
+    _fenced,
     _local_stamp,
     append_changelog,
     render_report,
@@ -247,3 +250,23 @@ def test_report_changelog_note(tmp_path: Path) -> None:
         out = write_report("s1", led, reports_dir)
     assert isinstance(out, Path)
     assert "Changelog: `CHANGELOG.md`" in out.read_text()
+
+
+def test_fenced_evidence_cannot_break_out_with_backticks() -> None:
+    """Evidence containing a code-fence line must not escape its block (B4)."""
+    evidence = "line one\n```\n# injected heading\n```\nline two"
+    fenced = _fenced(evidence)
+    opening = fenced.strip().splitlines()[0]
+    assert len(opening) >= 4  # a fence longer than the inner ``` run
+    assert opening.strip("`") == ""  # the fence is only backticks
+    # the inner ``` is now shorter than the wrapping fence, so it cannot close it
+    assert fenced.count(opening) == 2
+
+
+def test_no_network_fetcher_refuses_http_and_file_but_serves_data() -> None:
+    with pytest.raises(URLFetchingError, match="refusing to fetch"):
+        _no_network_fetcher("http://attacker.example/leak.png")
+    with pytest.raises(URLFetchingError, match="refusing to fetch"):
+        _no_network_fetcher("file:///etc/passwd")
+    served = _no_network_fetcher("data:text/plain;base64,aGk=")
+    assert served["string"] == b"hi"

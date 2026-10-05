@@ -130,6 +130,32 @@ def markdown_to_html(
     )
 
 
+def _no_network_fetcher(url: str) -> dict[str, object]:
+    """A WeasyPrint URL fetcher that refuses every non-``data:`` resource.
+
+    A report's finding text is partly target-derived, and Markdown image syntax
+    (``![x](http://attacker/leak.png)``) becomes a real ``<img>`` WeasyPrint would
+    otherwise fetch at paint time -- an SSRF / exfiltration beacon on report build,
+    and a ``file:`` URL would read a local file into the PDF. The report embeds no
+    external or local resources (its CSS is inlined), so only self-contained inline
+    ``data:`` URIs are served (decoded locally, never over the network); any other
+    scheme raises ``URLFetchingError``, which WeasyPrint handles by skipping that
+    one resource and rendering the rest (audit B4).
+    """
+    import urllib.request
+
+    from weasyprint.urls import URLFetchingError
+
+    if url.startswith("data:"):
+        with urllib.request.urlopen(url) as response:  # noqa: S310 -- data: only
+            return {
+                "string": response.read(),
+                "mime_type": response.headers.get_content_type(),
+            }
+    msg = f"refusing to fetch external resource while rendering a report: {url}"
+    raise URLFetchingError(msg)
+
+
 def render_pdf(html: str, out: Path) -> Path:
     """Paint a standalone HTML document to ``out`` with WeasyPrint."""
     try:
@@ -142,7 +168,7 @@ def render_pdf(html: str, out: Path) -> Path:
         )
         raise RuntimeError(msg) from exc
     out = ensure_parent(out)
-    HTML(string=html).write_pdf(str(out))
+    HTML(string=html).write_pdf(str(out), url_fetcher=_no_network_fetcher)
     return out
 
 
