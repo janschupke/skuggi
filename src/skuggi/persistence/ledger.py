@@ -47,6 +47,7 @@ from skuggi.persistence.ledger_schema import (
     _FINDING_COLS,
     _FINDING_MIGRATIONS,
     _FINDING_REF_COLS,
+    _INDEXES,
     _PROCEDURE_COLS,
     _SCHEMA,
     _SESSION_COLS,
@@ -135,6 +136,7 @@ class Ledger:
             self._conn.executescript(_SCHEMA)
             self._migrate("commands", _COMMAND_MIGRATIONS)
             self._migrate("findings", _FINDING_MIGRATIONS)
+            self._conn.executescript(_INDEXES)
             self._conn.commit()
 
     def _migrate(self, table: str, migrations: tuple[tuple[str, str], ...]) -> None:

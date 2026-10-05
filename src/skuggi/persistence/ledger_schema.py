@@ -178,6 +178,21 @@ CREATE TABLE IF NOT EXISTS procedure (
 );
 """
 
+# Indexes for the hot per-session reads (audit D5): without these the command,
+# finding, event and ref lookups full-scan, so their cost grows with the whole
+# ledger rather than one session. Run AFTER the column migrations (so a finding
+# created before the ``status`` column can be upgraded first), and idempotent.
+_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_commands_session ON commands(session_id);
+CREATE INDEX IF NOT EXISTS idx_findings_session_status ON findings(session_id, status);
+CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_events_thread ON events(thread_id);
+CREATE INDEX IF NOT EXISTS idx_finding_refs_finding ON finding_refs(finding_id);
+CREATE INDEX IF NOT EXISTS idx_audit_session ON audit(session_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_session ON evidence(session_id);
+CREATE INDEX IF NOT EXISTS idx_procedure_session ON procedure(session_id);
+"""
+
 # Columns added to `commands` after the initial release; each is applied to an
 # already-created table with ADD COLUMN when missing (a fresh DB gets them from
 # the schema above). Kept plain (no REFERENCES) so ADD COLUMN is always legal.

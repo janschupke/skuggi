@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from skuggi.agent.executor import _record_findings, route_after_executor
+from skuggi.agent.executor import (
+    _head_tail,
+    _record_findings,
+    route_after_executor,
+)
 from skuggi.agent.graph import (
     GraphDeps,
     needs_pipeline,
@@ -267,3 +271,16 @@ def test_record_findings_scores_cvss_and_augments_with_threat_model(
             1,
         )
         assert ref.url.startswith("https://owasp.org/")
+
+
+def test_head_tail_keeps_both_ends_within_the_cap() -> None:
+    text = "HEAD" + ("x" * 500) + "TAIL"
+    out = _head_tail(text, 60)
+    assert out.startswith("HEAD")
+    assert out.endswith("TAIL")
+    assert "elided" in out
+    assert len(out) < len(text)
+
+
+def test_head_tail_leaves_short_text_untouched() -> None:
+    assert _head_tail("short", 60) == "short"

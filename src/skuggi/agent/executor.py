@@ -72,7 +72,24 @@ def _summarize_result(
     text = clean("\n".join(p for p in parts if p))
     if not text:
         return f"exit={result.exit_code} (no output)"
-    return f"exit={result.exit_code}\n{text[:_OUTPUT_SUMMARY_CAP]}"
+    return f"exit={result.exit_code}\n{_head_tail(text, _OUTPUT_SUMMARY_CAP)}"
+
+
+def _head_tail(text: str, cap: int) -> str:
+    """Bound `text` to `cap` chars keeping BOTH ends, not just a raw prefix.
+
+    A verbose tool (nmap, nuclei, sqlmap) often puts the salient result -- the
+    open-port table, the hit summary -- at the END, past a prefix cap; feeding the
+    worker only the head made the autonomous loop reason on a banner and miss the
+    finding (audit D4). Keeping a head and a tail with an explicit elision marker
+    surfaces both the start and the conclusion within the same budget.
+    """
+    if len(text) <= cap:
+        return text
+    head = cap * 2 // 3
+    tail = cap - head
+    elided = len(text) - head - tail
+    return f"{text[:head]}\n...[{elided} chars elided]...\n{text[-tail:]}"
 
 
 def execute_node(state: AgentState, deps: GraphDeps, work_dir: Path) -> ExecutorUpdate:
