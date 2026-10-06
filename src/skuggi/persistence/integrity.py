@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING
 from skuggi.persistence.custody import CustodyVerdict
 from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
+    _BURP_ACTION_COLS,
     _COMMAND_COLS,
     _EVENT_COLS,
     _FINDING_COLS,
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 
     from skuggi.persistence.ledger_schema import (
         AuditRow,
+        BurpActionRow,
         CommandRow,
         EventRow,
         FindingRow,
@@ -79,6 +81,7 @@ _CONTENT: dict[str, tuple[str, ...]] = {
     "findings": _content(_FINDING_COLS),
     "events": _content(_EVENT_COLS),
     "audit": _content(_AUDIT_COLS),
+    "burp_actions": _content(_BURP_ACTION_COLS),
 }
 
 # The subset each table's chain commits to (see module docstring).
@@ -86,6 +89,7 @@ _CHAINED: dict[str, tuple[str, ...]] = {
     "commands": _CONTENT["commands"],
     "events": _CONTENT["events"],
     "audit": _CONTENT["audit"],
+    "burp_actions": _CONTENT["burp_actions"],
     "findings": tuple(c for c in _CONTENT["findings"] if c not in _FINDING_MUTABLE),
 }
 
@@ -109,6 +113,9 @@ class TimelineIntegrityMixin:
         ) -> list[FindingRow]: ...
         def events_for(self, session_id: str) -> list[EventRow]: ...  # noqa: D102
         def audit_for(self, session_id: str) -> list[AuditRow]: ...  # noqa: D102
+        def burp_actions_for(  # noqa: D102
+            self, session_id: str
+        ) -> list[BurpActionRow]: ...
 
     def _timeline_chain(
         self, table: str, session_id: str, content_values: tuple[object, ...]
@@ -138,6 +145,7 @@ class TimelineIntegrityMixin:
             ("findings", self.findings_for(session_id)),
             ("events", self.events_for(session_id)),
             ("audit", self.audit_for(session_id)),
+            ("burp_actions", self.burp_actions_for(session_id)),
         )
         checked = 0
         for table, rows in tables:

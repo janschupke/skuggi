@@ -118,3 +118,49 @@ def test_keyless_ledger_is_vacuously_ok(tmp_path: Path) -> None:
     verdict = led.verify_timeline("s1")
     assert verdict.ok is True
     assert verdict.checked == 0
+
+
+def _a_burp_action(led: Ledger, *, status: str = "executed") -> int:
+    return led.record_burp_action(
+        session_id="s1",
+        thread_id="t",
+        action="active_scan",
+        status=status,
+        target="10.0.0.5",
+        params="scan https://10.0.0.5/",
+        risk_tier="active",
+        authority="autonomous",
+        handle="scan-7",
+        result_summary="2 issues",
+    )
+
+
+def test_burp_action_is_chained_and_verifies_clean(tmp_path: Path) -> None:
+    led = _keyed(tmp_path / "l.db")
+    _a_burp_action(led)
+    verdict = led.verify_timeline("s1")
+    assert verdict.ok is True
+    # the action + its timeline event are both chained
+    assert verdict.checked >= 2
+    rows = led.burp_actions_for("s1")
+    assert rows[0].handle == "scan-7"
+    assert rows[0].action == "active_scan"
+
+
+def test_forged_burp_action_is_detected(tmp_path: Path) -> None:
+    led = _keyed(tmp_path / "l.db")
+    aid = _a_burp_action(led)
+    # UPDATE is blocked by the append-only trigger, so forge via a raw rewrite
+    # with the trigger temporarily unavailable is not possible; instead prove the
+    # DB trigger refuses the tamper outright.
+    with pytest.raises(sqlite3.IntegrityError):
+        led._conn.execute(
+            "UPDATE burp_actions SET target = 'evil.com' WHERE id = ?", (aid,)
+        )
+
+
+def test_burp_action_delete_is_blocked(tmp_path: Path) -> None:
+    led = _keyed(tmp_path / "l.db")
+    aid = _a_burp_action(led)
+    with pytest.raises(sqlite3.IntegrityError):
+        led._conn.execute("DELETE FROM burp_actions WHERE id = ?", (aid,))

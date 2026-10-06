@@ -66,6 +66,7 @@ class EventKind(StrEnum):
     RESPONSE = "response"
     COMMAND = "command"
     FINDING = "finding"
+    BURP = "burp"
 
 
 class AuditKind(StrEnum):
@@ -94,6 +95,10 @@ _COMMAND_MIGRATIONS = (
 )
 _EVENT_MIGRATIONS = _CHAIN_MIGRATIONS
 _AUDIT_MIGRATIONS = _CHAIN_MIGRATIONS
+# burp_actions is a newer table; a DB created before it gets it from the schema,
+# and these chain columns are already in that CREATE TABLE, so the migration is a
+# no-op there -- kept for symmetry with the other timeline tables.
+_BURP_ACTION_MIGRATIONS = _CHAIN_MIGRATIONS
 
 # Chain-of-custody columns added to an older case DB (audit E20/E21).
 _EVIDENCE_MIGRATIONS = (
@@ -174,6 +179,32 @@ class CommandRow:
     # Tamper-evidence chain (engagement timeline): row_hmac = HMAC over this row's
     # content linked to prev_hash (the prior row's hmac). Empty on an unkeyed
     # ledger or a pre-key legacy row. See skuggi.persistence.integrity.
+    prev_hash: str = ""
+    row_hmac: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class BurpActionRow:
+    """One recorded Burp action (proposed, blocked or executed).
+
+    The Burp analogue of :class:`CommandRow`: insert-only, tamper-evidence chained
+    on the engagement timeline. ``handle`` carries Burp's task id for an in-flight
+    scan/attack so a later turn can poll it; it is part of the chained substance.
+    """
+
+    id: int
+    session_id: str
+    thread_id: str
+    action: str
+    target: str
+    params: str
+    status: str
+    risk_tier: str
+    authority: str
+    handle: str
+    result_summary: str
+    reason: str
+    created_at: str
     prev_hash: str = ""
     row_hmac: str = ""
 
@@ -468,6 +499,7 @@ class ThreadSummary:
 # INSERT lists drop the autoincrement id.
 _SESSION_COLS = tuple(f.name for f in fields(SessionRow))
 _COMMAND_COLS = tuple(f.name for f in fields(CommandRow))
+_BURP_ACTION_COLS = tuple(f.name for f in fields(BurpActionRow))
 _FINDING_COLS = tuple(f.name for f in fields(FindingRow))
 _FINDING_REF_COLS = tuple(f.name for f in fields(FindingRefRow))
 _FINDING_EVIDENCE_COLS = tuple(f.name for f in fields(FindingEvidenceRow))

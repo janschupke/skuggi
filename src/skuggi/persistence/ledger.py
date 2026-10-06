@@ -39,6 +39,7 @@ from skuggi.common.paths import ensure_parent
 from skuggi.common.sqlitedb import harden
 from skuggi.frameworks import cvss
 from skuggi.persistence.artifacts import ArtifactsLedgerMixin
+from skuggi.persistence.burp_ledger import BurpLedgerMixin
 from skuggi.persistence.custody import (
     CustodyLedgerMixin,
     CustodyVerdict,
@@ -49,6 +50,7 @@ from skuggi.persistence.ledger_ddl import _INDEXES, _SCHEMA
 from skuggi.persistence.ledger_schema import (
     _AUDIT_COLS,
     _AUDIT_MIGRATIONS,
+    _BURP_ACTION_MIGRATIONS,
     _COMMAND_COLS,
     _COMMAND_MIGRATIONS,
     _EVENT_COLS,
@@ -63,6 +65,7 @@ from skuggi.persistence.ledger_schema import (
     _TM_VERSION_COLS,
     AuditKind,
     AuditRow,
+    BurpActionRow,
     CommandRow,
     CommandStatus,
     CoverageRow,
@@ -98,6 +101,7 @@ from skuggi.persistence.review import ReviewLedgerMixin
 __all__ = [
     "AuditKind",
     "AuditRow",
+    "BurpActionRow",
     "CommandRow",
     "CommandStatus",
     "CoverageRow",
@@ -129,7 +133,11 @@ __all__ = [
 # The column names interpolated below are code-defined dataclass field names
 # (never user input), so the S608 string-building warning does not apply.
 class Ledger(
-    ArtifactsLedgerMixin, CustodyLedgerMixin, TimelineIntegrityMixin, ReviewLedgerMixin
+    ArtifactsLedgerMixin,
+    BurpLedgerMixin,
+    CustodyLedgerMixin,
+    TimelineIntegrityMixin,
+    ReviewLedgerMixin,
 ):
     """A thin, typed wrapper over the ledger database."""
 
@@ -146,6 +154,7 @@ class Ledger(
             self._conn.execute("PRAGMA foreign_keys = ON")
             self._conn.executescript(_SCHEMA)
             self._migrate("commands", _COMMAND_MIGRATIONS)
+            self._migrate("burp_actions", _BURP_ACTION_MIGRATIONS)
             self._migrate("findings", _FINDING_MIGRATIONS)
             self._migrate("events", _EVENT_MIGRATIONS)
             self._migrate("audit", _AUDIT_MIGRATIONS)

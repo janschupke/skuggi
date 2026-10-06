@@ -226,6 +226,27 @@ CREATE TABLE IF NOT EXISTS procedure (
     prev_hash     TEXT NOT NULL DEFAULT '',
     row_hmac      TEXT NOT NULL DEFAULT ''
 );
+-- One agent-driven Burp action (proxy/repeater/scan/intruder/scope). A process
+-- command row does not fit (no argv/binary/exit code), so Burp actions get their
+-- own insert-only, tamper-evident timeline table. ``handle`` is Burp's task id for
+-- an in-flight scan/attack, polled live on a later turn (the durable task store).
+CREATE TABLE IF NOT EXISTS burp_actions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id     TEXT NOT NULL REFERENCES sessions(session_id),
+    thread_id      TEXT NOT NULL,
+    action         TEXT NOT NULL,              -- a BurpAction (repeater/active_scan/…)
+    target         TEXT NOT NULL DEFAULT '',   -- the host/URL the action acted on
+    params         TEXT NOT NULL DEFAULT '',   -- a short human description of the call
+    status         TEXT NOT NULL,              -- proposed | blocked | executed
+    risk_tier      TEXT NOT NULL DEFAULT '',   -- deterministic tier at decision time
+    authority      TEXT NOT NULL DEFAULT '',   -- autonomous | operator | ''
+    handle         TEXT NOT NULL DEFAULT '',   -- Burp task id for an async scan/attack
+    result_summary TEXT NOT NULL DEFAULT '',   -- redacted outcome summary
+    reason         TEXT NOT NULL DEFAULT '',   -- the block/propose reason
+    created_at     TEXT NOT NULL,
+    prev_hash      TEXT NOT NULL DEFAULT '',   -- tamper-evidence chain (integrity.py)
+    row_hmac       TEXT NOT NULL DEFAULT ''
+);
 -- Chain-of-custody is append-only (audit E20): reject any UPDATE/DELETE on the
 -- evidence/procedure tables at the database layer, so a row cannot be silently
 -- rewritten even by a direct SQL edit (the HMAC chain would also catch it).
@@ -256,6 +277,10 @@ CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit
 BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS findings_no_delete BEFORE DELETE ON findings
 BEGIN SELECT RAISE(ABORT, 'findings are append-only (status changes in place)'); END;
+CREATE TRIGGER IF NOT EXISTS burp_actions_no_update BEFORE UPDATE ON burp_actions
+BEGIN SELECT RAISE(ABORT, 'burp action log is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS burp_actions_no_delete BEFORE DELETE ON burp_actions
+BEGIN SELECT RAISE(ABORT, 'burp action log is append-only'); END;
 """
 
 # Indexes for the hot per-session reads (audit D5): without these the command,
@@ -264,6 +289,7 @@ BEGIN SELECT RAISE(ABORT, 'findings are append-only (status changes in place)');
 # created before the ``status`` column can be upgraded first), and idempotent.
 _INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_commands_session ON commands(session_id);
+CREATE INDEX IF NOT EXISTS idx_burp_actions_session ON burp_actions(session_id);
 CREATE INDEX IF NOT EXISTS idx_findings_session_status ON findings(session_id, status);
 CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_events_thread ON events(thread_id);
