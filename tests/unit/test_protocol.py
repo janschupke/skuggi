@@ -314,6 +314,17 @@ def test_finding_draft_display_severity_prefers_the_vector() -> None:
     assert info.display_severity() == "info"
 
 
+def test_finding_draft_maps_a_cvss_none_band_to_info() -> None:
+    # CVSS has a sixth band, `none` (score < 2.0), that the finding vocabulary
+    # does not; a sub-2.0 vector must display as `info`, not an uncoloured `none`.
+    zero = FindingDraft(
+        title="trivial",
+        description="d",
+        cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",  # 0.0 -> none
+    )
+    assert zero.display_severity() == "info"
+
+
 def test_finding_ref_draft_validates_against_the_taxonomy() -> None:
     assert FindingRefDraft(framework="wstg", ref_id="WSTG-ATHN-01").ref_id
     with pytest.raises(ValidationError):

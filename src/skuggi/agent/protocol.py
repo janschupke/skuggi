@@ -28,10 +28,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import Literal, get_args
+from typing import Literal, cast, get_args
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from skuggi.common import palette
 from skuggi.common.logs import get_logger
 from skuggi.common.text import join_blocks, labeled, untrusted
 from skuggi.frameworks import cvss, registry
@@ -54,8 +55,10 @@ PHASES: tuple[Phase, ...] = get_args(Phase)
 Stance = Literal["passive", "cautious", "balanced", "aggressive"]
 STANCES: tuple[Stance, ...] = get_args(Stance)
 
-# Kept in lockstep with palette.severities(); test_protocol pins the two equal.
-Severity = Literal["info", "low", "medium", "high", "critical"]
+# Re-exported from the one definition in common.palette (beside its colour map),
+# so the schema type and the severity colours cannot drift; test_protocol pins
+# the set equal to palette.severities().
+Severity = palette.Severity
 
 # The engagement's driving methodology (prescriptive -- what the agent follows):
 # skuggi's built-in phase model, PTES, or ATT&CK adversary-emulation. It shapes the
@@ -383,10 +386,17 @@ class FindingDraft(BaseModel):
             raise ValueError(msg)
         return self
 
-    def display_severity(self) -> str:
-        """The severity band to show/record: from the vector, else the bare severity."""
+    def display_severity(self) -> Severity:
+        """The severity band to show/record: from the vector, else the bare severity.
+
+        CVSS has a sixth qualitative band, ``none`` (score < 2.0), that the finding
+        vocabulary does not; map it to ``info`` (its floor) so a sub-2.0 vector
+        still yields a coloured, in-vocabulary severity rather than an uncoloured
+        ``none`` that sorts outside the report's severity order.
+        """
         if self.cvss_vector:
-            return cvss.score(self.cvss_vector).severity
+            band = cvss.score(self.cvss_vector).severity
+            return "info" if band == "none" else cast("Severity", band)
         return self.severity or "info"
 
 

@@ -11,14 +11,14 @@ There is no CVSS here: a forensic finding is scored by a plain severity band.
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict
+
+from skuggi.common.palette import Severity
 
 # Evidence IDs the collect phase assigns (``E1``, ``E2`` …) and feeds to the
 # examiner; a finding cites these so grounding can be checked without trusting the
-# model's prose.
-ForensicsSeverity = Literal["info", "low", "medium", "high", "critical"]
+# model's prose. A forensic finding shares the one finding-severity vocabulary
+# (`common.palette.Severity`), so it colours and sorts like a pentest finding.
 
 
 class ForensicsFinding(BaseModel):
@@ -33,7 +33,7 @@ class ForensicsFinding(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     title: str
-    severity: ForensicsSeverity = "info"
+    severity: Severity = "info"
     description: str = ""
     evidence_refs: tuple[str, ...] = ()
     speculative: bool = False

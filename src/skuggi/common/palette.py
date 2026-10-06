@@ -8,6 +8,15 @@ front-end hardcodes a colour and every mapping is trivially unit-tested.
 
 from __future__ import annotations
 
+from typing import Literal
+
+# The canonical finding-severity vocabulary (ascending). THE one definition:
+# agent.protocol.Severity and forensics.schema re-export this, and the severity
+# colour/hex maps below are keyed by exactly these names (test_palette and
+# test_protocol pin the set equal). Keeping the type beside its colour map is why
+# a tier added in one place cannot render uncoloured or type-check elsewhere.
+Severity = Literal["info", "low", "medium", "high", "critical"]
+
 # Marks that skuggi is active in a session (the wrapped-shell prompt and the
 # REPL prompt both carry it).
 SHIELD = "🐐"
