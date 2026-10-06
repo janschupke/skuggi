@@ -20,6 +20,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+# Keep this module a LEAF: it may import from `skuggi.common` only, never from
+# `frontend`/`agent`. `agent.readiness` and `agent.awareness` import it from the
+# core layer, which is sound only because it reaches nothing up the stack -- an
+# intra-repo import here would turn that into a real core -> frontend dependency.
+# Enforced by test_verbs.test_verbs_is_a_leaf_importing_only_common.
 from skuggi.common.modes import Mode
 
 Category = Literal["engagement", "control"]

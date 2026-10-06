@@ -2,8 +2,32 @@
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 from skuggi.common.modes import Mode
 from skuggi.frontend import engagement_params, verbs
+
+
+def test_verbs_is_a_leaf_importing_only_common() -> None:
+    """Verbs must import nothing above `skuggi.common`.
+
+    `agent.readiness`/`agent.awareness` import `frontend.verbs` from the core
+    layer; that is safe only while verbs is a leaf. If it ever imported from
+    `frontend` or `agent`, core would gain a real dependency on the presentation
+    layer -- so pin the invariant the module comment relies on.
+    """
+    tree = ast.parse(Path(verbs.__file__).read_text(encoding="utf-8"))
+    modules: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+            "skuggi"
+        ):
+            modules.append(node.module or "")
+        elif isinstance(node, ast.Import):
+            modules.extend(a.name for a in node.names if a.name.startswith("skuggi"))
+    offenders = [m for m in modules if not m.startswith("skuggi.common")]
+    assert offenders == [], f"verbs must stay a leaf (skuggi.common only): {offenders}"
 
 
 def test_cmd_formats_per_surface() -> None:
