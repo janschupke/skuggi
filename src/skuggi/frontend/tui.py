@@ -299,7 +299,7 @@ class Tui:
         if not text:
             return
         style = "red" if node == "error" else "dim"
-        summary = text.splitlines()[0][: presenters.STATUS_LINE_CAP]
+        summary = presenters.status_text(text)
         self.console.print(f"[{style}]({node})[/{style}] {summary}")
 
     # ----- dispatch ----------------------------------------------------------

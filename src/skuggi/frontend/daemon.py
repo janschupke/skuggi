@@ -309,7 +309,7 @@ class Daemon:
                 if ev.node == "error":
                     yield {"chunk": f"({ev.node}) {ev.text}\n"}
                 else:
-                    yield {"pending": f"{ev.text}..."}
+                    yield {"pending": f"{presenters.status_text(ev.text)}..."}
             elif ev.kind == "final":
                 final = ev.text
         yield {"chunk": (final or "(no answer)") + "\n"}
@@ -329,8 +329,7 @@ class Daemon:
                 if ev.node == "error":
                     yield f"({ev.node}) {ev.text}\n"
                 else:
-                    summary = ev.text.splitlines()[0][: presenters.STATUS_LINE_CAP]
-                    yield f"({ev.node}) {summary}\n"
+                    yield f"({ev.node}) {presenters.status_text(ev.text)}\n"
             elif ev.kind == "final":
                 final = ev.text
         yield (final or "(no answer)") + "\n"

@@ -246,3 +246,12 @@ def test_present_unknown_points_at_help() -> None:
     [line] = presenters.present_unknown("bogus", "shell")
     assert "unknown command" in line.text
     assert "/skuggi help" in line.text
+
+
+def test_status_text_takes_the_first_line_capped() -> None:
+    # Shared by the daemon chat spinner, the daemon loop log and the REPL status
+    # line, so a multi-line or very long node message renders the same everywhere.
+    assert presenters.status_text("working on it\nmore detail") == "working on it"
+    long_line = "x" * (presenters.STATUS_LINE_CAP + 50)
+    assert presenters.status_text(long_line) == "x" * presenters.STATUS_LINE_CAP
+    assert presenters.status_text("") == ""

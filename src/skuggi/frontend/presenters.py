@@ -79,6 +79,17 @@ TRACE_SUMMARY_CAP = 200
 STATUS_LINE_CAP = 100
 
 
+def status_text(text: str) -> str:
+    """The one-line, capped form of a streaming ``status`` event's text.
+
+    A status event can carry a multi-line node message; every surface shows it
+    the same way -- the first line, capped -- so the daemon chat spinner, the
+    daemon loop log and the REPL status line do not each render it differently.
+    An error body is relayed in full by its caller and does not pass through here.
+    """
+    return text.splitlines()[0][:STATUS_LINE_CAP] if text else ""
+
+
 def usage(invocation: str, surface: verbs.Surface) -> Styled:
     """A single ``usage: <command>`` line, phrased for `surface`."""
     return [render.warning(f"usage: {verbs.cmd(invocation, surface)}")]
