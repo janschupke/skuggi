@@ -680,7 +680,7 @@ class Daemon:
         yield from self._route_noun("add", arg, self._add_router())
 
     def _findings(self, arg: str) -> Iterator[str]:
-        """Review a finding (approve/reject/rescore); listing is `show findings`."""
+        """Review a finding (approve, reject or rescore); listing is `show findings`."""
         message = dispatch.run_findings(self.core, arg)
         if message is not None:
             yield message + "\n"

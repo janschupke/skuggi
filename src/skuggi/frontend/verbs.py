@@ -280,7 +280,7 @@ VERBS: tuple[Verb, ...] = (
     ),
     Verb(
         "findings",
-        "review a finding (approve / reject / rescore)",
+        "review a finding (approve, reject or rescore)",
         "<approve|reject|rescore>",
         group="review",
     ),

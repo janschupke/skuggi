@@ -85,7 +85,7 @@ def test_present_provider_switched() -> None:
 
 def test_present_autonomous_keeps_the_scope_warning() -> None:
     [line] = presenters.present_autonomous(state=True)
-    assert "EXECUTE within scope" in line.text
+    assert "execute within scope" in line.text
     assert line.style == "danger"
 
 

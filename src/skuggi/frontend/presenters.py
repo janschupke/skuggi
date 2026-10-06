@@ -218,7 +218,7 @@ def present_autonomous_status(state: bool) -> Styled:
     """Render the current autonomous state for ``show autonomous`` (read-only)."""
     if state:
         return [
-            render.warning("autonomous: on (proposed commands execute within scope)")
+            render.danger("autonomous: on (proposed commands execute within scope)")
         ]
     return [render.info("autonomous: off")]
 
@@ -293,11 +293,11 @@ def present_autonomous(state: bool) -> Styled:
     if state:
         return [
             render.danger(
-                "autonomous execution is now ON -- proposed commands will "
-                "EXECUTE within scope"
+                "autonomous execution is now on -- proposed commands will "
+                "execute within scope"
             )
         ]
-    return [render.plain("autonomous execution is now off")]
+    return [render.info("autonomous execution is now off")]
 
 
 def present_thread(action: str, value: str) -> Styled:

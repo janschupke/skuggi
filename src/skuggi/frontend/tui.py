@@ -531,7 +531,7 @@ class Tui:
         self._emit(presenters.present_trace(self.core.state().get("commands") or []))
 
     def _cmd_findings(self, arg: str) -> None:
-        """Review a finding (approve/reject/rescore); listing is `show findings`."""
+        """Review a finding (approve, reject or rescore); listing is `show findings`."""
         message = dispatch.run_findings(self.core, arg)
         if message is not None:
             self._emit([render.plain(message)])
