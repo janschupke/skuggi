@@ -21,7 +21,8 @@ from rich.console import Console
 from rich.live import Live
 
 from skuggi.agent.core import AgentCore
-from skuggi.agent.protocol import CommandBrief, WorkerResponse, render_response
+from skuggi.agent.protocol import CommandBrief, WorkerResponse
+from skuggi.agent.protocol_render import render_response
 from skuggi.agent.turn_runner import TurnEvent
 from skuggi.frontend.tui import DraftView
 from tests.conftest import offline_settings, wire_offline_core

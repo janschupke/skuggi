@@ -56,9 +56,8 @@ from skuggi.agent.protocol import (
     WorkerResponse,
     clamp_phase,
     methodology_phases,
-    render_request,
-    render_response,
 )
+from skuggi.agent.protocol_render import render_request, render_response
 from skuggi.agent.requests import ask as _ask
 from skuggi.agent.requests import last_user_text, prior_turns, render_history
 from skuggi.agent.state import (

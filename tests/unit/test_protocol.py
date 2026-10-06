@@ -33,10 +33,8 @@ from skuggi.agent.protocol import (
     Severity,
     WorkerResponse,
     clamp_phase,
-    render_answer,
-    render_request,
-    render_response,
 )
+from skuggi.agent.protocol_render import render_answer, render_request, render_response
 from skuggi.common import palette
 from tests.fakes import ScriptedChatModel
 

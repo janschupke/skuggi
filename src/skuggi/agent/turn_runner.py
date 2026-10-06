@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from langchain_core.messages import HumanMessage
 
 from skuggi.agent.graph import recursion_limit
-from skuggi.agent.protocol import render_answer
+from skuggi.agent.protocol_render import render_answer
 from skuggi.common.logs import get_logger
 from skuggi.common.timing import TurnTiming, collect_turn_timing
 from skuggi.config.configs import ConfigError
