@@ -18,14 +18,15 @@ never touch the network.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 
+from skuggi.intel.http import HttpRequest, default_fetch
 from skuggi.tooling.registry import PackageHit
 
 # One PyPI project's metadata. Public, read-only, no auth.
 _PYPI_URL = "https://pypi.org/pypi/{name}/json"
-_TIMEOUT_S = 8.0
 # A pip project name we are willing to look up / return. Name-like, no leading
 # dash; a superset is normalised by PyPI, and the researcher re-validates anyway.
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -35,17 +36,18 @@ Fetch = Callable[[str], "dict[str, object] | None"]
 
 
 def _default_fetch(url: str) -> dict[str, object] | None:
-    """GET `url` and return its JSON object, or None on any error (best-effort)."""
-    import httpx  # noqa: PLC0415 -- lazy; keep httpx off the import hot path
+    """GET `url` and return its JSON object, or None on any error (best-effort).
 
-    try:
-        resp = httpx.get(url, timeout=_TIMEOUT_S, follow_redirects=True)
-    except httpx.HTTPError:
+    Routed through the shared ``intel.http.default_fetch`` so this inherits the
+    honest User-Agent (an empty one is widely 403'd) and the transient-failure
+    retry, rather than re-doing a bare ``httpx.get`` with its own timeout. A 404
+    (no such package) yields None, same as before.
+    """
+    body = default_fetch(HttpRequest(url=url))
+    if body is None:
         return None
-    if resp.status_code != 200:  # noqa: PLR2004 -- a 404 just means "no such package"
-        return None
     try:
-        data = resp.json()
+        data = json.loads(body)
     except ValueError:
         return None
     return data if isinstance(data, dict) else None

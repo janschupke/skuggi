@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import httpx
+import json
+
 import pytest
 
 from skuggi.tooling import websearch
@@ -74,47 +75,32 @@ def test_the_same_canonical_name_is_not_duplicated() -> None:
     assert len(pypi_candidates("enum4linux-ng", fetch=fetch)) == 1
 
 
-# --- _default_fetch: the real httpx path, with httpx.get monkeypatched ---------
+# --- _default_fetch: the JSON-parse adaptation over the shared intel fetcher ---
 
 
-class _Resp:
-    def __init__(self, status_code: int, payload: object) -> None:
-        self.status_code = status_code
-        self._payload = payload
-
-    def json(self) -> object:
-        if isinstance(self._payload, Exception):
-            raise self._payload
-        return self._payload
+def _patch_fetch(monkeypatch: pytest.MonkeyPatch, body: str | None) -> None:
+    # websearch now routes through intel.http.default_fetch (text body / None);
+    # patch that seam rather than httpx directly.
+    monkeypatch.setattr(websearch, "default_fetch", lambda _req: body)
 
 
-def test_default_fetch_returns_json_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(httpx, "get", lambda *_a, **_k: _Resp(200, {"info": {}}))
+def test_default_fetch_parses_a_json_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_fetch(monkeypatch, json.dumps({"info": {}}))
     assert websearch._default_fetch("https://pypi.org/pypi/x/json") == {"info": {}}
 
 
-def test_default_fetch_returns_none_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(httpx, "get", lambda *_a, **_k: _Resp(404, None))
-    assert websearch._default_fetch("https://pypi.org/pypi/x/json") is None
-
-
-def test_default_fetch_returns_none_on_a_network_error(
+def test_default_fetch_returns_none_when_the_fetch_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def boom(*_a: object, **_k: object) -> object:
-        msg = "down"
-        raise httpx.ConnectError(msg)
-
-    monkeypatch.setattr(httpx, "get", boom)
+    # A network error / 404 surfaces from the shared fetcher as None.
+    _patch_fetch(monkeypatch, None)
     assert websearch._default_fetch("https://pypi.org/pypi/x/json") is None
 
 
 def test_default_fetch_returns_none_on_non_dict_or_bad_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        httpx, "get", lambda *_a, **_k: _Resp(200, ["not", "a", "dict"])
-    )
+    _patch_fetch(monkeypatch, json.dumps(["not", "a", "dict"]))
     assert websearch._default_fetch("https://pypi.org/pypi/x/json") is None
-    monkeypatch.setattr(httpx, "get", lambda *_a, **_k: _Resp(200, ValueError("bad")))
+    _patch_fetch(monkeypatch, "not json{")
     assert websearch._default_fetch("https://pypi.org/pypi/x/json") is None
