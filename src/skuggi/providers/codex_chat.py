@@ -50,6 +50,15 @@ CODEX_ORIGINATOR = "codex_cli_rs"
 
 _AUTH_PATH_ENV = "SKUGGI_CODEX_AUTH_PATH"
 _REFRESH_SKEW_SECONDS = 60
+# The `last_refresh` stamp format, pinned to what the codex CLI itself writes to
+# auth.json (NOT `common.clock.now_iso`, which carries microseconds and a +00:00
+# offset): the `chatgpt` provider and `codex login` must agree on this file.
+_AUTH_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _auth_timestamp() -> str:
+    """The current UTC `last_refresh` stamp in codex's auth.json format."""
+    return time.strftime(_AUTH_TIMESTAMP_FORMAT, time.gmtime())
 
 
 def _default_auth_path() -> Path:
@@ -201,7 +210,7 @@ class CodexTokenStore:
             if body.get(key):
                 tokens[key] = body[key]
         auth["tokens"] = tokens
-        auth["last_refresh"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        auth["last_refresh"] = _auth_timestamp()
         self._save(auth)
         access = tokens.get("access_token")
         if not isinstance(access, str):
@@ -222,7 +231,7 @@ class CodexTokenStore:
             {
                 "OPENAI_API_KEY": None,
                 "tokens": tokens,
-                "last_refresh": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "last_refresh": _auth_timestamp(),
                 "auth_mode": "chatgpt",
             }
         )
