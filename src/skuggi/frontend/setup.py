@@ -75,6 +75,11 @@ def _models_catalog() -> dict[str, list[str]]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def curated_models(provider: str) -> list[str]:
+    """The curated model ids for `provider` (for Tab completion); [] if none."""
+    return _models_catalog().get(provider, [])
+
+
 def run_setup(backend: SetupBackend, ask: Ask, choose: Choose, notify: Notify) -> bool:
     """Walk the operator through choosing and configuring a provider, then a model.
 

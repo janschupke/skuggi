@@ -12,6 +12,17 @@ from __future__ import annotations
 # REPL prompt both carry it).
 SHIELD = "🐐"
 
+# One glyph per operating mode, shown right after the shield in the interactive
+# prompt so the active mode is always visible. Single-sourced here like SHIELD so
+# no front-end hardcodes an emoji; `mode_glyph` falls back to "" for an unknown
+# mode (a new mode shows no glyph rather than crashing the prompt).
+_MODE_GLYPH = {
+    "pentest": "⚔️",
+    "redteam": "🔴",
+    "blueteam": "🔵",
+    "forensics": "🚔",
+}
+
 # --- sentiment --------------------------------------------------------------
 # These four are RESERVED: they carry good/bad meaning, so methods (a
 # categorical axis, not a sentiment) must never reuse them -- see `_METHOD`.
@@ -22,6 +33,16 @@ INFO = "dim"
 
 # The terminal's own foreground: a neutral, no-sentiment colour.
 NEUTRAL = "default"
+
+# --- structured-output roles ------------------------------------------------
+# The vocabulary for help / cmd / doctor and any other structured listing, so
+# headings, actionable commands, argument placeholders and descriptions read the
+# same on both front-ends. PRIMARY is the main command text (bright white);
+# PARAM accents an argument placeholder; a description rides the reserved INFO
+# (dim). These are a categorical axis (like methods), NOT sentiment, so PARAM
+# deliberately avoids the four reserved sentiment colours.
+PRIMARY = "white"
+PARAM = "cyan"
 
 # Emphasis for a search hit -- the matched substring in `cmd <query>` results.
 # This is a categorical emphasis, NOT a sentiment, so it deliberately avoids the
@@ -52,6 +73,7 @@ _METHOD = {
     "bruteforce": "dark_orange",
     "crack": "medium_purple",
     "exploit": "deep_pink3",
+    "transport": "dark_cyan",
     "forensics": "spring_green3",
 }
 _METHOD_DEFAULT = "white"
@@ -119,6 +141,11 @@ def severity_hex(severity: str) -> str:
 def method_hex(method: str | None) -> str:
     """The print (hex) colour for an engagement method category."""
     return _METHOD_HEX.get((method or "").lower(), _METHOD_HEX_DEFAULT)
+
+
+def mode_glyph(mode: str | None) -> str:
+    """The prompt glyph for an operating mode ('' for an unknown/absent mode)."""
+    return _MODE_GLYPH.get(mode or "", "")
 
 
 def methods() -> tuple[str, ...]:

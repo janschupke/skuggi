@@ -38,8 +38,10 @@ from skuggi.frontend import (
     memoryflow,
     outcomes,
     presenters,
+    presenters_cmd,
     presenters_journal,
     render,
+    verbosity,
     verbs,
     wizard,
 )
@@ -54,16 +56,15 @@ from skuggi.tooling.doctor import (
     TOOL_FILTERS,
     ToolFilter,
     doctor_ansi,
-    doctor_table,
     filter_tool_statuses,
+    parse_doctor_flags,
     table_ansi,
+    tool_tables,
 )
 
 # The help listing's intro line, per surface. The command grammar differs
 # (``/skuggi <verb>`` at the wrapped-shell prompt, a bare ``<verb>`` inside the
 # chat loop, ``/<verb>`` in the REPL), so the intro names the one that works here.
-# Column width for the cheatsheet alias name, so the rendered commands line up.
-_NAME_COL = 16
 
 # The agentic-loop verbs the daemon streams identically: verb -> (core turn method,
 # usage hint shown on an empty argument -- forensics defaults in the runner).
@@ -113,8 +114,12 @@ class Daemon:
 
     def _completion_tree(self) -> dict[str, object]:
         """The shared Tab-completion vocabulary for the chat loop + ``--complete``."""
+        providers, models = completion.provider_model_names(self.core.settings.provider)
         return completion.completion_tree(
-            self.core.commands.names(), reconcile.known_names()
+            self.core.commands.names(),
+            reconcile.known_names(),
+            provider_names=providers,
+            model_names=models,
         )
 
     def _complete(self, words: list[str]) -> list[str]:
@@ -131,26 +136,32 @@ class Daemon:
                 return []
         return sorted(node) if isinstance(node, dict) else []
 
-    def _prompt_frame(self, *, ready: bool) -> dict[str, object]:
+    def _prompt_frame(
+        self, *, ready: bool, context: str | None = None
+    ) -> dict[str, object]:
         """The "your turn" frame: engagement context, plus the one-time handshake.
 
         Sent before each chat-loop prompt so the client can render
         ``🐐 [<engagement>] >`` and refresh it after a ``set engagement``. The
         first frame also carries ``ready`` (the completion tree) so the thin
         client can build its prompt_toolkit session without loading config.
+        `context` is the active sub-context (``"chat"`` inside a chat context, else
+        ``None``) so the client can mark it in the prompt.
         """
         eng = self.core.engagement
         frame: dict[str, object] = {
             "prompt": {
                 "engagement": eng.name if eng is not None else None,
                 "autonomous": self.core.autonomous,
+                "mode": self.core.mode,
+                "context": context,
             }
         }
         if ready:
             frame["ready"] = {"tree": self._completion_tree()}
         return frame
 
-    def run_attached(  # noqa: PLR0912 -- one branch per interactive attach mode
+    def run_attached(
         self,
         read_line: Callable[[], str | None],
         emit: Callable[[dict[str, object]], None],
@@ -174,47 +185,38 @@ class Daemon:
         """
         self._local.surface = "chat" if mode == "loop" else "shell"
         first = mode == "loop"
+        chat_context = False
         while True:
             if mode == "loop":
                 # Signal "your turn" with the current engagement context; the first
                 # frame also hands over the history path + completion vocabulary.
-                emit(self._prompt_frame(ready=first))
+                emit(
+                    self._prompt_frame(
+                        ready=first, context="chat" if chat_context else None
+                    )
+                )
                 first = False
             line = read_line()
             if line is None:  # client disconnected
                 return
-            if attach.is_wizard(line):
-                attach.attach_wizard(self.core, self._lock, read_line, emit)
+            if chat_context:
+                # Inside a chat context every line is a prompt -- no verb routing.
+                chat_context, capture_line = attach.chat_turn(line, emit, self._agent)
+                if capture_line is not None:
+                    attach.capture_after_ask(
+                        self.core, self._lock, capture_line, read_line, emit
+                    )
                 continue
-            if attach.is_set_interactive(line):
-                attach.attach_set(self.core, self._lock, line, read_line, emit)
-                continue
-            if attach.is_cmd_editor(line):
-                attach.attach_cmd_editor(self.core, self._lock, line, read_line, emit)
-                continue
-            if attach.is_cmd_suggest(line):
-                request = verbs.split_verb(line)[1].partition(" ")[2]
-                attach.attach_cmd_suggest(
-                    self.core, self._lock, request, read_line, emit
+            if mode == "loop" and verbs.split_verb(line) == ("chat", ""):
+                chat_context = True
+                emit(
+                    {
+                        "chunk": "entered chat context -- every line goes to the "
+                        "agent; type exit to leave\n"
+                    }
                 )
                 continue
-            if attach.is_config_request(self.core, line):
-                # Drop the "set config" prefix; the request is the remaining tail.
-                request = verbs.split_verb(line)[1].partition(" ")[2]
-                attach.attach_config(self.core, self._lock, request, read_line, emit)
-                continue
-            if attach.is_scope_request(line):
-                request = verbs.split_verb(line)[1].partition(" ")[2]
-                attach.attach_scope(self.core, self._lock, request, read_line, emit)
-                continue
-            if attach.is_install_missing(line):
-                attach.attach_install_missing(self.core, self._lock, read_line, emit)
-                continue
-            research_tool = attach.doctor_research_tool(line)
-            if research_tool is not None:
-                attach.attach_doctor_research(
-                    self.core, self._lock, research_tool, read_line, emit
-                )
+            if attach.intercept(self.core, self._lock, line, read_line, emit):
                 continue
             exit_session = False
             for resp in self.handle_request({"op": "input", "text": line}):
@@ -243,7 +245,18 @@ class Daemon:
             return
         verb, rest = verbs.split_verb(str(msg.get("text", "")))
         if verbs.is_exit(verb):
-            yield {"chunk": "leaving\n"}
+            # Two levels of exit, so the message must say which one this is. In the
+            # chat loop, leaving drops back to the wrapped shell and the agent stays
+            # warm (a second, shell-level `skuggi exit` is what stops it); a one-shot
+            # `/skuggi exit` at the shell IS that second level and tears the daemon
+            # down. The surface tells them apart.
+            if self._surface() == "chat":
+                yield {
+                    "chunk": "Leaving interactive mode, agent still active until "
+                    "another skuggi exit...\n"
+                }
+            else:
+                yield {"chunk": "stopping skuggi -- agent closed\n"}
             yield {"end": True, "exit": True}
             return
         if not verb:
@@ -252,12 +265,24 @@ class Daemon:
         available = verb not in verbs.KNOWN or verbs.is_available(verb, self.core.mode)
         if available and verb in verbs.KNOWN and not verbs.is_engagement(verb):
             self.core.note_interaction(verb, rest)  # control verb -> audit log
+        yield from self._render_verb(verb, rest, available=available)
+        yield {"end": True, "exit": False}
+
+    def _render_verb(
+        self, verb: str, rest: str, *, available: bool
+    ) -> Iterator[dict[str, object]]:
+        """Render a non-exit verb's frames (help / chat / control / unknown)."""
         if verb == "help":
-            yield {"chunk": self._help_text(rest)}
+            verbose, help_arg = verbosity.pop_verbose(rest)
+            lines = help_mod.help_lines(
+                self._surface(), self.core.mode, help_arg, verbose=verbose
+            )
+            for chunk in self._emit(lines):
+                yield {"chunk": chunk}
         elif not available:
             lines = presenters.present_unavailable(verb, self.core.mode)
             yield {"chunk": "".join(self._emit(lines))}
-        elif verb == "ask":
+        elif verb == "chat":
             yield from self._agent(rest)
         elif verb in verbs.KNOWN:
             for chunk in self._control(verb, rest):
@@ -268,12 +293,15 @@ class Daemon:
                     self._emit(presenters.present_unknown(verb, self._surface()))
                 )
             }
-        yield {"end": True, "exit": False}
 
     def _agent(self, text: str) -> Iterator[dict[str, object]]:
         """Stream a chat turn: status -> `pending` (live spinner), answer -> `chunk`."""
         if not text:
-            yield {"chunk": "usage: ask <prompt>\n"}
+            hint = self._cmd("chat")
+            yield {
+                "chunk": f"usage: {self._cmd('chat <prompt>')} -- or run {hint} in "
+                "the interactive shell to enter a chat context\n"
+            }
             return
         final = ""
         for ev in self.core.turn(text):
@@ -414,10 +442,13 @@ class Daemon:
         ``add``/``edit`` are interactive and reached through the attach loop
         (``_attach_cmd_editor``); a raw one-shot points there.
         """
+        verbose, arg = verbosity.pop_verbose(arg)
         sub, _, rest = arg.partition(" ")
         sub, rest = sub.strip(), rest.strip()
         if not sub or sub == "list":
-            yield from self._cheat_list(self.core.commands.commands, "")
+            yield from self._cheat_list(
+                self.core.commands.commands, "", verbose=verbose
+            )
             return
         if sub in cmdflow.REMOVE_ARGS:
             yield from self._cheat_remove(rest)
@@ -434,35 +465,27 @@ class Daemon:
             hint = self._cmd("cmd list")
             yield f"no cheatsheet entry matches {arg.strip()!r} -- try {hint}\n"
             return
-        yield from self._cheat_list(matches, arg.strip())
+        yield from self._cheat_list(matches, arg.strip(), verbose=verbose)
 
     def _cheat_resolve(self, name: str) -> Iterator[str]:
         yield from self._emit(control.resolve_cmd(self.core, name, self._surface()))
 
     def _cheat_list(
-        self, aliases: tuple[CommandAlias, ...], query: str
+        self, aliases: tuple[CommandAlias, ...], query: str, *, verbose: bool = False
     ) -> Iterator[str]:
-        """List `aliases`, highlighting `query` wherever it matched (name/desc).
+        """List `aliases` via the shared cheatsheet presenter (both surfaces match).
 
-        Built as styled spans and emitted through :meth:`_emit` (ANSI), so the
-        matched substring is reverse-video just as in the REPL. Alignment holds
-        because the ``{name:<16} `` padding is sized off the PLAIN name length
-        and carried as its own unpainted span -- the highlight adds no width.
+        The name/description highlighting and the compact-vs-``-v`` shape live in
+        :func:`presenters_cmd.present_cheatsheet`; here we only supply the rendered
+        command (we hold the registry) and emit the result as ANSI frames.
         """
-        if not aliases:
-            yield "no command aliases configured\n"
-            return
-        for a in aliases:
-            rendered = render_alias(a, self.core.registry)
-            pad = max(_NAME_COL - len(a.name), 0) + 1
-            segments: list[render.Span] = [
-                ("  ", None),
-                *render.highlight_spans(a.name, query),
-                (" " * pad, None),
-                (f"{rendered}  -- ", None),
-                *render.highlight_spans(a.description, query),
-            ]
-            yield from self._emit([render.spans(segments)])
+        rows = [
+            (a.name, render_alias(a, self.core.registry), a.description)
+            for a in aliases
+        ]
+        yield from self._emit(
+            presenters_cmd.present_cheatsheet(rows, query, verbose=verbose)
+        )
 
     def _cheat_remove(self, name: str) -> Iterator[str]:
         if not name:
@@ -499,18 +522,26 @@ class Daemon:
         yield dispatch.run_latency(self.core) + "\n"
 
     def _show_tools(self, rest: str) -> Iterator[str]:
-        which = rest.strip().lower() or "all"
+        view = parse_doctor_flags(rest)
+        which = view.rest.strip().lower() or "all"
         if which not in TOOL_FILTERS:
-            yield f"usage: {self._cmd('show tools [all|scoped|installed|missing]')}\n"
+            yield (
+                f"usage: {self._cmd('show tools [all|scoped|installed|missing]')} "
+                "[-v] [--missing] [--category <offensive|forensics>]\n"
+            )
             return
         yield PROBING_MSG + "\n"
         filtered = filter_tool_statuses(
             self.core.doctor.tools(), cast("ToolFilter", which), self.core.engagement
         )
-        if not filtered:
+        if view.missing_only:
+            filtered = [s for s in filtered if not s.found]
+        tables = tool_tables(filtered, verbose=view.verbose, category=view.category)
+        if not tables:
             yield f"(no {which} tools)\n"
             return
-        yield table_ansi(doctor_table(filtered))
+        for table in tables:
+            yield table_ansi(table)
 
     def _engagement(self, arg: str) -> Iterator[str]:
         first = arg.split(maxsplit=1)[0] if arg.split() else ""
@@ -573,7 +604,8 @@ class Daemon:
         yield f"logged in to chatgpt{f' (account {account})' if account else ''}\n"
 
     def _doctor(self, arg: str) -> Iterator[str]:
-        target = dispatch.doctor_install_target(arg)
+        view = parse_doctor_flags(arg)
+        target = dispatch.doctor_install_target(view.rest)
         if target == "missing":
             # Needs the confirm round-trip, so it runs only over the attach loop
             # (intercepted in run_attached); a one-shot request cannot prompt.
@@ -589,6 +621,7 @@ class Daemon:
             self.core.doctor.runtimes(),
             self.core.doctor.net_tools(),
             self.core.settings,
+            view=view,
         )
 
     def _install(self, binary: str) -> Iterator[str]:
@@ -653,7 +686,3 @@ class Daemon:
             yield message + "\n"
             return
         yield from self._emit(presenters.present_findings_usage(self._surface()))
-
-    def _help_text(self, arg: str = "") -> str:
-        """Render help for this surface (delegated to ``frontend.help``)."""
-        return help_mod.plain_help(self._surface(), self.core.mode, arg)

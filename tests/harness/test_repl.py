@@ -57,7 +57,7 @@ def test_help_and_dispatch_do_not_drift(tui: tuple[Tui, io.StringIO]) -> None:
     This is the drift a help table and an if/elif chain always develop.
     """
     app, _ = tui
-    assert set(app._commands) == verbs.KNOWN - {"ask", "exit"}
+    assert set(app._commands) == verbs.KNOWN - {"chat", "exit"}
     # Each grouping verb's noun router must match its declared nouns exactly, so a
     # new noun cannot be half-wired (declared but unrouted, or routed but hidden).
     assert set(app._show_nouns) == verbs.noun_names("show")

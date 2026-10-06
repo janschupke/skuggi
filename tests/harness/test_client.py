@@ -11,9 +11,11 @@ from typing import cast
 
 import pytest
 
+from skuggi.common.palette import SHIELD
 from skuggi.frontend import client
 from skuggi.frontend.client import (
     _is_interactive,
+    _prompt_str,
     _stdin_prompt,
     _stream_turn,
     attach_once_over,
@@ -432,7 +434,7 @@ def test_is_interactive_true(args: list[str]) -> None:
     "args",
     [
         [],
-        ["ask", "hello"],
+        ["chat", "hello"],
         ["show", "status"],
         ["set", "provider", "openai"],  # a value -> one-shot
         ["set", "mode", "pentest"],
@@ -443,3 +445,13 @@ def test_is_interactive_true(args: list[str]) -> None:
 )
 def test_is_interactive_false(args: list[str]) -> None:
     assert client._is_interactive(args) is False
+
+
+def test_prompt_shows_the_mode_glyph() -> None:
+    # The glyph sits right after the shield; the engagement name and `!` follow.
+    p = _prompt_str({"engagement": "acme", "autonomous": True, "mode": "redteam"})
+    assert p.startswith(f"{SHIELD}🔴")
+    assert "[acme]" in p
+    assert "!" in p
+    # Unknown/absent mode degrades to no glyph rather than crashing.
+    assert _prompt_str({}).startswith(f"{SHIELD}")

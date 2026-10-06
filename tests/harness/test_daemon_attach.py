@@ -25,7 +25,7 @@ from tests.harness.conftest import chunks
 
 def test_attach_routes_multiple_lines_over_one_session(daemon: Daemon) -> None:
     """One attach session dispatches successive lines against the warm core."""
-    lines = iter(["/show findings", "ask what is exposed?", "exit"])
+    lines = iter(["/show findings", "chat what is exposed?", "exit"])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(lines, None), emitted.append)
     text = "".join(str(f.get("chunk", "")) for f in emitted)
@@ -42,7 +42,7 @@ def test_attach_gates_a_post_turn_memory_capture(
         daemon.core.memory, "propose_capture", lambda _t: ["Prefer ffuf over gobuster"]
     )
     # read_line feeds the ask, then "approve" for the capture's choose frame, then EOF.
-    lines = iter(["ask always prefer ffuf", "approve", None])
+    lines = iter(["chat always prefer ffuf", "approve", None])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(lines, None), emitted.append)
 
@@ -61,7 +61,7 @@ def test_attach_memory_capture_declined_writes_nothing(
     monkeypatch.setattr(
         daemon.core.memory, "propose_capture", lambda _t: ["Prefer ffuf over gobuster"]
     )
-    lines = iter(["ask always prefer ffuf", "deny", None])
+    lines = iter(["chat always prefer ffuf", "deny", None])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(lines, None), emitted.append)
 
@@ -264,3 +264,48 @@ def test_attach_doctor_research_without_a_tool_is_not_routed_as_research(
     assert attach.doctor_research_tool("doctor research") is None
     assert attach.doctor_research_tool("doctor research nmap") == "nmap"
     assert attach.doctor_research_tool("ask something") is None
+
+
+def test_chat_context_routes_every_line_to_the_agent(daemon: Daemon) -> None:
+    """Bare `chat` enters a context where plain lines hit the agent, not verbs."""
+    # `show findings` would normally be a control verb; inside the chat context it
+    # is just a prompt. `exit` leaves the context (NOT the session), so the final
+    # `exit` is what closes it.
+    lines = iter(["chat", "show findings", "exit", "exit", None])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(lines, None), emitted.append)
+    text = "".join(str(f.get("chunk", "")) for f in emitted)
+    assert "entered chat context" in text
+    assert "the answer" in text  # the "show findings" line reached the agent
+    assert "no findings" not in text  # it was NOT dispatched as the control verb
+    assert "left chat context" in text  # the first `exit` only left the context
+
+    # the prompt frames carry the chat context marker while inside it
+    def _context(frame: dict[str, object]) -> object:
+        prompt = frame.get("prompt")
+        return prompt.get("context") if isinstance(prompt, dict) else None
+
+    assert any(_context(f) == "chat" for f in emitted)
+
+
+def test_chat_context_exit_keeps_the_session_alive(daemon: Daemon) -> None:
+    # Leaving the chat context returns to the loop; the session only ends on the
+    # outer `exit`.
+    lines = iter(["chat", "exit", "/show status", "exit", None])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(lines, None), emitted.append)
+    text = "".join(str(f.get("chunk", "")) for f in emitted)
+    assert "left chat context" in text
+    # a control verb runs again after leaving the context (proof the loop resumed)
+    assert emitted[-1] == {"end": True, "exit": True}
+
+
+def test_chat_loop_exit_message_says_the_agent_stays_warm(daemon: Daemon) -> None:
+    # Leaving the chat loop keeps the daemon warm; the message must say so (a
+    # second, shell-level `skuggi exit` is what actually stops it).
+    lines = iter(["exit", None])
+    emitted: list[dict[str, object]] = []
+    daemon.run_attached(lambda: next(lines, None), emitted.append)
+    text = "".join(str(f.get("chunk", "")) for f in emitted)
+    assert "Leaving interactive mode" in text
+    assert "agent still active" in text

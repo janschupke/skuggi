@@ -8,10 +8,11 @@ from typing import cast
 
 import pytest
 
+from skuggi.agent import tooldoctor
 from skuggi.agent.core import AgentCore
 from skuggi.agent.tooldoctor import ToolDoctor
 from skuggi.tooling import probe
-from skuggi.tooling.registry import InstallPlan, ToolSpec, ToolStatus
+from skuggi.tooling.registry import InstallPlan, ToolRegistry, ToolSpec, ToolStatus
 
 _PLAN = InstallPlan(argv=("brew", "install", "x"), target="host", installer="brew")
 
@@ -76,3 +77,37 @@ def test_only_scoped_missing_installable_tools(monkeypatch: pytest.MonkeyPatch) 
     proposed = dict(_doctor(engagement, specs).propose_installs())
     assert set(proposed) == {"nmap", "sqlmap"}
     assert proposed["nmap"] is _PLAN
+
+
+# --- the drift fix: doctor lists the FULL registry, not the mode-filtered one ---
+
+
+def test_tools_lists_every_recognized_tool_in_every_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The bug: `core.doctor.tools()` probed the mode-filtered `core.registry`, so
+    # blueteam-tagged tools vanished in offensive modes (and vice versa). The fix
+    # reads the full on-disk registry, so every mode sees every recognized tool.
+    nmap = _spec("nmap", "scan")  # offensive, no mode tag
+    yara = ToolSpec(name="yara", binary="yara", method="enumerate", modes=("blueteam",))
+    full = ToolRegistry(tools=(nmap, yara))
+    monkeypatch.setattr(tooldoctor, "load_registry", lambda _p: full)
+    monkeypatch.setattr(
+        probe, "probe", lambda reg, **_k: [_status(s, found=False) for s in reg.tools]
+    )
+
+    for mode in ("pentest", "redteam", "blueteam", "forensics"):
+        core = SimpleNamespace(
+            mode=mode,
+            engagement=None,
+            registry=SimpleNamespace(tools=(nmap,)),  # the (wrong) filtered view
+            settings=SimpleNamespace(
+                registry_path=Path("/r"),
+                tool_source="combine",
+                managed_tools_dir=Path("/m"),
+            ),
+        )
+        binaries = {
+            st.spec.binary for st in ToolDoctor(cast("AgentCore", core)).tools()
+        }
+        assert binaries == {"nmap", "yara"}, f"mode {mode} dropped a recognized tool"

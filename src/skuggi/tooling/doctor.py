@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, get_args
 
@@ -27,7 +28,12 @@ from skuggi.engagement.workspace import has_engagement
 from skuggi.frontend import shell
 from skuggi.providers import providers
 from skuggi.tooling import probe
-from skuggi.tooling.registry import RuntimeStatus, ToolStatus
+from skuggi.tooling.registry import (
+    RuntimeStatus,
+    ToolCategory,
+    ToolStatus,
+    tool_category,
+)
 
 if TYPE_CHECKING:
     from skuggi.engagement.engagement import EngagementConfig
@@ -37,6 +43,12 @@ if TYPE_CHECKING:
 # this one frozenset rather than each re-typing the literals.
 ToolFilter = Literal["all", "scoped", "installed", "missing"]
 TOOL_FILTERS: frozenset[str] = frozenset(get_args(ToolFilter))
+
+# The ``--category`` values accepted by ``doctor``/``show tools``. ``offensive`` and
+# ``forensics`` select a tool section; ``cli`` and ``runtimes`` select the host
+# capability sections.
+DoctorCategory = Literal["offensive", "forensics", "cli", "runtimes"]
+DOCTOR_CATEGORIES: frozenset[str] = frozenset(get_args(DoctorCategory))
 
 # Emitted before a probe runs so the operator sees progress, not a silent wait.
 PROBING_MSG = "probing host tools and runtimes..."
@@ -48,61 +60,111 @@ def _method_rank(method: str) -> int:
     return order.index(method) if method in order else len(order)
 
 
-def doctor_table(statuses: list[ToolStatus]) -> Table:
-    """A colour-coded Rich table of the host tool probe (palette-driven).
+def doctor_table(
+    statuses: list[ToolStatus],
+    *,
+    title: str = "skuggi tool doctor",
+    verbose: bool = True,
+) -> Table:
+    """A colour-coded Rich table of a tool probe (palette-driven), method-sorted.
 
-    Rows are grouped by method (in the palette's order) and carry the resolved
-    binary path.
+    Compact (``verbose=False``) shows tool / method / status; ``verbose`` adds the
+    version, where it resolved, and the path. Rows sort by method in the palette's
+    order (unknown methods last), then binary.
     """
-    table = Table(title="skuggi tool doctor")
-    for column in ("tool", "method", "status", "version", "source", "path"):
+    table = Table(title=title)
+    columns: tuple[str, ...] = ("tool", "method", "status")
+    if verbose:
+        columns += ("version", "source", "path")
+    for column in columns:
         table.add_column(column)
     ordered = sorted(
         statuses, key=lambda st: (_method_rank(st.spec.method), st.spec.binary)
     )
     for st in ordered:
-        table.add_row(
+        row = [
             st.spec.binary,
             palette.paint(st.spec.method, palette.method_style(st.spec.method)),
             palette.paint(
                 "found" if st.found else "missing",
                 palette.status_style(found=st.found),
             ),
-            st.version or "-",
-            palette.paint(st.source, palette.source_style(st.source)),
-            str(st.path) if st.path else "-",
-        )
+        ]
+        if verbose:
+            row += [
+                st.version or "-",
+                palette.paint(st.source, palette.source_style(st.source)),
+                str(st.path) if st.path else "-",
+            ]
+        table.add_row(*row)
     return table
 
 
+_TOOL_SECTIONS: tuple[tuple[ToolCategory, str], ...] = (
+    ("offensive", "offensive tools"),
+    ("forensics", "forensics / defensive tools"),
+)
+
+
+def tool_tables(
+    statuses: list[ToolStatus],
+    *,
+    verbose: bool = True,
+    category: str | None = None,
+) -> list[Table]:
+    """The tool probe split into its display sections (offensive / forensics).
+
+    Every recognized tool is listed -- the sectioning is by ``tool_category``
+    (derived from method + modes), so nothing is hidden the way the old
+    mode-filtered table hid blueteam tools. An empty section is omitted;
+    `category` (``offensive``/``forensics``) narrows to one section.
+    """
+    tables: list[Table] = []
+    for cat, title in _TOOL_SECTIONS:
+        if category is not None and category != cat:
+            continue
+        rows = [st for st in statuses if tool_category(st.spec) == cat]
+        if rows:
+            tables.append(doctor_table(rows, title=title, verbose=verbose))
+    return tables
+
+
 def _capability_table(
-    title: str, first_column: str, statuses: list[RuntimeStatus]
+    title: str, first_column: str, statuses: list[RuntimeStatus], *, verbose: bool
 ) -> Table:
     """A colour-coded Rich table of a host-capability probe (runtime or net)."""
     table = Table(title=title)
-    for column in (first_column, "status", "version", "path"):
+    columns: tuple[str, ...] = (first_column, "status")
+    if verbose:
+        columns += ("version", "path")
+    for column in columns:
         table.add_column(column)
     for st in statuses:
-        table.add_row(
+        row = [
             st.spec.name,
             palette.paint(
                 "found" if st.found else "missing",
                 palette.status_style(found=st.found),
             ),
-            st.version or "-",
-            str(st.path) if st.path else "-",
-        )
+        ]
+        if verbose:
+            row += [st.version or "-", str(st.path) if st.path else "-"]
+        table.add_row(*row)
     return table
 
 
-def runtime_table(statuses: list[RuntimeStatus]) -> Table:
+def runtime_table(statuses: list[RuntimeStatus], *, verbose: bool = True) -> Table:
     """A colour-coded Rich table of the host runtime/toolchain probe."""
-    return _capability_table("host runtimes / toolchains", "runtime", statuses)
+    return _capability_table(
+        "host runtimes / toolchains", "runtime", statuses, verbose=verbose
+    )
 
 
-def net_tool_table(statuses: list[RuntimeStatus]) -> Table:
-    """A colour-coded Rich table of the standard Unix net-tool probe."""
-    return _capability_table("standard net tools", "net tool", statuses)
+def net_tool_table(statuses: list[RuntimeStatus], *, verbose: bool = True) -> Table:
+    """A colour-coded Rich table of the standard Unix net-tool (standard CLI) probe."""
+    return _capability_table(
+        "standard CLI / net tools", "net tool", statuses, verbose=verbose
+    )
 
 
 def _hint_block(
@@ -346,33 +408,96 @@ def filter_tool_statuses(
     return list(statuses)
 
 
-def render_doctor(
+@dataclass(frozen=True, slots=True)
+class DoctorView:
+    """The display options parsed from a ``doctor``/``show tools`` argument.
+
+    `rest` is whatever is left after the flags are removed (e.g. a ``show tools``
+    positional filter), so a caller can still route its own sub-grammar.
+    """
+
+    verbose: bool = False
+    missing_only: bool = False
+    category: str | None = None
+    rest: str = ""
+
+
+def parse_doctor_flags(arg: str) -> DoctorView:
+    """Pull ``-v``/``--verbose``, ``--missing`` and ``--category <c>`` out of `arg`.
+
+    Flags may appear anywhere; everything else is preserved (in order) as `rest`.
+    An unknown ``--category`` value is left in `rest` so the caller can reject it.
+    """
+    verbose = missing_only = False
+    category: str | None = None
+    leftover: list[str] = []
+    tokens = arg.split()
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in ("-v", "--verbose"):
+            verbose = True
+        elif tok == "--missing":
+            missing_only = True
+        elif (
+            tok == "--category"
+            and i + 1 < len(tokens)
+            and tokens[i + 1] in DOCTOR_CATEGORIES
+        ):
+            category = tokens[i + 1]
+            i += 1
+        else:
+            leftover.append(tok)
+        i += 1
+    return DoctorView(verbose, missing_only, category, " ".join(leftover))
+
+
+def _only_missing(statuses: list[RuntimeStatus]) -> list[RuntimeStatus]:
+    return [s for s in statuses if not s.found]
+
+
+def render_doctor(  # noqa: PLR0913 -- the display knobs are the point
     console: Console,
     statuses: list[ToolStatus],
     runtimes: list[RuntimeStatus] | None = None,
     net_tools: list[RuntimeStatus] | None = None,
     settings: Settings | None = None,
+    *,
+    view: DoctorView | None = None,
 ) -> None:
-    """Print the install table, the tool table, the capability tables, then the hints.
+    """Print the install table, the tool sections, the capability tables, the hints.
 
     The one place that composes a full doctor report; every surface calls it so
     the ordering and the hint formatting never drift. Hints are printed verbatim
     (no markup, no wrapping) so their exact text survives a narrow console.
 
-    The install table comes first and only when `settings` is supplied: a caller
-    that already has the settings gets "where am I reading from" before the tool
-    inventory, since a missing registry explains an empty tool table.
+    The tool inventory is sectioned (offensive / forensics) via ``tool_tables``,
+    then the standard-CLI and runtime capability tables. `view` carries the
+    ``-v``/``--missing``/``--category`` display knobs; its category also gates
+    which sections appear. The install/providers tables are shown only on an
+    unfiltered full report (a caller with `settings` and no narrowing view), since
+    a missing registry explains an empty tool table.
     """
-    if settings is not None:
+    view = view or DoctorView(verbose=True)
+    tools = [s for s in statuses if s.found is False] if view.missing_only else statuses
+    cat = view.category
+    full_report = cat is None and not view.missing_only
+    if full_report and settings is not None:
         console.print(install_table(settings))
         console.print(providers_table(settings))
-    console.print(doctor_table(statuses))
-    if runtimes:
-        console.print(runtime_table(runtimes))
-    if net_tools:
-        console.print(net_tool_table(net_tools))
+    if cat in (None, "offensive", "forensics"):
+        for table in tool_tables(tools, verbose=view.verbose, category=cat):
+            console.print(table)
+    if runtimes and cat in (None, "runtimes"):
+        rts = _only_missing(runtimes) if view.missing_only else runtimes
+        if rts:
+            console.print(runtime_table(rts, verbose=view.verbose))
+    if net_tools and cat in (None, "cli"):
+        nts = _only_missing(net_tools) if view.missing_only else net_tools
+        if nts:
+            console.print(net_tool_table(nts, verbose=view.verbose))
     hints = doctor_hints(statuses, runtimes, net_tools)
-    if hints:
+    if hints and not view.missing_only and cat is None:
         console.print(hints, markup=False, soft_wrap=True)
 
 
@@ -381,6 +506,8 @@ def doctor_ansi(
     runtimes: list[RuntimeStatus] | None = None,
     net_tools: list[RuntimeStatus] | None = None,
     settings: Settings | None = None,
+    *,
+    view: DoctorView | None = None,
 ) -> str:
     """Render a full doctor report to an ANSI string (for the shell daemon).
 
@@ -389,7 +516,7 @@ def doctor_ansi(
     """
     console = Console(force_terminal=True, width=100)
     with console.capture() as capture:
-        render_doctor(console, statuses, runtimes, net_tools, settings)
+        render_doctor(console, statuses, runtimes, net_tools, settings, view=view)
     return capture.get()
 
 

@@ -203,8 +203,17 @@ def present_install(outcome: InstallOutcome) -> Styled:
 
 
 def present_mode(mode: str) -> Styled:
-    """Render a mode switch."""
+    """Render a mode switch, or the current mode for ``show mode``."""
     return [render.info(f"mode: {mode}")]
+
+
+def present_autonomous_status(state: bool) -> Styled:
+    """Render the current autonomous state for ``show autonomous`` (read-only)."""
+    if state:
+        return [
+            render.warning("autonomous: on (proposed commands execute within scope)")
+        ]
+    return [render.info("autonomous: off")]
 
 
 def present_unavailable(verb: str, mode: str) -> Styled:
@@ -331,32 +340,6 @@ def present_env_update(name: str, value: str | None) -> Styled:
 def present_error(message: str) -> Styled:
     """A single error line (e.g. a ValueError from set mode/autonomous/thread)."""
     return [render.danger(message)]
-
-
-def present_cmd_plan(plan: object, surface: verbs.Surface) -> Styled:  # noqa: ARG001
-    """Render a resolved ``cmd`` plan (rendered command + scope verdict).
-
-    `plan` is a ``commandbook.RunPlan``; typed loosely to avoid importing the
-    agent layer here. Never fires an agent turn -- it only presents.
-    """
-    from skuggi.agent.commandbook import RunPlan  # noqa: PLC0415 -- avoid import cycle
-
-    assert isinstance(plan, RunPlan)  # noqa: S101
-    if not plan.known:
-        return [render.warning(plan.note)]
-    lines: Styled = [render.heading(f"$ {plan.raw}")]
-    if plan.verdict is not None and not plan.verdict.allowed:
-        lines.append(render.danger(f"OUT OF SCOPE: {plan.note}"))
-    elif plan.verdict is None:
-        lines.append(render.warning(plan.note))
-    else:
-        lines.append(
-            render.success(
-                f"{plan.note} -- recorded proposed (cmd:{plan.command_id}); "
-                "submit it yourself"
-            )
-        )
-    return lines
 
 
 def _drift_note(readiness_now: Readiness, surface: verbs.Surface) -> str | None:

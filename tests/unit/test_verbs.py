@@ -59,7 +59,7 @@ def test_plain_verb_has_no_nouns() -> None:
 
 def test_only_agent_path_verbs_are_engagement() -> None:
     # Engagement-directed verbs are exempt from the control audit log.
-    assert {"ask", "cmd", "add", "osint", "forensics"} == verbs.ENGAGEMENT
+    assert {"chat", "cmd", "add", "osint", "forensics"} == verbs.ENGAGEMENT
 
 
 # --- help listing -----------------------------------------------------------
@@ -103,7 +103,7 @@ def test_offensive_verbs_are_unavailable_in_forensics() -> None:
 
 def test_unrestricted_verbs_are_available_in_every_mode() -> None:
     modes: tuple[Mode, ...] = ("pentest", "redteam", "blueteam", "forensics")
-    for verb in ("ask", "show", "set", "help", "report"):
+    for verb in ("chat", "show", "set", "help", "report"):
         for mode in modes:
             assert verbs.is_available(verb, mode)
 

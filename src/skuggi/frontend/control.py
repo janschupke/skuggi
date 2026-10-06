@@ -35,6 +35,7 @@ from skuggi.config.configs import ConfigError
 from skuggi.frontend import (
     dispatch,
     presenters,
+    presenters_cmd,
     presenters_journal,
     render,
     show_filters,
@@ -183,6 +184,18 @@ def set_case(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styl
     return presenters.present_case_adopted(case.name, str(root))
 
 
+def show_mode(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
+    """Report the active operating mode (the read half of ``set mode``)."""
+    return presenters.present_mode(core.mode)
+
+
+def show_autonomous(
+    core: AgentCore, _rest: str, _surface: verbs.Surface
+) -> render.Styled:
+    """Report whether autonomous execution is armed (the read half of ``set``)."""
+    return presenters.present_autonomous_status(core.autonomous)
+
+
 def set_mode(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
     """Switch the operating mode, reporting a bad name as an error."""
     try:
@@ -326,7 +339,7 @@ def remove_footholds(
 
 def resolve_cmd(core: AgentCore, name: str, surface: verbs.Surface) -> render.Styled:
     """Render the resolved shell plan for the exact cheatsheet alias `name`."""
-    return presenters.present_cmd_plan(core.cmds.plan(name), surface)
+    return presenters_cmd.present_cmd_plan(core.cmds.plan(name), surface)
 
 
 def reconcile(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
@@ -371,6 +384,8 @@ SHOW_ACTIONS: dict[str, Action] = {
     "notes": show_notes,
     "env": show_env,
     "case": show_case,
+    "mode": show_mode,
+    "autonomous": show_autonomous,
 }
 
 SET_ACTIONS: dict[str, Action] = {

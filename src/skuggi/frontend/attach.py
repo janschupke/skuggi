@@ -412,6 +412,66 @@ def attach_scope(
     emit({"end": True, "exit": False})
 
 
+def intercept(
+    core: AgentCore,
+    lock: threading.Lock,
+    line: str,
+    read_line: ReadLine,
+    emit: Emit,
+) -> bool:
+    """Run `line` as an interactive attach flow if it is one; else return False.
+
+    The round-trip flows (wizard, set-interactive, cmd editor/suggest, config/
+    scope edits, install-missing, doctor-research) each own a multi-turn
+    sub-dialogue over this connection; this is the one place that recognises and
+    dispatches them so the daemon's attach loop stays a thin router.
+    """
+    if is_wizard(line):
+        attach_wizard(core, lock, read_line, emit)
+    elif is_set_interactive(line):
+        attach_set(core, lock, line, read_line, emit)
+    elif is_cmd_editor(line):
+        attach_cmd_editor(core, lock, line, read_line, emit)
+    elif is_cmd_suggest(line):
+        request = verbs.split_verb(line)[1].partition(" ")[2]
+        attach_cmd_suggest(core, lock, request, read_line, emit)
+    elif is_config_request(core, line):
+        request = verbs.split_verb(line)[1].partition(" ")[2]
+        attach_config(core, lock, request, read_line, emit)
+    elif is_scope_request(line):
+        request = verbs.split_verb(line)[1].partition(" ")[2]
+        attach_scope(core, lock, request, read_line, emit)
+    elif is_install_missing(line):
+        attach_install_missing(core, lock, read_line, emit)
+    elif (research_tool := doctor_research_tool(line)) is not None:
+        attach_doctor_research(core, lock, research_tool, read_line, emit)
+    else:
+        return False
+    return True
+
+
+def chat_turn(
+    line: str,
+    emit: Emit,
+    agent: Callable[[str], Iterator[dict[str, object]]],
+) -> tuple[bool, str | None]:
+    """One turn inside a chat context: ``(stay_active, capture_line)``.
+
+    Every line is a prompt (no verb routing); ``exit``/``quit`` leaves the context
+    (back to the loop, agent warm). `agent` streams the turn's frames (the daemon's
+    ``_agent``). The returned `capture_line` is the synthetic ``chat <prompt>`` the
+    caller feeds to :func:`capture_after_ask` (it holds the core/lock/read_line), or
+    ``None`` when there is nothing to capture (the exit line).
+    """
+    if verbs.is_exit(verbs.split_verb(line)[0]):
+        emit({"chunk": "left chat context\n"})
+        return False, None
+    for resp in agent(line):
+        emit(resp)
+    emit({"end": True, "exit": False})
+    return True, f"chat {line}"
+
+
 def capture_after_ask(
     core: AgentCore,
     lock: threading.Lock,
@@ -419,15 +479,15 @@ def capture_after_ask(
     read_line: ReadLine,
     emit: Emit,
 ) -> None:
-    """If `line` was an ``ask``, gate remembering any directive it carried, post-turn.
+    """If `line` was a ``chat``, gate remembering any directive it carried, post-turn.
 
-    The chat loop's post-turn hook: only an ``ask`` is an engagement turn worth
+    The chat loop's post-turn hook: only a ``chat`` turn is an engagement turn worth
     capturing from, and only the chat loop can do the confirm round-trip (a one-shot
     announces instead). A no-op for any other line, or when nothing was proposed.
     Emits no ``end`` frame -- the turn's own frames already closed the reply.
     """
     verb, rest = verbs.split_verb(line)
-    if verb != "ask" or not rest.strip():
+    if verb != "chat" or not rest.strip():
         return
 
     def choose(prompt: str, options: list[str], default: str | None) -> str | None:

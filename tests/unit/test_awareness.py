@@ -89,7 +89,7 @@ def test_scoped_tools_split_installed_vs_missing(managed_dir: Path) -> None:
 
 def test_catalogue_lists_verbs_and_aliases() -> None:
     block = awareness.harness_catalogue_block(("nmap-fast", "nikto-basic"))
-    assert "ask" in block  # the agent verb is always present
+    assert "chat" in block  # the agent verb is always present
     assert "saved cmd aliases: nmap-fast, nikto-basic" in block
 
 

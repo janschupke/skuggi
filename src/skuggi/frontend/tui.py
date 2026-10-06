@@ -20,7 +20,6 @@ from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.spinner import Spinner
-from rich.table import Table
 
 from skuggi.agent import readiness
 from skuggi.agent.core import AgentCore
@@ -36,11 +35,14 @@ from skuggi.frontend import (
     menu,
     outcomes,
     presenters,
+    presenters_cmd,
     presenters_journal,
     render,
+    verbosity,
     verbs,
     wizard,
 )
+from skuggi.frontend import help as help_mod
 from skuggi.frontend.repl_flows import ReplFlows
 from skuggi.install import reconcile
 from skuggi.persistence.ledger import Ledger
@@ -50,9 +52,10 @@ from skuggi.tooling.doctor import (
     PROBING_MSG,
     TOOL_FILTERS,
     ToolFilter,
-    doctor_table,
     filter_tool_statuses,
+    parse_doctor_flags,
     render_doctor,
+    tool_tables,
 )
 from skuggi.tooling.registry import ToolRegistry
 
@@ -94,11 +97,15 @@ class Tui:
         self.core = AgentCore(settings)
 
         cancel_bindings, self._cancel_state = menu.cancel_bindings()
+        providers, models = completion.provider_model_names(self.core.settings.provider)
         self.session: PromptSession[str] = session or PromptSession(
             history=InMemoryHistory(),
             completer=NestedCompleter.from_nested_dict(
                 completion.completion_tree(
-                    self.core.commands.names(), reconcile.known_names()
+                    self.core.commands.names(),
+                    reconcile.known_names(),
+                    provider_names=providers,
+                    model_names=models,
                 )
             ),
             complete_style=CompleteStyle.READLINE_LIKE,
@@ -257,14 +264,16 @@ class Tui:
     # ----- UI helpers --------------------------------------------------------
 
     def _prompt(self) -> str:
-        # The shield marks that skuggi is active; the `!` warns autonomous
-        # execution is armed. The engagement name is the only context worth the
-        # space -- mode/provider/model live in the banner and `/show status`.
+        # The shield marks that skuggi is active; the glyph after it names the
+        # active mode (⚔️/🔴/🔵/🚔); the `!` warns autonomous execution is armed.
+        # The engagement name is the only other context worth the space --
+        # provider/model live in the banner and `/show status`.
+        glyph = palette.mode_glyph(self.core.mode)
         auto = "!" if self.core.autonomous else ""
         engagement = self.core.engagement
         if engagement is not None:
-            return f"{palette.SHIELD} [{engagement.name}]{auto} > "
-        return f"{palette.SHIELD}{auto} > "
+            return f"{palette.SHIELD}{glyph} [{engagement.name}]{auto} > "
+        return f"{palette.SHIELD}{glyph}{auto} > "
 
     def _banner(self) -> None:
         self.console.rule("[bold]skuggi[/bold]")
@@ -307,8 +316,13 @@ class Tui:
         verb, rest = verbs.split_verb(line)
         if verbs.is_exit(verb):
             return False
-        if verb == "ask":
-            self.turn(rest)
+        if verb == "chat":
+            if rest.strip():
+                self.turn(rest)
+            else:
+                # The REPL's bare prompt already sends plain text to the agent, so
+                # there is no separate chat context to enter -- just say so.
+                self._emit([render.muted("already at the agent prompt -- just type")])
             return None
         if verb in verbs.KNOWN and not verbs.is_available(verb, self.core.mode):
             self._emit(presenters.present_unavailable(verb, self.core.mode))
@@ -322,25 +336,10 @@ class Tui:
         return handler(rest)
 
     def _cmd_help(self, arg: str) -> None:
-        verb = arg.strip().split(" ", 1)[0]
-        if verb:
-            rows = verbs.help_for(verb)
-            if rows is None:
-                self.console.print(f"[red]no such command:[/red] {verb}")
-                return
-            table = Table(show_header=False, box=None, title=verbs.cmd(verb, "repl"))
-            for invocation, summary in rows:
-                table.add_row(f"[cyan]{verbs.cmd(invocation, 'repl')}[/cyan]", summary)
-            self.console.print(table)
-            return
-        for title, section_rows in verbs.help_sections(self.core.mode):
-            self.console.print(f"[bold]{title}[/bold]")
-            table = Table(show_header=False, box=None, pad_edge=False)
-            for invocation, summary in section_rows:
-                table.add_row(
-                    f"  [cyan]{verbs.cmd(invocation, 'repl')}[/cyan]", summary
-                )
-            self.console.print(table)
+        verbose, help_arg = verbosity.pop_verbose(arg)
+        self._emit(
+            help_mod.help_lines("repl", self.core.mode, help_arg, verbose=verbose)
+        )
 
     # ----- grouping-verb routers ---------------------------------------------
 
@@ -409,14 +408,15 @@ class Tui:
         )
 
     def _cmd_doctor(self, arg: str) -> None:
-        research_target = dispatch.doctor_research_target(arg)
+        view = parse_doctor_flags(arg)
+        research_target = dispatch.doctor_research_target(view.rest)
         if research_target is not None:
             if research_target:
                 self._flows.research_install(research_target)
             else:
                 self.console.print("usage: doctor research <tool>")
             return
-        target = dispatch.doctor_install_target(arg)
+        target = dispatch.doctor_install_target(view.rest)
         if target == "missing":
             self._flows.install_missing()
             return
@@ -427,7 +427,9 @@ class Tui:
             statuses = self.core.doctor.tools()
             runtimes = self.core.doctor.runtimes()
             net_tools = self.core.doctor.net_tools()
-        render_doctor(self.console, statuses, runtimes, net_tools, self.core.settings)
+        render_doctor(
+            self.console, statuses, runtimes, net_tools, self.core.settings, view=view
+        )
 
     def _install_tool(self, binary: str) -> None:
         """Install one recognized tool. Issuing this command is the confirm."""
@@ -441,10 +443,11 @@ class Tui:
 
     def _cmd_cmd(self, arg: str) -> None:  # noqa: PLR0911 -- one return per cmd sub-command
         """Search the cheatsheet, resolve an exact alias, or edit the registry."""
+        verbose, arg = verbosity.pop_verbose(arg)
         sub, _, rest = arg.partition(" ")
         sub, rest = sub.strip(), rest.strip()
         if not sub or sub == "list":
-            self._cheatsheet(self.core.commands.commands, "")
+            self._cheatsheet(self.core.commands.commands, "", verbose=verbose)
             return
         if sub in cmdflow.ADD_ARGS:
             self._flows.alias_add()
@@ -468,21 +471,16 @@ class Tui:
                 f"-- try {verbs.cmd('cmd list', 'repl')}"
             )
             return
-        self._cheatsheet(matches, arg.strip())
+        self._cheatsheet(matches, arg.strip(), verbose=verbose)
 
-    def _cheatsheet(self, aliases: tuple[CommandAlias, ...], query: str) -> None:
-        """List `aliases`, highlighting `query` wherever it matched (name/desc)."""
-        if not aliases:
-            self.console.print("[dim]no command aliases configured[/dim]")
-            return
-        for a in aliases:
-            name = text.highlight(a.name, query, base="cyan", match=palette.MATCH)
-            self.console.print(f"{name}  {render_alias(a, self.registry)}")
-            if a.description:
-                desc = text.highlight(
-                    a.description, query, base="dim", match=palette.MATCH
-                )
-                self.console.print(f"    {desc}")
+    def _cheatsheet(
+        self, aliases: tuple[CommandAlias, ...], query: str, *, verbose: bool = False
+    ) -> None:
+        """List `aliases` via the shared cheatsheet presenter (matches the daemon)."""
+        rows = [
+            (a.name, render_alias(a, self.registry), a.description) for a in aliases
+        ]
+        self._emit(presenters_cmd.present_cheatsheet(rows, query, verbose=verbose))
 
     def _resolve_cmd(self, name: str) -> None:
         self._emit(control.resolve_cmd(self.core, name, "repl"))
@@ -510,11 +508,13 @@ class Tui:
         self.console.print(dispatch.run_latency(self.core))
 
     def _show_tools(self, rest: str) -> None:
-        which = rest.strip().lower() or "all"
+        view = parse_doctor_flags(rest)
+        which = view.rest.strip().lower() or "all"
         if which not in TOOL_FILTERS:
             self.console.print(
                 "[yellow]usage:[/yellow] "
                 f"{verbs.cmd('show tools [all|scoped|installed|missing]', 'repl')}"
+                " [-v] [--missing] [--category <offensive|forensics>]"
             )
             return
         with self.console.status(PROBING_MSG, spinner="dots"):
@@ -522,10 +522,14 @@ class Tui:
         filtered = filter_tool_statuses(
             statuses, cast("ToolFilter", which), self.core.engagement
         )
-        if not filtered:
+        if view.missing_only:
+            filtered = [s for s in filtered if not s.found]
+        tables = tool_tables(filtered, verbose=view.verbose, category=view.category)
+        if not tables:
             self.console.print(f"[dim](no {which} tools)[/dim]")
             return
-        self.console.print(doctor_table(filtered))
+        for table in tables:
+            self.console.print(table)
 
     def _show_history(self, arg: str) -> None:
         self._emit(

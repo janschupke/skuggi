@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from skuggi.agent.turn_runner import TurnEvent
+from skuggi.common.modes import MODES
 from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.frontend import attach
 from skuggi.frontend.daemon import Daemon
@@ -33,6 +34,22 @@ def test_complete_op_walks_the_verb_noun_tree(daemon: Daemon) -> None:
     assert candidates(daemon, ["bogus-verb"]) == []  # unknown -> no candidates
 
 
+def test_complete_descends_to_the_value_level(daemon: Daemon) -> None:
+    # The bug the operator hit: `set mode <TAB>` offered nothing because the noun
+    # leaf was a dead `None`. The tree now descends to the value set.
+    assert set(candidates(daemon, ["set", "mode"])) == set(MODES)
+    assert set(candidates(daemon, ["set", "autonomous"])) == {"on", "off"}
+    assert "all" in candidates(daemon, ["remove", "memory"])
+    assert set(candidates(daemon, ["show", "tools"])) == {
+        "all",
+        "scoped",
+        "installed",
+        "missing",
+    }
+    # provider names are the dynamic value set for `set provider`
+    assert "ollama" in candidates(daemon, ["set", "provider"])
+
+
 def test_blank_input_just_ends(daemon: Daemon) -> None:
     assert responses(daemon, {"op": "input", "text": "  "}) == [
         {"end": True, "exit": False}
@@ -45,7 +62,7 @@ def test_bare_exit_word_leaves(daemon: Daemon) -> None:
 
 
 def test_plain_input_reaches_the_agent(daemon: Daemon) -> None:
-    out = chunks(daemon, {"op": "input", "text": "ask what is exposed?"})
+    out = chunks(daemon, {"op": "input", "text": "chat what is exposed?"})
     assert "the answer" in out  # the clean answer reaches the operator
     assert "(planner)" not in out  # internal chatter no longer leaks to the shell
     assert "(critic)" not in out
@@ -55,7 +72,7 @@ def test_agent_streams_phase_labels_as_pending_frames(daemon: Daemon) -> None:
     # A slow turn must show what it is doing: each phase is a `pending` frame so
     # the client's spinner relabels live (planning -> working -> reviewing), while
     # the answer is a single trailing chunk so the spinner turns right up to it.
-    frames = responses(daemon, {"op": "input", "text": "ask what is exposed?"})
+    frames = responses(daemon, {"op": "input", "text": "chat what is exposed?"})
     pending = [str(f["pending"]) for f in frames if "pending" in f]
     assert pending  # the turn announced its phases
     assert all(label.endswith("...") for label in pending)
@@ -158,6 +175,26 @@ def test_slash_mode_switches_and_reports_error(daemon: Daemon) -> None:
     assert "unknown mode" in chunks(daemon, {"op": "input", "text": "/set mode nope"})
 
 
+def test_show_mode_reflects_the_active_mode(daemon: Daemon) -> None:
+    # `set mode` has a read partner now: `show mode` reports what it set.
+    chunks(daemon, {"op": "input", "text": "set mode redteam"})
+    assert "redteam" in chunks(daemon, {"op": "input", "text": "show mode"})
+
+
+def test_show_autonomous_reports_the_armed_state(daemon: Daemon) -> None:
+    assert "off" in chunks(daemon, {"op": "input", "text": "show autonomous"})
+    chunks(daemon, {"op": "input", "text": "set autonomous on"})
+    assert "on" in chunks(daemon, {"op": "input", "text": "show autonomous"})
+
+
+def test_prompt_frame_carries_the_active_mode(daemon: Daemon) -> None:
+    # The chat prompt shows a per-mode glyph; the daemon must ship the mode so the
+    # thin client can render it (it has no core of its own).
+    daemon.core.set_mode("blueteam")
+    frame = daemon._prompt_frame(ready=False)
+    assert frame["prompt"]["mode"] == "blueteam"  # type: ignore[index]
+
+
 def test_slash_autonomous_toggles(daemon: Daemon) -> None:
     assert "ON" in chunks(daemon, {"op": "input", "text": "/set autonomous on"})
     assert "off" in chunks(daemon, {"op": "input", "text": "/set autonomous off"})
@@ -171,11 +208,13 @@ def test_slash_help_and_unknown(daemon: Daemon) -> None:
 def test_verb_first_without_slash(daemon: Daemon) -> None:
     """The wrapped shell sends bare verbs (no leading slash)."""
     assert "no findings" in chunks(daemon, {"op": "input", "text": "show findings"})
-    assert "the answer" in chunks(daemon, {"op": "input", "text": "ask hello"})
+    assert "the answer" in chunks(daemon, {"op": "input", "text": "chat hello"})
 
 
-def test_ask_without_prompt_shows_usage(daemon: Daemon) -> None:
-    assert "usage: ask" in chunks(daemon, {"op": "input", "text": "ask"})
+def test_chat_without_prompt_shows_usage(daemon: Daemon) -> None:
+    out = chunks(daemon, {"op": "input", "text": "chat"})
+    assert "chat <prompt>" in out
+    assert "chat context" in out  # points at the interactive context
 
 
 def test_provider_and_model(daemon: Daemon) -> None:
@@ -223,13 +262,15 @@ def test_attached_help_uses_the_bare_chat_grammar(daemon: Daemon) -> None:
     daemon.run_attached(lambda: next(lines), emitted.append, mode="loop")
     out = "".join(str(e.get("chunk", "")) for e in emitted)
     assert "/skuggi" not in out
-    assert "show <what>" in out  # the collapsed grouping-verb row, bare
+    # The outline is terse: the grouping verb collapses to a bare `show` row with
+    # its summary, no inlined grammar (the grammar lives in `help show`).
+    assert "inspect state" in out
     assert "show status" in out  # a noun row from `help show`, bare
 
 
 def test_thread_new_list_switch(daemon: Daemon) -> None:
     # A turn checkpoints the current thread, so `list` has one to mark.
-    chunks(daemon, {"op": "input", "text": "ask hello"})
+    chunks(daemon, {"op": "input", "text": "chat hello"})
     assert "*" in chunks(daemon, {"op": "input", "text": "show threads"})
     assert "new thread" in chunks(daemon, {"op": "input", "text": "set thread new"})
     assert "switched to thread" in chunks(
@@ -238,7 +279,7 @@ def test_thread_new_list_switch(daemon: Daemon) -> None:
 
 
 def test_history_and_trace(daemon: Daemon) -> None:
-    chunks(daemon, {"op": "input", "text": "ask hello"})
+    chunks(daemon, {"op": "input", "text": "chat hello"})
     assert "you:" in chunks(daemon, {"op": "input", "text": "show history"})
     assert chunks(daemon, {"op": "input", "text": "show trace"})  # non-empty
 
@@ -344,13 +385,17 @@ def test_cmd_search_highlights_the_matched_substring(daemon: Daemon) -> None:
         )
     )
     out = _raw(daemon, {"op": "input", "text": "cmd nmap"})
-    # the query is reverse-video, and the full name + literal target survive
+    # the query is reverse-video, and the full name survives (compact = name + desc)
     assert _REVERSE in out
     assert f"{_REVERSE}nmap" in out
     assert "nmap-host" in chunks(daemon, {"op": "input", "text": "cmd nmap"})
-    assert "${target}" in out
+    assert "scan it" in out  # the description rides the compact entry
+    assert "${target}" not in out  # the rendered command is a `-v` detail only
     # the listing stays filtered to the hit
     assert "web-dir" not in out
+    # `-v` adds the rendered command between the name and the description
+    verbose = _raw(daemon, {"op": "input", "text": "cmd -v nmap"})
+    assert "${target}" in verbose
 
 
 def test_cmd_list_has_nothing_to_highlight(daemon: Daemon) -> None:
@@ -410,7 +455,7 @@ def test_record_op_logs_a_passthrough_command(daemon: Daemon) -> None:
 
 
 def test_replay_lists_and_renders(daemon: Daemon) -> None:
-    chunks(daemon, {"op": "input", "text": "ask what is exposed?"})
+    chunks(daemon, {"op": "input", "text": "chat what is exposed?"})
     listing = chunks(daemon, {"op": "input", "text": "replay list"})
     assert daemon.core.session_id[:8] in listing
     assert "*" in listing  # the current session is marked
@@ -430,7 +475,7 @@ def test_one_shot_ask_announces_a_memory_but_writes_nothing(
     """A one-shot `ask` has no loop to confirm against: it announces, never writes."""
     cand = ["Prefer ffuf over gobuster"]
     monkeypatch.setattr(daemon.core.memory, "propose_capture", lambda _t: cand)
-    out = chunks(daemon, {"op": "input", "text": "ask always prefer ffuf"})
+    out = chunks(daemon, {"op": "input", "text": "chat always prefer ffuf"})
     assert "suggests remembering" in out
     assert "Prefer ffuf over gobuster" in out
     assert "not written" in out
@@ -455,7 +500,7 @@ def test_memory_add_list_and_forget(daemon: Daemon) -> None:
 
 def test_control_verbs_are_audited_but_ask_is_not(daemon: Daemon) -> None:
     chunks(daemon, {"op": "input", "text": "set mode blueteam"})  # control -> audit
-    chunks(daemon, {"op": "input", "text": "ask hello"})  # engagement -> timeline
+    chunks(daemon, {"op": "input", "text": "chat hello"})  # engagement -> timeline
     audit = daemon.core.ledger.audit_for(daemon.core.session_id)
     verbs_seen = {a.verb for a in audit if a.kind == "control"}
     assert "set" in verbs_seen
@@ -491,7 +536,7 @@ def test_agent_relays_a_multiline_error_in_full(
         lambda _text: iter([TurnEvent("status", err, node="error")]),
     )
     out = "".join(
-        str(frame.get("chunk", "")) for frame in daemon._agent("ask who are you?")
+        str(frame.get("chunk", "")) for frame in daemon._agent("who are you?")
     )
     assert "phase" in out
     assert "Field required" in out
@@ -644,3 +689,10 @@ def test_login_does_not_deadlock(daemon: Daemon) -> None:
     t.join(timeout=5.0)
     assert not t.is_alive(), "login deadlocked (re-acquired the handler lock)"
     assert "logged in to chatgpt" in out[0]
+
+
+def test_one_shot_exit_reports_the_agent_is_closed(daemon: Daemon) -> None:
+    # A one-shot `/skuggi exit` (surface "shell") IS the teardown level, so its
+    # message differs from the chat loop's "still active" wording.
+    out = chunks(daemon, {"op": "input", "text": "exit"})
+    assert "stopping skuggi" in out

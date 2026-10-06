@@ -195,11 +195,38 @@ class ToolRegistry(BaseModel):
         modes is universal, and a mode-tagged tool appears only where it is named --
         so pentest/redteam/forensics are unchanged.
         """
-        if mode == "blueteam":
-            kept = tuple(t for t in self.tools if mode in t.modes)
-        else:
-            kept = tuple(t for t in self.tools if not t.modes or mode in t.modes)
-        return ToolRegistry(tools=kept)
+        return ToolRegistry(tools=tuple(t for t in self.tools if in_mode(t, mode)))
+
+
+# Tools the harness RECOGNIZES vs. tools a given mode EXPOSES are two different
+# sets: `doctor` must list the former (every recognized tool, whatever the active
+# mode) while the guard enforces the latter. `in_mode` is the one predicate behind
+# both `for_mode` (the guard's filter) and doctor's per-row "available here" flag,
+# so they can never disagree about what a mode exposes.
+def in_mode(spec: ToolSpec, mode: Mode) -> bool:
+    """Whether `mode` exposes `spec` (the membership test `for_mode` filters on)."""
+    if mode == "blueteam":
+        return mode in spec.modes
+    return not spec.modes or mode in spec.modes
+
+
+# A tool's DISPLAY category for the doctor grouping, derived from the data the
+# registry already carries (method + modes) so there is nothing extra to maintain
+# in tools.json and nothing to drift: a forensic method or a blueteam-only tool is
+# defensive/forensics; everything else is offensive. Net tools and runtimes are
+# separate probe sources, so they are their own sections and never reach here.
+ToolCategory = Literal["offensive", "forensics"]
+
+
+def tool_category(spec: ToolSpec) -> ToolCategory:
+    """The doctor display category for `spec` (``offensive`` or ``forensics``)."""
+    if (
+        spec.method == "forensics"
+        or spec.modes == ("blueteam",)
+        or (spec.modes and all(m == "blueteam" for m in spec.modes))
+    ):
+        return "forensics"
+    return "offensive"
 
 
 class ToolStatus(NamedTuple):

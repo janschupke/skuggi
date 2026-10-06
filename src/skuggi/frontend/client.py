@@ -26,7 +26,7 @@ from collections.abc import Callable, Iterator, Mapping
 from typing import TextIO
 
 from skuggi.common.logs import get_logger, setup_logging
-from skuggi.common.palette import SHIELD
+from skuggi.common.palette import SHIELD, mode_glyph
 
 log = get_logger(__name__)
 
@@ -213,14 +213,20 @@ def run(sock_path: str, text: str, out: TextIO) -> int:  # pragma: no cover
 def _prompt_str(ctx: dict[str, object]) -> str:
     """Build the chat prompt from a daemon prompt-context frame.
 
-    ``🐐 [<engagement>]! >`` -- the engagement name appears only when one is
-    loaded, and ``!`` marks armed autonomous execution (mirrors ``tui._prompt``).
+    ``🐐⚔️ [<engagement>]! >`` -- the glyph after the shield names the active mode,
+    the engagement name appears only when one is loaded, and ``!`` marks armed
+    autonomous execution (mirrors ``tui._prompt``).
     """
     eng = ctx.get("engagement")
+    raw_mode = ctx.get("mode")
+    glyph = mode_glyph(raw_mode if isinstance(raw_mode, str) else None)
     auto = "!" if ctx.get("autonomous") else ""
+    # In a chat context every line goes straight to the agent; mark the prompt so
+    # the operator knows verbs won't run until they `exit` back.
+    tag = " chat" if ctx.get("context") == "chat" else ""
     if isinstance(eng, str) and eng:
-        return f"{SHIELD} [{eng}]{auto} > "
-    return f"{SHIELD}{auto} > "
+        return f"{SHIELD}{glyph} [{eng}]{auto}{tag} > "
+    return f"{SHIELD}{glyph}{auto}{tag} > "
 
 
 def _await_prompt(frames: Iterator[bytes]) -> dict[str, object] | None:

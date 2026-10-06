@@ -13,12 +13,15 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
+from skuggi.common import palette
 from skuggi.common.execution import CommandResult
+from skuggi.common.modes import Mode
 from skuggi.tooling.doctor import (
     doctor_hints,
     doctor_table,
     net_tool_table,
     runtime_table,
+    tool_tables,
 )
 from skuggi.tooling.probe import (
     available_installers,
@@ -31,7 +34,13 @@ from skuggi.tooling.probe import (
     search_packages,
     select_install,
 )
-from skuggi.tooling.registry import InstallPlan, ToolRegistry, ToolSpec, ToolStatus
+from skuggi.tooling.registry import (
+    InstallPlan,
+    ToolRegistry,
+    ToolSpec,
+    ToolStatus,
+    tool_category,
+)
 
 
 class FakeRunner:
@@ -513,3 +522,49 @@ def test_install_with_plan_resolves_a_host_binary(
     assert outcome.installed
     assert outcome.source == "host"
     assert outcome.path == Path("/usr/bin/nmap")
+
+
+# --- doctor tool categories + sectioning ------------------------------------
+
+
+def test_tool_category_derives_from_method_and_modes() -> None:
+    off = ToolSpec(name="nmap", binary="nmap", method="scan")
+    fmethod = ToolSpec(name="volatility", binary="vol", method="forensics")
+    blue = ToolSpec(name="yara", binary="yara", method="enumerate", modes=("blueteam",))
+    # A tool offered in blueteam AND an offensive mode is still offensive.
+    mixed = ToolSpec(name="x", binary="x", method="scan", modes=("blueteam", "pentest"))
+    assert tool_category(off) == "offensive"
+    assert tool_category(fmethod) == "forensics"
+    assert tool_category(blue) == "forensics"
+    assert tool_category(mixed) == "offensive"
+
+
+def test_tool_tables_split_into_offensive_and_forensics_sections() -> None:
+    def status(binary: str, method: str, modes: tuple[Mode, ...] = ()) -> ToolStatus:
+        return ToolStatus(
+            ToolSpec(name=binary, binary=binary, method=method, modes=modes),
+            found=True,
+            path=Path(f"/b/{binary}"),
+            version=None,
+            source="host",
+        )
+
+    statuses = [
+        status("nmap", "scan"),
+        status("yara", "enumerate", ("blueteam",)),
+        status("vol", "forensics"),
+    ]
+    titles = [str(t.title) for t in tool_tables(statuses)]
+    assert any("offensive" in t for t in titles)
+    assert any("forensics" in t for t in titles)
+    # `--category` narrows to one section.
+    only = tool_tables(statuses, category="forensics")
+    assert len(only) == 1
+    assert "forensics" in str(only[0].title)
+
+
+def test_transport_method_rows_are_coloured_not_default() -> None:
+    # `transport` tools (ssh/proxychains/socat/chisel) used to fall through to the
+    # default white because the method was missing from the palette; it's added now.
+    assert "transport" in palette.methods()
+    assert palette.method_style("transport") != palette._METHOD_DEFAULT

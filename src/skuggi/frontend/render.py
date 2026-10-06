@@ -23,17 +23,32 @@ from rich.markup import escape
 from skuggi.common import palette
 
 # Semantic intent of a line; the surface decides the actual styling.
-Style = Literal["success", "warning", "danger", "info", "plain", "heading"]
+Style = Literal[
+    "success",
+    "warning",
+    "danger",
+    "info",
+    "plain",
+    "heading",
+    "command",
+    "param",
+    "muted",
+]
 
 # Semantic style -> Rich style string. ``plain`` is left unpainted (the
 # terminal's own foreground); ``heading`` is bold. The four sentiment styles
 # route through the palette's reserved constants so colour stays single-sourced.
+# The structured-output roles (``command``/``param``/``muted``) ride the palette
+# role constants so help, cmd and doctor paint the same hierarchy everywhere.
 _STYLE_TO_RICH: dict[Style, str | None] = {
     "success": palette.SUCCESS,
     "warning": palette.WARNING,
     "danger": palette.DANGER,
     "info": palette.INFO,
     "heading": "bold",
+    "command": palette.PRIMARY,
+    "param": palette.PARAM,
+    "muted": palette.INFO,
     "plain": None,
 }
 
@@ -87,8 +102,23 @@ def plain(text: str) -> Line:
 
 
 def heading(text: str) -> Line:
-    """A bold heading line."""
+    """A bold heading line (a section title / category)."""
     return Line(text, "heading")
+
+
+def command(text: str) -> Line:
+    """An actionable command / invocation line (bright white)."""
+    return Line(text, "command")
+
+
+def param(text: str) -> Line:
+    """An argument-placeholder line (accent colour)."""
+    return Line(text, "param")
+
+
+def muted(text: str) -> Line:
+    """A muted description / incidental line (dim)."""
+    return Line(text, "muted")
 
 
 def spans(segments: list[Span]) -> Line:
@@ -102,20 +132,22 @@ def spans(segments: list[Span]) -> Line:
     return Line("".join(text for text, _ in segments), "plain", tuple(segments))
 
 
-def highlight_spans(text: str, query: str, *, match: str = palette.MATCH) -> list[Span]:
+def highlight_spans(
+    text: str, query: str, *, match: str = palette.MATCH, base: str | None = None
+) -> list[Span]:
     """Spans for `text`: each case-insensitive hit of `query` tagged `match`.
 
     The styled-span counterpart of :func:`skuggi.common.text.highlight` (which
     produces Rich markup): both ride :func:`skuggi.common.text.split_matches`, so
     the daemon's aligned cheatsheet listing highlights the same runs the REPL
-    does. Non-match runs are left unpainted (``None``); the per-span text is
-    escaped at render time by :func:`to_markup`/:func:`to_ansi`, so it is passed
-    through raw here.
+    does. Non-match runs take `base` (``None`` = unpainted, the default); `match`
+    runs the emphasis style. The per-span text is escaped at render time by
+    :func:`to_markup`/:func:`to_ansi`, so it is passed through raw here.
     """
     from skuggi.common.text import split_matches  # noqa: PLC0415 -- avoid import cycle
 
     return [
-        (seg, match if is_match else None)
+        (seg, match if is_match else base)
         for seg, is_match in split_matches(text, query)
     ]
 

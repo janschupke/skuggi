@@ -99,7 +99,12 @@ _OFFENSIVE: tuple[Mode, ...] = ("pentest", "redteam", "blueteam")
 
 # Ordered for the help listing: the everyday agent path first, controls after.
 VERBS: tuple[Verb, ...] = (
-    Verb("ask", "send a prompt to the agent", "<prompt>", category="engagement"),
+    Verb(
+        "chat",
+        "talk to the agent; no argument enters a persistent chat context",
+        "[<prompt>]",
+        category="engagement",
+    ),
     Verb(
         "cmd",
         "search the command cheatsheet; resolve one to scope-check it",
@@ -115,6 +120,8 @@ VERBS: tuple[Verb, ...] = (
         group="state",
         nouns=(
             Noun("config", "app settings"),
+            Noun("mode", "active operating mode"),
+            Noun("autonomous", "whether autonomous execution is armed"),
             Noun("provider", "active provider + credential status"),
             Noun("model", "active model"),
             Noun("engagement", "scope summary"),
@@ -124,7 +131,7 @@ VERBS: tuple[Verb, ...] = (
             Noun("integrity", "verify the timeline + custody tamper-evidence chains"),
             Noun("latency", "last turn's latency breakdown"),
             Noun("sessions", "past sessions with activity counts"),
-            Noun("tools", "recognized tools / host status", "[filter]"),
+            Noun("tools", "recognized tools / host status", "[<filter>]"),
             Noun("memory", "remembered operator preferences"),
             Noun("notes", "engagement notes"),
             Noun("loot", "captured loot"),
@@ -162,13 +169,13 @@ VERBS: tuple[Verb, ...] = (
             Noun(
                 "config",
                 "set a setting, or a natural-language request",
-                "<key> <value> | <request>",
+                "<key> <value>|<request>",
             ),
             Noun("scope", "edit the engagement scope from a request", "<request>"),
             Noun("target", "set the current target host (the ${target} var)", "<host>"),
             Noun("listener", "pick a listener interface + port (lhost/lport)"),
             Noun("wordlist", "set the ${wordlist} path", "<path>"),
-            Noun("thread", "start or switch a conversation thread", "<id>|new"),
+            Noun("thread", "start or switch a conversation thread", "<id|new>"),
         ),
     ),
     Verb(
@@ -200,7 +207,7 @@ VERBS: tuple[Verb, ...] = (
         "<what>",
         group="state",
         nouns=(
-            Noun("memory", "forget a preference, or all of them", "<id> | all"),
+            Noun("memory", "forget a preference, or all of them", "<id|all>"),
             Noun("grants", "revoke all session approval grants"),
             Noun("foothold", "drop all registered pivot footholds"),
         ),
@@ -243,7 +250,7 @@ VERBS: tuple[Verb, ...] = (
     Verb(
         "report",
         "write a session or engagement report, or add a changelog note",
-        "[pdf | engagement [pdf] | note <text>]",
+        "[pdf|engagement|engagement pdf|note <text>]",
         group="review",
     ),
     Verb(
@@ -254,7 +261,7 @@ VERBS: tuple[Verb, ...] = (
     Verb(
         "replay",
         "reconstruct & view a session transcript",
-        "[list | <session>]",
+        "[list|<session>]",
         group="review",
     ),
     Verb(
@@ -288,7 +295,7 @@ VERBS: tuple[Verb, ...] = (
     Verb(
         "reconcile",
         "update installed config from the packaged templates",
-        "[diff <file> | <file> | all]",
+        "[diff <file>|<file>|all]",
         group="system",
     ),
     Verb("clear", "clear the screen", group="system"),
@@ -384,16 +391,19 @@ def help_sections(
 ) -> list[tuple[str, list[tuple[str, str]]]]:
     """``(subheading, [(invocation, summary), …])`` groups, in display order.
 
-    A grouping verb appears as one collapsed row (``show <what>``); its nouns are
-    reached through ``help_for``. ``invocation`` carries no front-end prefix; the
-    REPL renders ``/<invocation>``, the wrapped-shell help ``/skuggi <invocation>``.
-    When `mode` is given, verbs unavailable in that mode are omitted; ``None`` (the
-    default) lists every verb, which is what the drift test pins.
+    The outline is deliberately terse: each verb is one ``(name, summary)`` row
+    with **no** argument grammar -- the full usage (and a grouping verb's nouns)
+    lives in ``help <verb>`` via ``help_for``. This keeps the top-level reference
+    scannable and stops a verb with rich grammar (``doctor``, ``report``) from
+    bloating a line. ``invocation`` carries no front-end prefix; the REPL renders
+    ``/<invocation>``, the wrapped-shell help ``/skuggi <invocation>``. When `mode`
+    is given, verbs unavailable in that mode are omitted; ``None`` (the default)
+    lists every verb, which is what the drift test pins.
     """
     sections: list[tuple[str, list[tuple[str, str]]]] = []
     for group in _GROUP_ORDER:
         rows = [
-            (_invocation(v.name, v.usage), v.summary)
+            (v.name, v.summary)
             for v in VERBS
             if v.group == group and (mode is None or is_available(v.name, mode))
         ]
@@ -402,18 +412,30 @@ def help_sections(
     return sections
 
 
-def help_for(verb: str) -> list[tuple[str, str]] | None:
-    """Detailed ``(invocation, summary)`` rows for one verb, or ``None`` if unknown.
+def help_detail(verb: str) -> list[tuple[str, str, str]] | None:
+    """Detailed ``(invocation, usage, summary)`` rows for one verb, or ``None``.
 
-    A grouping verb yields one row per noun (``show config``, ``show provider`` …);
-    a plain verb yields its single usage row.
+    Unlike :func:`help_for`, the invocation and its argument grammar are kept
+    separate so a renderer can paint the command and its params in different
+    roles. A grouping verb yields one row per noun (``show config`` …); a plain
+    verb yields its single row.
     """
     found = _BY_NAME.get(verb)
     if found is None:
         return None
     if found.nouns:
-        return [
-            (_invocation(f"{found.name} {n.name}", n.usage), n.summary)
-            for n in found.nouns
-        ]
-    return [(_invocation(found.name, found.usage), found.summary)]
+        return [(f"{found.name} {n.name}", n.usage, n.summary) for n in found.nouns]
+    return [(found.name, found.usage, found.summary)]
+
+
+def help_for(verb: str) -> list[tuple[str, str]] | None:
+    """Detailed ``(invocation, summary)`` rows for one verb, or ``None`` if unknown.
+
+    A grouping verb yields one row per noun (``show config``, ``show provider`` …);
+    a plain verb yields its single usage row. The invocation carries the usage
+    grammar joined in; :func:`help_detail` keeps them separate for painting.
+    """
+    detail = help_detail(verb)
+    if detail is None:
+        return None
+    return [(_invocation(name, usage), summary) for name, usage, summary in detail]

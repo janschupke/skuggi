@@ -10,7 +10,9 @@ from __future__ import annotations
 import platform
 from typing import TYPE_CHECKING
 
+from skuggi.config.configs import ConfigError, load_registry
 from skuggi.tooling import probe
+from skuggi.tooling.registry import ToolRegistry
 
 if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
@@ -23,11 +25,26 @@ class ToolDoctor:
     def __init__(self, core: AgentCore) -> None:
         self._core = core
 
+    def full_registry(self) -> ToolRegistry:
+        """The complete recognized-tool registry (NOT the mode-filtered one).
+
+        ``core.registry`` is scoped to the active mode by ``for_mode`` (blueteam
+        drops the offensive tools and vice-versa), which is correct for the guard
+        but WRONG for ``doctor``: the operator must see every tool the harness
+        recognizes, whatever mode they are in, matching the ``skuggi-doctor`` CLI.
+        So doctor reads the unfiltered registry from disk; a missing/broken
+        registry degrades to empty rather than raising.
+        """
+        try:
+            return load_registry(self._core.settings.registry_path)
+        except ConfigError:
+            return ToolRegistry()
+
     def tools(self) -> list[ToolStatus]:
-        """Probe the host for every recognized tool."""
+        """Probe the host for every recognized tool (the full, unfiltered set)."""
         core = self._core
         return probe.probe(
-            core.registry,
+            self.full_registry(),
             source=core.settings.tool_source,
             managed_dir=core.settings.managed_tools_dir,
         )

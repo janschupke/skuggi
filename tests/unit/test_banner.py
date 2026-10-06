@@ -42,7 +42,7 @@ def test_banner_lists_each_verb_on_its_own_line_without_the_skuggi_prefix() -> N
     assert "skuggi:" not in out
     assert palette.SHIELD in out
     # Each verb hint is on its own line, not crammed onto one.
-    assert "/skuggi ask <prompt>" in out
+    assert "/skuggi chat <prompt>" in out
     assert "/skuggi help" in out
     assert "/skuggi exit" in out
     lines = [ln for ln in out.splitlines() if "/skuggi" in ln]

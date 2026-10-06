@@ -21,7 +21,7 @@ from skuggi.frontend import verbs
 # ``/skuggi …`` the hook dispatches.
 _VERBS: tuple[tuple[str, str], ...] = (
     ("", "opens a chat loop"),
-    ("ask <prompt>", "asks once"),
+    ("chat <prompt>", "asks once; bare `chat` enters a chat context"),
     ("show status", "readiness glance"),
     ("help", "lists verbs"),
     ("exit", "leaves"),
