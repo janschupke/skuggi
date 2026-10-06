@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import urlsplit
 
+from skuggi.common import netscope
 from skuggi.common.logs import get_logger
 from skuggi.engagement.scope import EngagementConfig
 from skuggi.engagement.workspace import Workspace
@@ -144,15 +145,6 @@ def _as_target(token: str) -> str | None:
     return token
 
 
-def _is_ipv4(host: str) -> bool:
-    """Whether `host` is a literal IP address (not a hostname or garbage)."""
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return True
-
-
 def _expand_comma_list(token: str) -> list[str] | None:
     """A comma list expanded iff *every* member classifies as a host/IP.
 
@@ -179,7 +171,7 @@ def _expand_octet_range(token: str) -> list[str] | None:
     if not 0 <= lo <= hi <= _MAX_OCTET:
         return None
     hosts = [f"{match['base']}.{octet}" for octet in range(lo, hi + 1)]
-    return hosts if all(_is_ipv4(host) for host in hosts) else None
+    return hosts if all(netscope.is_ip(host) for host in hosts) else None
 
 
 def _expand_target_expr(token: str) -> list[str] | None:

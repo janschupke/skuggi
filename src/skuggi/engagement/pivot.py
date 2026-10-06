@@ -14,10 +14,10 @@ alongside, consumed at the single execution choke point (see the executor).
 
 from __future__ import annotations
 
-import ipaddress
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from skuggi.common.netscope import in_cidr, is_ip
 from skuggi.persistence.ledger_schema import FootholdRow
 
 
@@ -36,17 +36,9 @@ def _reaches(foothold: FootholdRow, target: str) -> bool:
     """Whether `foothold` declares it can reach `target` (exact host or in a CIDR)."""
     if target in _split(foothold.reachable_hosts):
         return True
-    try:
-        addr = ipaddress.ip_address(target)
-    except ValueError:
+    if not is_ip(target):
         return False  # a hostname not listed exactly is not reached by a CIDR
-    for cidr in _split(foothold.reachable_networks):
-        try:
-            if addr in ipaddress.ip_network(cidr, strict=False):
-                return True
-        except ValueError:
-            continue
-    return False
+    return any(in_cidr(target, cidr) for cidr in _split(foothold.reachable_networks))
 
 
 def route_for(target: str, footholds: Sequence[FootholdRow]) -> Route:
