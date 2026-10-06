@@ -292,7 +292,7 @@ class Runner:
             critic_replies=[CriticResponse(approved=True, reason="ok")],
         )
         wire_offline_llm(core, worker)
-        core.set_autonomous(True)
+        core.engagement_mgr.set_autonomous(True)
         list(core.turn("engage the lab"))
         return core.ledger.commands_for(core.session_id)
 

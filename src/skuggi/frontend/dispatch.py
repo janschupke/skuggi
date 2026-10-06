@@ -243,7 +243,7 @@ def run_set_engagement(core: AgentCore, arg: str) -> SetEngagementOutcome:
             return SetEngagementError(outcome.message)
         scaffolded = True
     try:
-        scope = core.adopt_engagement(root)
+        scope = core.engagement_mgr.adopt_engagement(root)
     except ConfigError as exc:
         return SetEngagementError(str(exc))
     if scaffolded:
@@ -278,7 +278,7 @@ def run_engagement_param(
     except ValueError as exc:
         return EngagementParamError(str(exc))
     try:
-        core.update_engagement_fields({name: parsed})
+        core.engagement_mgr.update_engagement_fields({name: parsed})
     except ConfigError as exc:  # includes InvalidScopeError (a bad value)
         return EngagementParamError(str(exc))
     return EngagementFieldUpdated(name=name, value=_display_value(parsed))
@@ -292,7 +292,7 @@ def run_provider(core: AgentCore, arg: str) -> ProviderOutcome:
     if not arg.strip():
         return ProviderUsage()
     try:
-        core.set_provider(arg)
+        core.provider_kernel.set_provider(arg)
     except ValueError as exc:
         return ProviderUnknown(str(exc))
     except ConfigError:  # switched, but the new provider has no credential
@@ -308,7 +308,7 @@ def run_provider(core: AgentCore, arg: str) -> ProviderOutcome:
 def run_model(core: AgentCore, arg: str) -> ModelOutcome:
     """Switch model on the current provider, mapping failures to outcomes."""
     try:
-        core.set_model(arg)
+        core.provider_kernel.set_model(arg)
     except ValueError:
         return ModelUsage()
     except ConfigError:  # the switch rebuilt the llm and found no key
@@ -500,7 +500,7 @@ def run_threat_model(core: AgentCore, arg: str) -> str:
     body, _, note = rest.partition("|")
     note = note.strip()
     if body.strip().lower() in {"clear", "none"}:
-        version = core.update_threat_model(None, note=note or "cleared")
+        version = core.engagement_mgr.update_threat_model(None, note=note or "cleared")
         return f"threat model cleared (now v{version}); run `findings rescore all`"
     levels = [t.strip().lower() for t in body.replace(",", " ").split() if t.strip()]
     if len(levels) != 3 or any(level not in _TM_LEVELS for level in levels):  # noqa: PLR2004
@@ -512,7 +512,7 @@ def run_threat_model(core: AgentCore, arg: str) -> str:
             "availability_requirement": levels[2],
         }
     )
-    version = core.update_threat_model(threat_model, note=note)
+    version = core.engagement_mgr.update_threat_model(threat_model, note=note)
     return f"threat model updated (now v{version}); run `findings rescore all`"
 
 
@@ -590,7 +590,7 @@ def _reconcile_row(core: AgentCore, status: reconcile.FileStatus) -> ReconcileRo
     """A status row with its drift magnitude (counts; 0s unless the file drifted)."""
     if status.state != "drifted":
         return ReconcileRow(status, 0, 0, 0)
-    d = core.reconcile_structured_diff(status.name)
+    d = core.reconciler.reconcile_structured_diff(status.name)
     return ReconcileRow(status, len(d.added), len(d.removed), len(d.changed))
 
 
@@ -622,7 +622,7 @@ def run_ingest(core: AgentCore, arg: str) -> IngestOutcome:
     """Index a file or directory into the retrieval store (``ingest <path>``)."""
     if not arg:
         return IngestUsage()
-    return Indexed(core.ingest(Path(arg)))
+    return Indexed(core.provider_kernel.ingest(Path(arg)))
 
 
 def run_reconcile(core: AgentCore, arg: str) -> ReconcileOutcome:  # noqa: PLR0911
@@ -636,19 +636,21 @@ def run_reconcile(core: AgentCore, arg: str) -> ReconcileOutcome:  # noqa: PLR09
     sub, _, rest = arg.partition(" ")
     sub, rest = sub.strip().lower(), rest.strip()
     if not sub:
-        rows = tuple(_reconcile_row(core, s) for s in core.reconcile_status())
+        rows = tuple(
+            _reconcile_row(core, s) for s in core.reconciler.reconcile_status()
+        )
         return ReconcileList(rows)
     if sub == "all":
-        return ReconcileAll(core.reconcile_overwrite_all())
+        return ReconcileAll(core.reconciler.reconcile_overwrite_all())
     if sub == "diff":
         if not rest:
             return ReconcileUsage()
         if not reconcile.is_known(rest):
             return ReconcileUnknown(rest)
-        return ReconcileDiff(rest, core.reconcile_structured_diff(rest))
+        return ReconcileDiff(rest, core.reconciler.reconcile_structured_diff(rest))
     # A bare known file name overwrites it (the old `overwrite <file>`, redundant).
     if reconcile.is_known(sub):
-        return ReconcileOverwritten(sub, core.reconcile_overwrite(sub))
+        return ReconcileOverwritten(sub, core.reconciler.reconcile_overwrite(sub))
     return ReconcileUnknown(sub)
 
 

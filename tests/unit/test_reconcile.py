@@ -89,7 +89,7 @@ def test_known_names_match_the_seed_map() -> None:
 
 
 # ----- the shared run/present path (both front-ends go through this) --------
-class _StubCore:
+class _StubReconciler:
     def __init__(self, config_dir: Path) -> None:
         self._dir = config_dir
 
@@ -107,6 +107,11 @@ class _StubCore:
             (name, reconcile.overwrite(self._dir, name))
             for name in reconcile.drifted(self._dir)
         )
+
+
+class _StubCore:
+    def __init__(self, config_dir: Path) -> None:
+        self.reconciler = _StubReconciler(config_dir)
 
 
 def _run(config_dir: Path, arg: str) -> list[str]:

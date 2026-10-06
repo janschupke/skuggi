@@ -101,7 +101,7 @@ def _controller(
 ) -> ScopeController:
     core = SimpleNamespace(
         engagement=engagement,
-        apply_engagement_scope=applied.append,
+        engagement_mgr=SimpleNamespace(apply_engagement_scope=applied.append),
     )
     return ScopeController(cast("AgentCore", core))
 

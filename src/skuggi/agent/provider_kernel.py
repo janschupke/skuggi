@@ -51,6 +51,11 @@ class ProviderKernel:
         self.store = Store.from_settings(core.settings, self._embeddings)
         self.llm: BaseChatModel | None = self._load_chat_model()
 
+    @property
+    def provider(self) -> Provider:
+        """The active provider name (reads the live settings)."""
+        return self._core.settings.provider
+
     # ----- session controls --------------------------------------------------
 
     def set_provider(self, name: str) -> None:

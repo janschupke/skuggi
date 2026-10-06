@@ -43,10 +43,10 @@ def test_overwrite_reloads_so_the_next_cmd_shows_the_output_path(
     before = core.cmds.plan("nmap-full").raw
     assert "-oA" not in before  # stale registry: no output path rendered
 
-    backup = core.reconcile_overwrite("tools.json")
+    backup = core.reconciler.reconcile_overwrite("tools.json")
     assert backup is not None
     assert backup.is_file()
 
     after = core.cmds.plan("nmap-full").raw
     assert "-oA recon/nmap/$(date +%Y-%m-%d_%H%M%S)_${target}" in after
-    assert core.stale_configs() == ()  # no longer behind the template
+    assert core.reconciler.stale_configs() == ()  # no longer behind the template

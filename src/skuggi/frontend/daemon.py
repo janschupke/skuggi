@@ -233,7 +233,7 @@ class Daemon:
             return
         if msg.get("op") == "record":
             # A free-typed command forwarded by the shell hook: log it, no reply.
-            self.core.record_passthrough(str(msg.get("text", "")))
+            self.core.turn_runner.record_passthrough(str(msg.get("text", "")))
             yield {"end": True, "exit": False}
             return
         if msg.get("op") == "complete":
@@ -598,7 +598,7 @@ class Daemon:
         try:
             # Already under the handler lock (handle_request); re-acquiring the
             # non-reentrant lock here would deadlock the daemon permanently.
-            account = self.core.login_chatgpt(messages.append)
+            account = self.core.provider_kernel.login_chatgpt(messages.append)
         except (RuntimeError, ImportError) as exc:
             yield from (f"{m}\n" for m in messages)
             yield f"login failed: {exc}\n"
@@ -660,7 +660,7 @@ class Daemon:
         )
 
     def _update(self, _arg: str) -> Iterator[str]:
-        yield from self.core.self_update()
+        yield from self.core.reconciler.self_update()
 
     def _reconcile(self, arg: str) -> Iterator[str]:
         yield from self._emit(control.reconcile(self.core, arg, self._surface()))

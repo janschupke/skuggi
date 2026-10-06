@@ -556,7 +556,7 @@ class Tui:
         self.console.print(Markdown(text))
 
     def _cmd_update(self, _arg: str) -> None:
-        for line in self.core.self_update():
+        for line in self.core.reconciler.self_update():
             self.console.print(line.rstrip())
 
     def _cmd_reconcile(self, arg: str) -> None:

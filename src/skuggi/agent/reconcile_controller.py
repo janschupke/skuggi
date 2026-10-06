@@ -76,7 +76,7 @@ class ReconcileController:
         the graph is rebuilt because it carries the tool registry.
         """
         backup = reconcile.overwrite(self._config_dir, name)
-        self._core.reload_registries()
+        self._core.engagement_mgr.reload_registries()
         return backup
 
     def reconcile_overwrite_all(self) -> tuple[tuple[str, Path | None], ...]:
@@ -90,5 +90,5 @@ class ReconcileController:
             for name in reconcile.drifted(self._config_dir)
         )
         if results:
-            self._core.reload_registries()
+            self._core.engagement_mgr.reload_registries()
         return results

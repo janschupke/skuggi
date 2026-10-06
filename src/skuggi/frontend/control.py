@@ -243,7 +243,7 @@ def set_thread(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.St
 
 
 def _set_env_field(core: AgentCore, name: str, value: str | None) -> render.Styled:
-    """Apply one runtime-var change through ``core.apply_env`` (re-validating).
+    """Apply one runtime-var change through the engagement manager (re-validating).
 
     ``model_copy`` does not re-validate, so round-trip through ``model_validate``
     to catch e.g. a whitespace-bearing host before it is persisted/exported.
@@ -256,7 +256,7 @@ def _set_env_field(core: AgentCore, name: str, value: str | None) -> render.Styl
         updated = EngagementEnv.model_validate({**core.env.model_dump(), name: value})
     except ValidationError as exc:
         return presenters.present_error(str(exc))
-    core.apply_env(updated)
+    core.engagement_mgr.apply_env(updated)
     return presenters.present_env_update(name, value)
 
 

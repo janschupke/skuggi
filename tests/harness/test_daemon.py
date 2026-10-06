@@ -458,7 +458,7 @@ def test_update_verb_streams_core_output(
     # self_update's subprocess logic is unit-tested in test_core; here just prove
     # the `update` verb routes to it and streams its lines.
     monkeypatch.setattr(
-        daemon.core, "self_update", lambda: iter(["updating\n", "done\n"])
+        daemon.core.reconciler, "self_update", lambda: iter(["updating\n", "done\n"])
     )
     out = chunks(daemon, {"op": "input", "text": "update"})
     assert "updating" in out
@@ -622,7 +622,7 @@ def test_login_does_not_deadlock(daemon: Daemon) -> None:
             notify("opening browser")
         return "acct"
 
-    daemon.core.login_chatgpt = fake_login  # type: ignore[method-assign]
+    daemon.core.provider_kernel.login_chatgpt = fake_login  # type: ignore[method-assign]
     out: list[str] = []
 
     def run() -> None:

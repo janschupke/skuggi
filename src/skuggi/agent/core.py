@@ -16,7 +16,7 @@ front-end shows them) rather than crashing the session.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 
 from langchain_core.language_models import BaseChatModel
@@ -49,7 +49,6 @@ from skuggi.engagement.case import CaseConfig, build_case, has_case
 from skuggi.engagement.egress import EgressPolicy
 from skuggi.engagement.engagement import (
     EngagementConfig,
-    ThreatModel,
 )
 from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.engagement.workspace import (
@@ -58,8 +57,6 @@ from skuggi.engagement.workspace import (
 )
 from skuggi.forensics.deps import ForensicsDeps
 from skuggi.forensics.runner import ForensicsRunner
-from skuggi.install import configdiff, reconcile
-from skuggi.install import update as updater
 from skuggi.intel.collectors.base import CollectContext
 from skuggi.intel.http import make_guarded_fetch
 from skuggi.osint.collectors import default_collectors
@@ -258,58 +255,14 @@ class AgentCore:
         """The session's redaction policy, allow-listing in-scope IDs (delegated)."""
         return self.engagement_mgr.redaction_policy()
 
-    def describe_engagement(self) -> str | None:
-        """The loaded scope summary, or None when none is loaded (delegated)."""
-        return self.engagement_mgr.describe_engagement()
-
-    def create_engagement(
-        self, raw: dict[str, object], *, root: Path | None = None
-    ) -> EngagementConfig:
-        """Validate a scope dict, persist it, and adopt it (delegated)."""
-        return self.engagement_mgr.create_engagement(raw, root=root)
-
-    def adopt_engagement(self, root: Path) -> EngagementConfig:
-        """Hot-switch the active engagement to the one rooted at `root` (delegated)."""
-        return self.engagement_mgr.adopt_engagement(root)
-
-    def update_threat_model(
-        self, threat_model: ThreatModel | None, *, note: str = ""
-    ) -> int:
-        """Set the engagement's threat model, versioning the change (delegated)."""
-        return self.engagement_mgr.update_threat_model(threat_model, note=note)
-
-    def apply_engagement_scope(self, engagement: EngagementConfig) -> None:
-        """Persist an edited scope in place and hot-reload it (delegated)."""
-        self.engagement_mgr.apply_engagement_scope(engagement)
-
-    def update_engagement_fields(self, updates: dict[str, object]) -> EngagementConfig:
-        """Merge field updates into the scope, persist, hot-reload (delegated)."""
-        return self.engagement_mgr.update_engagement_fields(updates)
-
     @property
     def env(self) -> EngagementEnv:
         """The engagement's runtime command vars (delegated)."""
         return self.engagement_mgr.env
 
-    def apply_env(self, env: EngagementEnv) -> None:
-        """Persist the runtime vars and refresh the shell file (delegated)."""
-        self.engagement_mgr.apply_env(env)
-
     def effective_target(self) -> str | None:
         """The current target: manual env value, else scope default (delegated)."""
         return self.engagement_mgr.effective_target()
-
-    def refresh_runtime_env(self) -> None:
-        """Rewrite the shell-sourced runtime env file, if any (delegated)."""
-        self.engagement_mgr.refresh_runtime_env()
-
-    def set_autonomous(self, want: bool | None) -> bool:
-        """Toggle autonomous execution; returns the new state (delegated)."""
-        return self.engagement_mgr.set_autonomous(want)
-
-    def reload_registries(self) -> None:
-        """Rebuild the registry/commands/graph from disk (delegated)."""
-        self.engagement_mgr.reload_registries()
 
     @property
     def current_turn_event_id(self) -> int | None:
@@ -546,47 +499,9 @@ class AgentCore:
 
     # ----- session controls --------------------------------------------------
 
-    def set_provider(self, name: str) -> None:
-        """Switch provider (delegated)."""
-        self.provider_kernel.set_provider(name)
-
-    def set_model(self, name: str) -> None:
-        """Switch model on the current provider (delegated)."""
-        self.provider_kernel.set_model(name)
-
-    def set_api_key(self, provider: str, key: str) -> None:
-        """Persist an API key and switch to its provider (delegated)."""
-        self.provider_kernel.set_api_key(provider, key)
-
-    def use_ollama(self, base_url: str | None = None) -> None:
-        """Switch to the local Ollama provider (delegated)."""
-        self.provider_kernel.use_ollama(base_url)
-
-    def use_claude_cli(self) -> None:
-        """Switch to the local Claude CLI provider (delegated)."""
-        self.provider_kernel.use_claude_cli()
-
-    def default_model(self, provider: str) -> str:
-        """The persisted default model for `provider` (delegated)."""
-        return self.provider_kernel.default_model(provider)
-
-    def set_provider_model(self, provider: str, model: str) -> None:
-        """Persist and apply the default model for `provider` (delegated)."""
-        self.provider_kernel.set_provider_model(provider, model)
-
-    def login_chatgpt(
-        self, notify: Callable[[str], None] = lambda _msg: None
-    ) -> str | None:
-        """Run the ChatGPT OAuth login and switch provider (delegated)."""
-        return self.provider_kernel.login_chatgpt(notify)
-
     def ensure_llm(self) -> BaseChatModel:
         """Return the chat model, building it on first use (delegated)."""
         return self.provider_kernel.ensure_llm()
-
-    def ingest(self, path: Path) -> int:
-        """Index a file or directory into FAISS (delegated)."""
-        return self.provider_kernel.ingest(path)
 
     def set_mode(self, mode: str) -> Mode:
         """Switch operating mode, re-scoping the registry and prompt set.
@@ -614,41 +529,11 @@ class AgentCore:
         """Every thread id the checkpointer has seen."""
         return memory.list_threads(self.saver)
 
-    # ----- self-update + config reconcile (delegated to ReconcileController) --
-
-    def self_update(self, runner: updater.UpdateRunner | None = None) -> Iterator[str]:
-        """Update the install in place, then surface any config drift (delegated)."""
-        yield from self.reconciler.self_update(runner)
-
-    def reconcile_status(self) -> tuple[reconcile.FileStatus, ...]:
-        """How each installed config compares to its packaged template (delegated)."""
-        return self.reconciler.reconcile_status()
-
-    def stale_configs(self) -> tuple[str, ...]:
-        """The installed config files that have fallen behind their template."""
-        return self.reconciler.stale_configs()
-
-    def reconcile_structured_diff(self, name: str) -> configdiff.StructuredDiff:
-        """What an overwrite of `name` would change, per file type (delegated)."""
-        return self.reconciler.reconcile_structured_diff(name)
-
-    def reconcile_overwrite(self, name: str) -> Path | None:
-        """Overwrite `name` from its template, backing up and reloading (delegated)."""
-        return self.reconciler.reconcile_overwrite(name)
-
-    def reconcile_overwrite_all(self) -> tuple[tuple[str, Path | None], ...]:
-        """Overwrite every drifted config, reloading once (delegated)."""
-        return self.reconciler.reconcile_overwrite_all()
-
     # ----- turn loop + session logging (delegated to TurnRunner) -------------
 
     def note_interaction(self, verb: str, detail: str = "") -> None:
         """Record a harness-control interaction to the audit log (delegated)."""
         self.turn_runner.note_interaction(verb, detail)
-
-    def record_passthrough(self, cmdline: str) -> None:
-        """Log a free-typed shell command the operator ran (delegated)."""
-        self.turn_runner.record_passthrough(cmdline)
 
     def state(self) -> AgentState:
         """The current graph state for the active thread (delegated)."""

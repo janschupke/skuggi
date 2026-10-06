@@ -71,7 +71,7 @@ class ConfigController:
         # (and perhaps fail to boot) on the next restart.
         try:
             if key == "provider":
-                core.set_provider(str(result.value))
+                core.provider_kernel.set_provider(str(result.value))
                 applied = True
             elif key == "mode":
                 core.set_mode(str(result.value))

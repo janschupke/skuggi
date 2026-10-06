@@ -122,22 +122,22 @@ def test_set_mode_switches_and_validates(core: AgentCore) -> None:
 
 
 def test_autonomous_toggles(core: AgentCore) -> None:
-    assert core.set_autonomous(True) is True
+    assert core.engagement_mgr.set_autonomous(True) is True
     assert core.autonomous is True
-    assert core.set_autonomous(False) is False
-    assert core.set_autonomous(None) is True  # toggles from off
+    assert core.engagement_mgr.set_autonomous(False) is False
+    assert core.engagement_mgr.set_autonomous(None) is True  # toggles from off
 
 
 def test_set_provider_rejects_unknown_and_switches(core: AgentCore) -> None:
     with pytest.raises(ValueError, match="unknown provider"):
-        core.set_provider("banana")
-    core.set_provider("ollama")  # a valid (offline) rebuild
+        core.provider_kernel.set_provider("banana")
+    core.provider_kernel.set_provider("ollama")  # a valid (offline) rebuild
     assert core.provider == "ollama"
 
 
 def test_set_model_requires_a_name(core: AgentCore) -> None:
     with pytest.raises(ValueError, match="required"):
-        core.set_model("")
+        core.provider_kernel.set_model("")
 
 
 def test_threads(core: AgentCore) -> None:
@@ -149,7 +149,7 @@ def test_threads(core: AgentCore) -> None:
 
 
 def test_describe_and_findings_and_report(core: AgentCore) -> None:
-    described = core.describe_engagement()
+    described = core.engagement_mgr.describe_engagement()
     assert described is not None
     assert "test-eng" in described
     assert core.journal.findings() == []
@@ -212,7 +212,7 @@ def test_doctor_and_install(core: AgentCore, monkeypatch: pytest.MonkeyPatch) ->
 def test_ingest_indexes_a_file(core: AgentCore, tmp_path: Path) -> None:
     doc = tmp_path / "doc.md"
     doc.write_text("some content", encoding="utf-8")
-    assert core.ingest(doc) >= 1
+    assert core.provider_kernel.ingest(doc) >= 1
 
 
 def test_no_engagement_degrades(tmp_path: Path) -> None:
@@ -220,10 +220,10 @@ def test_no_engagement_degrades(tmp_path: Path) -> None:
     try:
         assert core.engagement is None
         assert core.autonomous is False
-        assert core.describe_engagement() is None
+        assert core.engagement_mgr.describe_engagement() is None
         assert any("no engagement" in w for w in core.warnings)
         with pytest.raises(ValueError, match="no engagement"):
-            core.set_autonomous(True)
+            core.engagement_mgr.set_autonomous(True)
     finally:
         core.close()
 
@@ -246,7 +246,7 @@ def _pin_target(core: AgentCore, target: str) -> None:
     and the 10/8 + 192.168/16 nets.
     """
     assert core.engagement is not None
-    core.apply_env(EngagementEnv(target=target))
+    core.engagement_mgr.apply_env(EngagementEnv(target=target))
 
 
 def test_plan_cmd_placeholder_target_records_proposed(core: AgentCore) -> None:
@@ -366,7 +366,7 @@ def _valid_scope(name: str) -> dict[str, object]:
 
 
 def test_create_engagement_writes_scope_and_hot_loads(core: AgentCore) -> None:
-    eng = core.create_engagement(_valid_scope("acme"))
+    eng = core.engagement_mgr.create_engagement(_valid_scope("acme"))
     assert eng.name == "acme"
     assert core.engagement is not None
     assert core.engagement.name == "acme"  # hot-reloaded into the session
@@ -378,14 +378,15 @@ def test_create_engagement_writes_scope_and_hot_loads(core: AgentCore) -> None:
 
 def test_create_engagement_rejects_invalid_scope(core: AgentCore) -> None:
     with pytest.raises(ConfigError):
-        core.create_engagement({"name": "bad"})  # missing required fields
+        # missing required fields
+        core.engagement_mgr.create_engagement({"name": "bad"})
 
 
 def test_adopt_engagement_reopens_ledger_at_new_path(
     core: AgentCore, tmp_path: Path
 ) -> None:
     beta = tmp_path / "beta"
-    core.create_engagement(_valid_scope("beta"), root=beta)
+    core.engagement_mgr.create_engagement(_valid_scope("beta"), root=beta)
     assert core.workspace is not None
     # the ledger now lives under the beta root (not the cwd engagement)
     assert core.workspace.root == beta
@@ -449,7 +450,7 @@ def test_apply_config_failed_live_switch_does_not_persist(
         msg = "no credentials"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(core, "set_provider", boom)
+    monkeypatch.setattr(core.provider_kernel, "set_provider", boom)
     msg = core.config.apply("provider", "openai")
     assert "live switch failed" in msg
     path = config_path()
@@ -501,7 +502,7 @@ def test_self_update_runs_pull_then_sync(
         calls.append(argv)
         return _result(argv, exit_code=0)
 
-    lines = list(core.self_update(runner))
+    lines = list(core.reconciler.self_update(runner))
     assert ["git", "pull", "--ff-only"] in calls
     assert ["uv", "sync", "--all-groups", "--all-extras"] in calls
     assert any("updated to skuggi" in line for line in lines)
@@ -516,7 +517,7 @@ def test_self_update_notes_config_drift_after_updating(
     drifted -- self_update should surface that after the update stream.
     """
     monkeypatch.setattr(update_mod, "is_uv_tool_env", lambda: False)
-    lines = list(core.self_update(lambda argv: _result(argv, exit_code=0)))
+    lines = list(core.reconciler.self_update(lambda argv: _result(argv, exit_code=0)))
     assert any("differ from the packaged templates" in line for line in lines)
     assert any("tools.json" in line for line in lines)
 
@@ -531,7 +532,7 @@ def test_self_update_aborts_on_a_failed_step(
         calls.append(argv)
         return _result(argv, exit_code=1 if argv[0] == "git" else 0, err="boom")
 
-    lines = list(core.self_update(runner))
+    lines = list(core.reconciler.self_update(runner))
     assert any("aborted" in line for line in lines)
     # The failed pull short-circuits the sync step, whichever one it would be.
     assert [argv[0] for argv in calls] == ["git"]
@@ -553,7 +554,7 @@ def test_self_update_refreshes_the_tool_install_from_a_tool_env(
         calls.append(argv)
         return _result(argv, exit_code=0)
 
-    list(core.self_update(runner))
+    list(core.reconciler.self_update(runner))
     assert ["git", "pull", "--ff-only"] in calls
     assert ["uv", "sync", "--all-groups", "--all-extras"] not in calls
     tool_install = next(argv for argv in calls if argv[:3] == ["uv", "tool", "install"])
@@ -572,7 +573,7 @@ def test_self_update_refuses_when_there_is_no_checkout(
         calls.append(argv)
         return _result(argv, exit_code=0)
 
-    lines = list(core.self_update(runner))
+    lines = list(core.reconciler.self_update(runner))
     assert calls == []
     assert any("not running from a git checkout" in line for line in lines)
     assert any("uv tool install --editable" in line for line in lines)

@@ -152,7 +152,7 @@ class ScopeController:
         """Validate, persist and hot-reload the edited scope. Raises on invalid."""
         engagement = self._require_engagement()
         after = apply_scope_edits(engagement, tuple(edits))
-        self._core.apply_engagement_scope(after)
+        self._core.engagement_mgr.apply_engagement_scope(after)
         return f"scope updated: {len(scope_diff(engagement, after))} field(s) changed"
 
     def _require_engagement(self) -> EngagementConfig:

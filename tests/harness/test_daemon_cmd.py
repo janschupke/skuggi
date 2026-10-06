@@ -31,7 +31,7 @@ def test_cmd_resolve_out_of_scope(daemon: Daemon) -> None:
         update={"allowed_hosts": frozenset(), "target_networks": ()}
     )
     # A manual env target outside the (now empty) scope -> out of scope.
-    daemon.core.apply_env(EngagementEnv(target="8.8.8.8"))
+    daemon.core.engagement_mgr.apply_env(EngagementEnv(target="8.8.8.8"))
     out = chunks(daemon, {"op": "input", "text": "cmd nmap-host"})
     assert "$ nmap -sV -sC ${target}" in out
     assert "OUT OF SCOPE" in out

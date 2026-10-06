@@ -71,7 +71,7 @@ def from_core(core: AgentCore) -> Readiness:
         autonomous=core.autonomous,
         mode=core.mode,
         warnings=tuple(core.warnings),
-        stale_configs=core.stale_configs(),
+        stale_configs=core.reconciler.stale_configs(),
     )
 
 

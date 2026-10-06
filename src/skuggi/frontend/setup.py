@@ -43,7 +43,7 @@ _CUSTOM = "custom…"
 
 
 class SetupBackend(Protocol):
-    """What the setup flow needs from the core (AgentCore satisfies it)."""
+    """What the setup flow needs from the core (ProviderKernel satisfies it)."""
 
     @property
     def provider(self) -> str:

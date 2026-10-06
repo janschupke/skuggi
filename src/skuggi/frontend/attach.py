@@ -167,7 +167,7 @@ def attach_wizard(
         try:
             wizard.run_wizard(
                 prompter,
-                core.create_engagement,
+                core.engagement_mgr.create_engagement,
                 engagement_catalog(core),
                 existing=core.engagement,
             )
@@ -262,9 +262,11 @@ def attach_set(
     core.note_interaction("set", rest)
     with lock:
         if noun == "provider":
-            setup.run_setup(core, ask, choose, notify)
+            setup.run_setup(core.provider_kernel, ask, choose, notify)
         else:
-            setup.run_model_select(core, core.provider, ask, choose, notify)
+            setup.run_model_select(
+                core.provider_kernel, core.provider, ask, choose, notify
+            )
     emit({"end": True, "exit": False})
 
 

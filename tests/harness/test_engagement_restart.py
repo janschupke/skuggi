@@ -36,7 +36,7 @@ def test_adopt_engagement_does_not_write_the_root_to_config(
     core = AgentCore(offline_settings(tmp_path))
     wire_offline_core(core)
     try:
-        core.adopt_engagement(Path.cwd())
+        core.engagement_mgr.adopt_engagement(Path.cwd())
     finally:
         core.close()
     path = config_path()

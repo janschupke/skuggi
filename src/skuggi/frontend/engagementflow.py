@@ -106,7 +106,7 @@ def _apply_direct(
 ) -> None:
     """Persist a non-authorization field in place (no gate)."""
     try:
-        core.update_engagement_fields({name: value})
+        core.engagement_mgr.update_engagement_fields({name: value})
     except ConfigError as exc:
         prompter.notify(f"could not edit {name}: {exc}")
         return
@@ -116,7 +116,7 @@ def _apply_direct(
 def _apply_threat_model(core: AgentCore, value: object, *, prompter: Prompter) -> None:
     """Set or clear the threat model, versioning the change in the ledger."""
     model = ThreatModel.model_validate(value) if value else None
-    core.update_threat_model(model)
+    core.engagement_mgr.update_threat_model(model)
     prompter.notify("threat model " + ("updated" if model else "cleared"))
 
 
@@ -152,7 +152,7 @@ def _apply_auth(
     ):
         prompter.notify("scope unchanged")
         return
-    core.apply_engagement_scope(after)
+    core.engagement_mgr.apply_engagement_scope(after)
     prompter.notify(f"{name} updated")
 
 
@@ -183,7 +183,7 @@ def _run_listener(core: AgentCore, *, prompter: Prompter) -> None:
         env = EngagementEnv.model_validate(
             {**core.env.model_dump(), "lhost": lhost, "lport": lport}
         )
-        core.apply_env(env)
+        core.engagement_mgr.apply_env(env)
         shown = f"{lhost}:{lport}" if lport else lhost
         prompter.notify(f"listener set to {shown}")
 

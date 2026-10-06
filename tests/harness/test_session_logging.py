@@ -72,9 +72,9 @@ def test_run_proposal_outside_a_turn_is_unlinked(core: AgentCore) -> None:
 
 
 def test_record_passthrough_timeline_vs_cli_noise(core: AgentCore) -> None:
-    core.record_passthrough("nmap -sV 10.0.0.5")  # a real tool -> timeline
-    core.record_passthrough("cd /tmp")  # navigation noise -> audit cli
-    core.record_passthrough("   ")  # nothing at all
+    core.turn_runner.record_passthrough("nmap -sV 10.0.0.5")  # a real tool -> timeline
+    core.turn_runner.record_passthrough("cd /tmp")  # navigation noise -> audit cli
+    core.turn_runner.record_passthrough("   ")  # nothing at all
 
     cmds = core.ledger.commands_for(core.session_id)
     assert [c.status for c in cmds] == ["passthrough"]

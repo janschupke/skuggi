@@ -88,7 +88,9 @@ def _wizard_prompter(name: str, notes: list[str] | None = None) -> Prompter:
 
 def _run_wizard(core: AgentCore, name: str, notes: list[str] | None = None) -> object:
     return wizard.run_wizard(
-        _wizard_prompter(name, notes), core.create_engagement, _catalog(core)
+        _wizard_prompter(name, notes),
+        core.engagement_mgr.create_engagement,
+        _catalog(core),
     )
 
 
@@ -141,7 +143,9 @@ def test_wizard_creates_workspace_tree_and_scope_roundtrips(tmp_path: Path) -> N
 def test_create_engagement_accepts_a_human_name(tmp_path: Path) -> None:
     core = _core(tmp_path)
     root = tmp_path / "client-dir"
-    eng = core.create_engagement({"name": "Lab 01", "timezone": "UTC"}, root=root)
+    eng = core.engagement_mgr.create_engagement(
+        {"name": "Lab 01", "timezone": "UTC"}, root=root
+    )
     assert eng.name == "Lab 01"  # display name preserved verbatim
     assert core.workspace is not None
     assert core.workspace.root == root  # the chosen root IS the engagement dir
@@ -153,7 +157,7 @@ def test_create_engagement_reasks_on_an_unusable_name(tmp_path: Path) -> None:
     # A name that slugifies to nothing raises a *structured* error (re-ask the
     # name), not a raw ValueError that would crash the wizard/daemon.
     with pytest.raises(InvalidScopeError) as excinfo:
-        core.create_engagement({"name": "!!!", "timezone": "UTC"})
+        core.engagement_mgr.create_engagement({"name": "!!!", "timezone": "UTC"})
     assert excinfo.value.field_keys == frozenset({"name"})
 
 
@@ -163,7 +167,7 @@ def test_create_engagement_reasks_on_an_unusable_name(tmp_path: Path) -> None:
 def test_run_setup_ollama_persists_and_reresolves(tmp_path: Path) -> None:
     core = _core(tmp_path)
     ok = setup.run_setup(
-        core,
+        core.provider_kernel,
         _answers(""),  # ollama url: blank -> default
         _provider_then_keep_model("ollama"),
         lambda _t: None,
@@ -176,7 +180,7 @@ def test_run_setup_ollama_persists_and_reresolves(tmp_path: Path) -> None:
 def test_run_setup_api_key_writes_env_and_reresolves(tmp_path: Path) -> None:
     core = _core(tmp_path)
     ok = setup.run_setup(
-        core,
+        core.provider_kernel,
         _answers("sk-ant-test-abc123"),
         _provider_then_keep_model("anthropic"),
         lambda _t: None,
@@ -208,21 +212,21 @@ def _min_scope(name: str) -> dict[str, object]:
 def test_adopt_engagement_hot_reload_swaps_ledger_and_session(tmp_path: Path) -> None:
     core = _core(tmp_path)
     root_a, root_b = tmp_path / "a", tmp_path / "b"
-    core.create_engagement(_min_scope("eng-a"), root=root_a)
+    core.engagement_mgr.create_engagement(_min_scope("eng-a"), root=root_a)
     core.journal.record_finding(severity="high", title="finding only in A")
     ws_a = core.workspace
     assert ws_a is not None
     a_ledger = ws_a.ledger_path
     a_session = core.session_id
 
-    core.create_engagement(_min_scope("eng-b"), root=root_b)
+    core.engagement_mgr.create_engagement(_min_scope("eng-b"), root=root_b)
     ws_b = core.workspace
     assert ws_b is not None
     assert core.session_id != a_session
     assert ws_b.ledger_path != a_ledger
     assert core.journal.findings() == []  # B's ledger is a different, clean file
 
-    core.adopt_engagement(root_a)
+    core.engagement_mgr.adopt_engagement(root_a)
     ws_reload = core.workspace
     assert ws_reload is not None
     assert ws_reload.ledger_path == a_ledger  # reattached to A's ledger file

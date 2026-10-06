@@ -286,7 +286,8 @@ def main() -> None:  # pragma: no cover -- launches a child shell + daemon
         # daemon rewrites it on every change; the /skuggi hook re-sources it.
         runtime_env_path = tmp / "skuggi.env"
         core.runtime_env_path = runtime_env_path
-        core.refresh_runtime_env()  # seed it before the child shell sources it
+        # Seed the env file before the child shell sources it.
+        core.engagement_mgr.refresh_runtime_env()
         handle = daemon_server.serve(core, sock_path)
         argv, env_overrides = build_shell_invocation(shell_path, tmp, home=Path.home())
         env = {

@@ -35,7 +35,7 @@ def _text(styled: object) -> str:
 def test_env_persists_to_its_own_file_and_reloads_on_adopt(tmp_path: Path) -> None:
     core = engaged_core(tmp_path, _SCOPE)
     try:
-        core.apply_env(EngagementEnv(target="10.1.2.3", lport="4444"))
+        core.engagement_mgr.apply_env(EngagementEnv(target="10.1.2.3", lport="4444"))
         env_file = core.workspace.env_path  # type: ignore[union-attr]
         assert env_file.name == "env.json"
         assert env_file.is_file()
@@ -43,7 +43,7 @@ def test_env_persists_to_its_own_file_and_reloads_on_adopt(tmp_path: Path) -> No
             tmp_path / "engagement" / "scope.json"
         ).read_text(encoding="utf-8")
         # Re-adopting the same root reloads the env from disk.
-        core.adopt_engagement(env_file.parent)
+        core.engagement_mgr.adopt_engagement(env_file.parent)
         assert core.env.target == "10.1.2.3"
         assert core.env.lport == "4444"
     finally:
@@ -55,7 +55,7 @@ def test_effective_target_prefers_manual_over_the_scope_default(tmp_path: Path) 
     try:
         # Default: the first (lexicographic) scoped host.
         assert core.effective_target() == "alpha.example.com"
-        core.apply_env(EngagementEnv(target="10.9.9.9"))
+        core.engagement_mgr.apply_env(EngagementEnv(target="10.9.9.9"))
         assert core.effective_target() == "10.9.9.9"
     finally:
         core.close()
@@ -76,7 +76,7 @@ def test_apply_env_refreshes_the_shell_sourced_file(tmp_path: Path) -> None:
     try:
         session_file = tmp_path / "skuggi.env"
         core.runtime_env_path = session_file
-        core.apply_env(EngagementEnv(lhost="10.8.0.2", lport="4444"))
+        core.engagement_mgr.apply_env(EngagementEnv(lhost="10.8.0.2", lport="4444"))
         text = session_file.read_text(encoding="utf-8")
         assert "export lhost=10.8.0.2" in text
         assert "export lport=4444" in text
@@ -89,7 +89,7 @@ def test_apply_env_refreshes_the_shell_sourced_file(tmp_path: Path) -> None:
 def test_plan_cmd_with_listener_placeholders_scope_checks(tmp_path: Path) -> None:
     core = engaged_core(tmp_path, _SCOPE)
     try:
-        core.apply_env(EngagementEnv(target="10.0.0.5", lport="4444"))
+        core.engagement_mgr.apply_env(EngagementEnv(target="10.0.0.5", lport="4444"))
         core.commands = CommandRegistry(
             commands=(
                 CommandAlias(
@@ -113,7 +113,7 @@ def test_show_env_reports_target_source(tmp_path: Path) -> None:
         assert "target" in out
         assert "alpha.example.com" in out  # the scope default
         assert "scope default" in out
-        core.apply_env(EngagementEnv(target="10.0.0.5"))
+        core.engagement_mgr.apply_env(EngagementEnv(target="10.0.0.5"))
         assert "manual" in _text(control.show_env(core, "", "repl"))
     finally:
         core.close()

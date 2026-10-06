@@ -117,18 +117,22 @@ class ReplFlows:
 
     def run_setup(self) -> None:
         """Guided provider + credential setup (the app owns the credentials)."""
-        setup.run_setup(self._core, self.ask, self.choose, self._notify)
+        setup.run_setup(self._core.provider_kernel, self.ask, self.choose, self._notify)
 
     def model_select(self) -> None:
         """Pick a model from the active provider's curated list."""
         setup.run_model_select(
-            self._core, self._core.provider, self.ask, self.choose, self._notify
+            self._core.provider_kernel,
+            self._core.provider,
+            self.ask,
+            self.choose,
+            self._notify,
         )
 
     def login(self, _arg: str = "") -> None:
         """Log in to a ChatGPT account via OAuth and switch to the provider."""
         try:
-            account = self._core.login_chatgpt(self._notify)
+            account = self._core.provider_kernel.login_chatgpt(self._notify)
         except (RuntimeError, ImportError) as e:
             self._console.print(f"[red]login failed:[/red] {e}")
             return
@@ -166,7 +170,7 @@ class ReplFlows:
         """Collect a scope field-by-field via rich widgets and load it."""
         wizard.run_wizard(
             self._prompter(),
-            self._core.create_engagement,
+            self._core.engagement_mgr.create_engagement,
             self.engagement_catalog(),
             existing=self._core.engagement,
         )
