@@ -22,8 +22,9 @@ the vault and reach tools only (data plane).
 
 from __future__ import annotations
 
+from skuggi.common.text import REDACTED
 from skuggi.security.policy import RedactionPolicy
-from skuggi.security.redaction import REDACTED, Interner, redact, scan
+from skuggi.security.redaction import Interner, redact, scan
 from skuggi.security.tripwire import RedactionLeakError, assert_clean
 from skuggi.security.vault import SecretVault
 

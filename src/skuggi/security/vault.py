@@ -46,7 +46,10 @@ CREATE TABLE IF NOT EXISTS secrets (
 
 # ``«KIND:id»`` -- guillemets so a placeholder is visually distinct and matches
 # no secret/PII detector (keeping redaction idempotent). id is lowercase base32.
-_PLACEHOLDER = re.compile(r"«(?P<kind>[A-Z]+):(?P<id>[a-z2-7]+)»")
+# THE one definition of the placeholder shape: redaction imports this to
+# recognise an already-masked value, so the two cannot drift if the id encoding
+# ever changes.
+PLACEHOLDER_RE = re.compile(r"«(?P<kind>[A-Z]+):(?P<id>[a-z2-7]+)»")
 _ID_LEN = 6
 
 
@@ -117,7 +120,7 @@ class SecretVault:
         def _sub(match: re.Match[str]) -> str:
             return self.resolve(match.group(0)) or match.group(0)
 
-        return _PLACEHOLDER.sub(_sub, text)
+        return PLACEHOLDER_RE.sub(_sub, text)
 
     def close(self) -> None:
         """Close the underlying connection."""

@@ -12,8 +12,9 @@ from pathlib import Path
 
 import pytest
 
+from skuggi.common.text import REDACTED
 from skuggi.security.policy import RedactionPolicy
-from skuggi.security.redaction import REDACTED, redact, scan
+from skuggi.security.redaction import redact, scan
 from skuggi.security.tripwire import RedactionLeakError, assert_clean, scrub
 from skuggi.security.vault import open_vault
 

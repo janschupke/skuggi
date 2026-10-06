@@ -88,6 +88,12 @@ def redact_secrets(text: str, secrets: Iterable[str] = ()) -> str:
     (an internal, on-disk artifact). ``secrets`` are exact values the harness
     holds (provider API keys); only values of 8+ chars are masked, so a short
     or empty key cannot blank out unrelated text.
+
+    This is the HTML-embed path, deliberately separate from the model-facing
+    ``security.redaction.redact``: both mask to the same :data:`REDACTED`
+    sentinel, but redaction also *interns* secrets reversibly (``«KIND:id»``) for
+    rehydration and runs the full PII detector set, which an on-disk dashboard
+    does not need. A new secret *shape* should be added to both detector families.
     """
     if not text:
         return text

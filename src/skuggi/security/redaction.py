@@ -24,11 +24,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import NamedTuple, Protocol
 
+from skuggi.common.text import REDACTED
 from skuggi.security.policy import RedactionPolicy
+from skuggi.security.vault import PLACEHOLDER_RE
 
-# The one-way sentinel, kept identical to the value the dashboard has always
-# used so existing artifacts and expectations do not shift.
-REDACTED = "***REDACTED***"  # a mask sentinel, not a credential
+# The one-way mask sentinel is `common.text.REDACTED` (imported above): the same
+# value the dashboard's one-way `redact_secrets` uses, so a secret reads the same
+# whether it was masked on the model-facing path (here) or the HTML-embed path.
 
 # Primary Account Number length band for a plausible card (ISO/IEC 7812).
 _PAN_MIN, _PAN_MAX = 13, 19
@@ -165,12 +167,6 @@ class Match(NamedTuple):
     value: str
 
 
-# A ``«KIND:id»`` placeholder emitted by the vault. Defined here (rather than
-# imported from ``vault``) so ``scan`` can recognise an already-masked value
-# without a dependency cycle, keeping redaction idempotent.
-_PLACEHOLDER = re.compile(r"«[A-Z]+:[a-z2-7]+»")
-
-
 def _already_masked(value: str) -> bool:
     """Whether `value` is wholly mask output (a sentinel/placeholder, no secret).
 
@@ -179,7 +175,7 @@ def _already_masked(value: str) -> bool:
     lets ``scan`` skip a span whose only content is a mask, so redacting twice
     is a no-op and the egress tripwire does not flag clean text.
     """
-    residual = _PLACEHOLDER.sub("", value).replace(REDACTED, "")
+    residual = PLACEHOLDER_RE.sub("", value).replace(REDACTED, "")
     return not residual.strip()
 
 
