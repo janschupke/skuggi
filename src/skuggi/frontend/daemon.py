@@ -40,6 +40,7 @@ from skuggi.frontend import (
     outcomes,
     presenters,
     presenters_cmd,
+    presenters_engagement,
     presenters_journal,
     render,
     verbosity,
@@ -512,11 +513,11 @@ class Daemon:
     # ----- show <noun> -------------------------------------------------------
 
     def _show_engagement(self, _rest: str) -> Iterator[str]:
-        described = self.core.describe_engagement()
-        if described:
-            yield described + "\n"
-        else:
-            yield f"no engagement loaded -- run {self._cmd('set engagement setup')}\n"
+        yield from self._emit(
+            presenters_engagement.present_engagement(
+                self.core.engagement, self._surface()
+            )
+        )
 
     def _show_db(self, _rest: str) -> Iterator[str]:
         yield dispatch.run_db_stats(self.core) + "\n"

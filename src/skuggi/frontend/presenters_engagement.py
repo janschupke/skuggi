@@ -9,6 +9,8 @@ phrased identically on both surfaces.
 
 from __future__ import annotations
 
+from skuggi.common import palette
+from skuggi.engagement.scope import EngagementConfig
 from skuggi.frontend import engagement_params, render, verbs
 from skuggi.frontend.outcomes import (
     EngagementAdopted,
@@ -21,6 +23,54 @@ from skuggi.frontend.outcomes import (
 )
 
 Styled = render.Styled
+
+
+def _method_spans(methods: list[str]) -> list[render.Span]:
+    """The ``methods:`` line as palette-painted segments (same on both surfaces)."""
+    segments: list[render.Span] = [("  methods: ", None)]
+    for i, method in enumerate(methods):
+        if i:
+            segments.append((", ", None))
+        segments.append((method, palette.method_style(method)))
+    return segments
+
+
+def present_engagement(
+    engagement: EngagementConfig | None, surface: verbs.Surface
+) -> Styled:
+    """The loaded engagement summary for ``show engagement``, one code path.
+
+    Both front-ends route through here so the summary (and the "nothing loaded"
+    hint) cannot drift, and the method names are palette-painted identically on
+    the REPL and over the socket. The field layout mirrors
+    ``EngagementConfig.describe``, which stays the plain-text formatter for the
+    report and dashboard (where colour has no meaning).
+    """
+    if engagement is None:
+        hint = verbs.cmd("set engagement setup", surface)
+        return [render.warning(f"no engagement loaded -- run {hint}")]
+    e = engagement
+    nets = ", ".join(str(n) for n in e.target_networks) or "(none)"
+    daily = ", ".join(f"{w.start}-{w.end}" for w in e.daily_windows) or "any"
+    hosts = ", ".join(sorted(e.allowed_hosts)) or "(none)"
+    start = e.authorized_start.isoformat() if e.authorized_start else "open"
+    end = e.authorized_end.isoformat() if e.authorized_end else "open"
+    window = (
+        "no time bound"
+        if e.authorized_start is None and e.authorized_end is None
+        else f"{start} -> {end}"
+    )
+    return [
+        render.plain(f"engagement: {e.name}"),
+        render.plain(f"  window: {window} ({e.timezone})"),
+        render.plain(f"  daily:  {daily}"),
+        render.plain(f"  networks: {nets}"),
+        render.plain(f"  hosts:  {hosts}"),
+        render.plain(f"  tools:  {', '.join(sorted(e.allowed_tools))}"),
+        render.spans(_method_spans(sorted(e.allowed_methods))),
+        render.plain(f"  stance: {e.stance}"),
+        render.plain(f"  autonomous: {e.autonomous}"),
+    ]
 
 
 def present_set_engagement(

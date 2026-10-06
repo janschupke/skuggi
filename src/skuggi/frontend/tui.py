@@ -37,6 +37,7 @@ from skuggi.frontend import (
     outcomes,
     presenters,
     presenters_cmd,
+    presenters_engagement,
     presenters_journal,
     render,
     verbosity,
@@ -488,18 +489,7 @@ class Tui:
     # ----- show <noun> -------------------------------------------------------
 
     def _show_engagement(self, _rest: str) -> None:
-        eng = self.engagement
-        if eng is None:
-            self.console.print(
-                f"[yellow]no engagement loaded[/yellow] -- run "
-                f"{verbs.cmd('set engagement setup', 'repl')} to create one"
-            )
-            return
-        self.console.print(
-            eng.describe(
-                method_paint=lambda m: palette.paint(m, palette.method_style(m))
-            )
-        )
+        self._emit(presenters_engagement.present_engagement(self.engagement, "repl"))
 
     def _show_db(self, _rest: str) -> None:
         self.console.print(dispatch.run_db_stats(self.core))
