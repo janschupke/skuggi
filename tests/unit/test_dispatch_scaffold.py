@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
+from skuggi.engagement.engagement import EngagementConfig
 from skuggi.frontend import dispatch, outcomes
 
 
-def test_scaffold_copies_the_template(tmp_path: Path) -> None:
+def test_scaffold_writes_a_minimal_scope(tmp_path: Path) -> None:
     match dispatch.run_scaffold(tmp_path):
         case outcomes.Scaffolded(path):
             assert path == tmp_path / "scope.json"
-            assert path.read_text(encoding="utf-8").strip()  # the template content
-        case other:  # pragma: no cover -- a clean copy must succeed
+            data = json.loads(path.read_text(encoding="utf-8"))
+            # Minimal: just a name (from the dir) and a timezone; nothing else.
+            assert set(data) == {"name", "timezone"}
+            assert data["timezone"] == "UTC"
+            # And it validates as a real engagement (every other field defaults).
+            assert EngagementConfig.model_validate(data).name == data["name"]
+        case other:  # pragma: no cover -- a clean write must succeed
             pytest.fail(f"expected Scaffolded, got {other}")
 
 

@@ -15,7 +15,6 @@ from skuggi.frontend import completion, verbs
 # covered by passing names in below.
 _MUST_EXPAND = {
     ("set", "mode"),
-    ("set", "autonomous"),
     ("remove", "memory"),
     ("show", "tools"),
 }
@@ -44,6 +43,16 @@ def test_known_value_nouns_are_not_dead_leaves() -> None:
     # a provider/model leaf expands from the passed-in dynamic names
     assert set(tree["set"]["provider"]) == {"openai", "ollama"}  # type: ignore[index]
     assert set(tree["set"]["model"]) == {"gpt-5"}  # type: ignore[index]
+
+
+def test_set_engagement_descends_to_params_and_enums() -> None:
+    tree = _tree()
+    eng = tree["set"]["engagement"]  # type: ignore[index]
+    assert isinstance(eng, dict)
+    assert {"methodology", "osint", "allowed_hosts"} <= set(eng)
+    assert set(eng["methodology"]) == {"phases", "ptes", "attack"}  # enum values
+    assert set(eng["autonomous"]) == {"on", "off"}
+    assert eng["osint"] is None  # composite -> no value-level completion
 
 
 def test_every_grouping_verb_has_a_noun_dict() -> None:

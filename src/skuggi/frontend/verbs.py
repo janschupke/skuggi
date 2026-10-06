@@ -59,12 +59,16 @@ class Noun:
     """One sub-command of a grouping verb (``show config``, ``set model`` …).
 
     ``usage`` is the hint that follows the noun, e.g. ``[all|scoped|…]`` for
-    ``show tools``; empty when the noun takes no argument.
+    ``show tools``; empty when the noun takes no argument. ``options`` is the next
+    grammar level down -- the params of a hierarchical noun such as ``set
+    engagement`` (``set engagement methodology`` …) -- so help and completion can
+    descend one further step; empty for a flat noun.
     """
 
     name: str
     summary: str
     usage: str = ""
+    options: tuple[Noun, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +100,44 @@ class Verb:
 # The three offensive/defensive engagement modes; forensics is excluded. Used to
 # scope the engagement-only verbs out of forensics mode.
 _OFFENSIVE: tuple[Mode, ...] = ("pentest", "redteam", "blueteam")
+
+# The params of the hierarchical ``set engagement`` noun -- one per editable
+# engagement field (plus the ``scope`` NL editor and the runtime vars). Hand-
+# written here because this module is a leaf (it cannot import the param
+# registry); ``tests/unit/test_verbs.py`` pins these names to
+# ``engagement_params.names()`` so the two never drift.
+_ENGAGEMENT_OPTIONS: tuple[Noun, ...] = (
+    Noun("name", "engagement name", "<name>"),
+    Noun("timezone", "IANA timezone", "<iana>"),
+    Noun("authorized_start", "authorized window start", "<iso8601>"),
+    Noun("authorized_end", "authorized window end", "<iso8601>"),
+    Noun("daily_windows", "daily clock windows", "<HH:MM-HH:MM,…>"),
+    Noun("target_networks", "in-scope networks", "<cidr,…>"),
+    Noun("allowed_hosts", "in-scope hosts", "<host,…>"),
+    Noun("allowed_ports", "in-scope ports", "<ports>"),
+    Noun("allowed_tools", "permitted tools", "<tool,…>"),
+    Noun("allowed_methods", "permitted methods", "<method,…>"),
+    Noun(
+        "autonomous_ceiling",
+        "highest tier auto-run",
+        "<recon|active|intrusive|destructive>",
+    ),
+    Noun("scope", "natural-language scope edit", "<request>"),
+    Noun("methodology", "driving framework", "<phases|ptes|attack>"),
+    Noun(
+        "stance",
+        "how forward-leaning proposals are",
+        "<passive|cautious|balanced|aggressive>",
+    ),
+    Noun("taxonomies", "finding taxonomies", "<wstg,attack>"),
+    Noun("autonomous", "arm autonomous execution", "[on|off]"),
+    Noun("threat_model", "CVSS environmental requirements"),
+    Noun("osint", "OSINT reconnaissance scope"),
+    Noun("rules_of_engagement", "rules of engagement"),
+    Noun("target", "current ${target} host", "<host>"),
+    Noun("wordlist", "${wordlist} path", "<path>"),
+    Noun("listener", "listener lhost/lport"),
+)
 
 # Ordered for the help listing: the everyday agent path first, controls after.
 VERBS: tuple[Verb, ...] = (
@@ -154,8 +196,9 @@ VERBS: tuple[Verb, ...] = (
         nouns=(
             Noun(
                 "engagement",
-                "adopt an engagement root (cwd by default), scaffolding if absent",
-                "[<path>]",
+                "adopt/scaffold a root, run the wizard, or edit one field",
+                "[<path>|<param> …|setup]",
+                options=_ENGAGEMENT_OPTIONS,
             ),
             Noun(
                 "case",
@@ -165,16 +208,11 @@ VERBS: tuple[Verb, ...] = (
             Noun("provider", "switch provider (interactive with no name)", "[<name>]"),
             Noun("model", "switch model (interactive with no name)", "[<name>]"),
             Noun("mode", "operating mode", "<pentest|redteam|blueteam|forensics>"),
-            Noun("autonomous", "arm autonomous command execution", "[on|off]"),
             Noun(
                 "config",
                 "set a setting, or a natural-language request",
                 "<key> <value>|<request>",
             ),
-            Noun("scope", "edit the engagement scope from a request", "<request>"),
-            Noun("target", "set the current target host (the ${target} var)", "<host>"),
-            Noun("listener", "pick a listener interface + port (lhost/lport)"),
-            Noun("wordlist", "set the ${wordlist} path", "<path>"),
             Noun("thread", "start or switch a conversation thread", "<id|new>"),
         ),
     ),
@@ -234,12 +272,6 @@ VERBS: tuple[Verb, ...] = (
         category="engagement",
         group="agent",
         modes=("forensics",),
-    ),
-    Verb(
-        "engagement",
-        "run the setup wizard, or set the threat model",
-        "<setup|threat-model>",
-        group="engagement",
     ),
     Verb(
         "findings",
@@ -362,6 +394,19 @@ def noun_names(verb: str) -> frozenset[str]:
     return frozenset(n.name for n in nouns_of(verb))
 
 
+def options_of(verb: str, noun: str) -> tuple[Noun, ...]:
+    """The sub-options of a hierarchical noun (``set engagement`` -> its params)."""
+    for n in nouns_of(verb):
+        if n.name == noun:
+            return n.options
+    return ()
+
+
+def option_names(verb: str, noun: str) -> frozenset[str]:
+    """The option names under `verb noun`, for drift-checking a sub-router."""
+    return frozenset(o.name for o in options_of(verb, noun))
+
+
 def split_verb(line: str) -> tuple[str, str]:
     """Split an input line into ``(verb, rest)``, tolerating a leading ``/``.
 
@@ -412,17 +457,26 @@ def help_sections(
     return sections
 
 
-def help_detail(verb: str) -> list[tuple[str, str, str]] | None:
-    """Detailed ``(invocation, usage, summary)`` rows for one verb, or ``None``.
+def help_detail(
+    verb: str, noun: str | None = None
+) -> list[tuple[str, str, str]] | None:
+    """Detailed ``(invocation, usage, summary)`` rows for a verb, or ``None``.
 
     Unlike :func:`help_for`, the invocation and its argument grammar are kept
     separate so a renderer can paint the command and its params in different
-    roles. A grouping verb yields one row per noun (``show config`` …); a plain
-    verb yields its single row.
+    roles. With `noun` naming a hierarchical noun that has options, yields one row
+    per option (``help set engagement`` -> its params); otherwise a grouping verb
+    yields one row per noun and a plain verb its single row. ``None`` for an
+    unknown verb, or a noun with no options.
     """
     found = _BY_NAME.get(verb)
     if found is None:
         return None
+    if noun is not None:
+        options = options_of(verb, noun)
+        if not options:
+            return None
+        return [(f"{verb} {noun} {o.name}", o.usage, o.summary) for o in options]
     if found.nouns:
         return [(f"{found.name} {n.name}", n.usage, n.summary) for n in found.nouns]
     return [(found.name, found.usage, found.summary)]

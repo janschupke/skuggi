@@ -252,7 +252,7 @@ def present_add(outcome: AddOutcome, surface: verbs.Surface) -> Styled:  # noqa:
         case AddUsage(form):
             return presenters.usage(f"add {form}", surface)
         case NoEngagement(kind):
-            fix = verbs.cmd("engagement setup", surface)
+            fix = verbs.cmd("set engagement setup", surface)
             return [
                 render.warning(f"no engagement loaded -- run {fix} to record {kind}s")
             ]

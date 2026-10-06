@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from skuggi.common.modes import MODES
-from skuggi.frontend import verbs
+from skuggi.frontend import engagement_params, verbs
 
 # Noun leaves whose argument is a fixed, enumerable set. Dynamic leaves (provider,
 # model, cmd, reconcile files) are injected from the live core by the caller.
@@ -70,6 +70,16 @@ def completion_tree(
             continue
         node: dict[str, object] = {}
         for n in nouns:
+            if n.options:
+                # A hierarchical noun (``set engagement``): descend to its params,
+                # and offer the enum params' value sets a level further down.
+                node[n.name] = {
+                    o.name: _values_node(vals)
+                    if (vals := engagement_params.enum_values(o.name))
+                    else None
+                    for o in n.options
+                }
+                continue
             values = _STATIC_VALUES.get((verb.name, n.name)) or dynamic.get(
                 (verb.name, n.name)
             )

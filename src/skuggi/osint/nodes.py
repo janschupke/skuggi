@@ -157,15 +157,15 @@ def _with_scope_proposal(
 
     OSINT-discovered hosts inside an authorized network but not yet in
     ``allowed_hosts`` are surfaced here as a proposal, never auto-applied: the
-    operator authorizes them through the gated, non-grantable ``set scope`` flow,
-    closing the recon -> scan loop deliberately (audit E17/C4).
+    operator authorizes them through the gated, non-grantable ``set engagement
+    scope`` flow, closing the recon -> scan loop deliberately (audit E17/C4).
     """
     hosts = promotable_hosts(results, deps.engagement)
     if not hosts:
         return summary
     proposal = (
         "Discovered in-scope hosts not yet authorized for scanning: "
-        f"{', '.join(hosts)}. Run `set scope` to add them to allowed_hosts "
+        f"{', '.join(hosts)}. Run `set engagement scope` to add them to allowed_hosts "
         "(each change is confirmed)."
     )
     return f"{summary}\n\n{proposal}" if summary else proposal

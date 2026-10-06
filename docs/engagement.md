@@ -10,7 +10,7 @@ no engagement — no `scope.json` in the current directory and no
 mkdir -p ~/work/acme-2026 && cd ~/work/acme-2026
 skuggi
 /skuggi set engagement          # adopt the current directory (scaffolds a scope.json)
-/skuggi engagement setup        # fill the scope in with the wizard
+/skuggi set engagement setup    # fill the scope in with the wizard
 ```
 
 ## The scope boundary
@@ -95,15 +95,17 @@ reinforces `allowed_tools` — it does not distinguish `nmap -sn` from `nmap -A`
 
 ### The setup wizard
 
-`engagement setup` runs a grouped, step-by-step wizard (Identity, Authorization,
+`set engagement setup` runs a grouped, step-by-step wizard (Identity, Authorization,
 Schedule, Targets, Capabilities, Approach) with a horizontal step bar. Methods,
 methodology, taxonomies and stance are dropdowns/checklists; timezone and tools
 autocomplete (in the REPL); the authorized window is optional (a blank start/end
 means no time bound). It validates the answers, writes `scope.json` into the
 active engagement root, and **hot-reloads** the boundary into the running session —
 no restart. A rejected answer re-asks only the field that failed; a blank keeps the
-current value when editing; `Ctrl-C`/`Esc` cancels. A natural-language `set scope
-<request>` edits an existing scope the same way.
+current value when editing; `Ctrl-C`/`Esc` cancels. A natural-language `set
+engagement scope <request>` edits the authorization fields the same way, and any
+single field can be changed with `set engagement <param>` (e.g. `set engagement
+methodology ptes`, `set engagement osint`).
 
 ## Suggest by default, autonomous on request
 
@@ -113,7 +115,7 @@ For an in-scope command:
 
 - **suggest mode (default, `autonomous: false`)** — records the command as
   `proposed` and hands it back for you to run by hand.
-- **autonomous mode (`autonomous: true` in the scope, or `set autonomous on`)** —
+- **autonomous mode (`autonomous: true` in the scope, or `set engagement autonomous on`)** —
   executes it (`shell=False`, argv exec'd directly, output byte-capped, wall-clock
   timeout `command_timeout_s`), records the result, and feeds it back to the worker
   for the next step (bounded by `max_command_rounds`). The prompt shows `!` and the

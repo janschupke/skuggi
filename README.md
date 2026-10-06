@@ -115,7 +115,7 @@ engagement (its `scope.json`, ledger, recon output and reports live inside it):
 mkdir -p ~/work/acme-2026 && cd ~/work/acme-2026
 skuggi
 /skuggi set engagement          # adopt the current directory (scaffolds a scope.json)
-/skuggi engagement setup        # fill the scope in with the wizard
+/skuggi set engagement setup    # fill the scope in with the wizard
 ```
 
 `set engagement <path>` adopts (and, if needed, creates + scaffolds) another
@@ -167,13 +167,15 @@ rest is its input. Four **grouping verbs** take a *noun* and route on it:
 
 - `show <what>` — inspect state (`show findings`, `show engagement`, `show tools`, …)
 - `set <what>` — change config / session state (`set mode redteam`, `set provider`,
-  `set autonomous on`, `set target <host>`, …)
+  `set engagement autonomous on`, `set engagement target <host>`, …)
 - `add <what>` — record engagement data (`add note`, `add loot`, `add finding`, …)
 - `remove <what>` — delete records (`remove memory <id>`, …)
 
-Plain verbs include `ask`, `cmd`, `osint`, `research`, `forensics`, `engagement`,
-`findings`, `report`, `visualize`, `replay`, `review`, `doctor`, `login`, `ingest`,
-`update`, `reconcile`, `help`, `exit`. `help` (or `help <verb>`) always lists what
+Plain verbs include `chat`, `cmd`, `osint`, `research`, `forensics`, `findings`,
+`report`, `visualize`, `replay`, `review`, `doctor`, `login`, `ingest`, `update`,
+`reconcile`, `help`, `exit`. Engagement setup/threat-model and the runtime vars are
+now params of `set engagement` (e.g. `set engagement setup`, `set engagement
+methodology ptes`, `set engagement scope <request>`). `help` (or `help <verb>`) always lists what
 is available in the current mode.
 
 **The full verb/noun reference, the `cmd` command cheatsheet, and operator memory
@@ -199,11 +201,11 @@ an allowed network/host. The rule is conservative — anything it cannot prove i
 scope is denied.
 
 Commands **suggest by default** (recorded `proposed` for you to run by hand). In
-**autonomous mode** (`set autonomous on`, or `"autonomous": true`) the agent runs
+**autonomous mode** (`set engagement autonomous on`, or `"autonomous": true`) the agent runs
 in-scope commands itself — but only up to a **risk ceiling**: a command above
 `autonomous_ceiling` is still held `proposed`. An agent-cleared command runs through
 the host subprocess by default, or an isolated **container** backend
-(`execution_backend: container`). The scope wizard (`engagement setup`), the full
+(`execution_backend: container`). The scope wizard (`set engagement setup`), the full
 field reference, the workspace tree and the forensics case plane are documented in
 [docs/engagement.md](docs/engagement.md).
 

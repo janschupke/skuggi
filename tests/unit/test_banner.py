@@ -65,7 +65,7 @@ def test_banner_adds_next_steps_only_when_unconfigured() -> None:
     assert "configure a model" in bare
     # The remedy is phrased in the shell grammar.
     assert "/skuggi set provider" in bare
-    assert "/skuggi engagement setup" in bare
+    assert "/skuggi set engagement setup" in bare
 
 
 def test_banner_notes_an_unsupported_shell_only_when_set() -> None:

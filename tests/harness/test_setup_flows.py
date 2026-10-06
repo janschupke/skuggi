@@ -304,7 +304,7 @@ def test_attach_wizard_creates_engagement_over_socket(tmp_path: Path) -> None:
             "no",  # OSINT: decline the reconnaissance scope
             "no",  # rules of engagement: decline
         ]
-        frames = _drive_attached(daemon, ["engagement setup", *answers])
+        frames = _drive_attached(daemon, ["set engagement setup", *answers])
         # The wizard asked questions as frames of each kind...
         assert any("ask" in f for f in frames)
         assert any("multiselect" in f for f in frames)

@@ -19,24 +19,21 @@ from typing import TYPE_CHECKING
 
 from skuggi.agent import protocol
 from skuggi.common import palette
-from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.engagement.scope import OSINT_SOURCES
 from skuggi.frontend import (
     cmdflow,
     configflow,
+    engagementflow,
     installflow,
-    listenerflow,
     memoryflow,
     menu,
     presenters,
     render,
-    scopeflow,
     setup,
     verbs,
     wizard,
 )
 from skuggi.frontend.prompter import Prompter
-from skuggi.tooling import probe
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -153,9 +150,9 @@ class ReplFlows:
             osint_sources=OSINT_SOURCES,
         )
 
-    def engagement_wizard(self) -> None:
-        """Collect a scope field-by-field via rich widgets and load it."""
-        prompter = Prompter(
+    def _prompter(self) -> Prompter:
+        """The operator-interaction bundle the wizard / engagement flows drive."""
+        return Prompter(
             ask=self.ask,
             ask_complete=self.ask_complete,
             choose=self.choose,
@@ -164,11 +161,25 @@ class ReplFlows:
             notify=self._notify,
             progress=self.progress,
         )
+
+    def engagement_wizard(self) -> None:
+        """Collect a scope field-by-field via rich widgets and load it."""
         wizard.run_wizard(
-            prompter,
+            self._prompter(),
             self._core.create_engagement,
             self.engagement_catalog(),
             existing=self._core.engagement,
+        )
+
+    def set_engagement_param(self, name: str, value: str) -> None:
+        """Edit one engagement field interactively (``set engagement <param>``)."""
+        engagementflow.run_param_edit(
+            self._core,
+            name,
+            value,
+            prompter=self._prompter(),
+            catalog=self.engagement_catalog(),
+            grants=self._core.grants,
         )
 
     # ----- config / scope ----------------------------------------------------
@@ -202,43 +213,6 @@ class ReplFlows:
             apply=self._core.memory.apply_capture,
             grants=self._core.grants,
             interactive=True,
-        )
-
-    def set_listener(self, _arg: str) -> None:
-        """Pick a listener interface (lhost) + port (lport) and apply them."""
-        if self._core.engagement is None:
-            self._emit(presenters.present_error("no engagement loaded"))
-            return
-        listenerflow.run_set_listener(
-            interfaces=probe.local_interfaces(),
-            choose=self.choose,
-            ask=self.ask,
-            notify=self._notify,
-            apply=self._apply_listener,
-        )
-
-    def _apply_listener(self, lhost: str, lport: str | None) -> None:
-        """Persist a chosen listener (lhost/lport) through the engagement env."""
-        env = EngagementEnv.model_validate(
-            {**self._core.env.model_dump(), "lhost": lhost, "lport": lport}
-        )
-        self._core.apply_env(env)
-        shown = f"{lhost}:{lport}" if lport else lhost
-        self._emit(presenters.present_env_update("listener", shown))
-
-    def set_scope(self, arg: str) -> None:
-        """Drive a natural-language scope change through propose/preview/confirm."""
-        if not arg.strip():
-            self._emit(presenters.usage("set scope <request>", "repl"))
-            return
-        scopeflow.run_scope_request(
-            arg,
-            choose=self.choose,
-            notify=self._notify,
-            propose=self._core.scope.propose,
-            preview=self._core.scope.preview,
-            apply=self._core.scope.apply,
-            grants=self._core.grants,
         )
 
     # ----- install -----------------------------------------------------------

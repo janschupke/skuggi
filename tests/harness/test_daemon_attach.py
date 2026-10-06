@@ -92,7 +92,7 @@ def test_attach_continues_after_a_non_exit_turn(daemon: Daemon) -> None:
 
 
 def test_engagement_setup_one_shot_guides_to_the_loop(daemon: Daemon) -> None:
-    out = chunks(daemon, {"op": "input", "text": "engagement setup"})
+    out = chunks(daemon, {"op": "input", "text": "set engagement setup"})
     assert "interactive" in out  # one-shot cannot prompt; points at the loop
 
 
@@ -187,7 +187,7 @@ def test_attach_cmd_editor_adds_an_alias(daemon: Daemon) -> None:
 def test_attach_engagement_wizard_creates_and_hot_loads(daemon: Daemon) -> None:
     answers = iter(
         [
-            "engagement setup",
+            "set engagement setup",
             "acme",  # name (ask)
             "UTC",  # timezone (ask -- autocomplete degrades over the socket)
             "2026-01-01T00:00:00+00:00",  # authorized_start

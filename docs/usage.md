@@ -50,18 +50,33 @@ calls this thread), `threads`, `status` (readiness + a session glance), `grants`
 
 | Noun | Input | Effect |
 |---|---|---|
-| `engagement` | `[<path>]` | Adopt an engagement root (cwd by default), scaffolding if absent |
+| `engagement` | `[<path>\|<param> …\|setup]` | Adopt/scaffold a root, run the wizard, or edit one engagement field (see below) |
 | `case` | `[<path>]` | Adopt a forensics case root (cwd by default), scaffolding if absent |
 | `provider` | `[<name>]` | Switch provider; with no name, run the guided provider + credential setup |
 | `model` | `[<name>]` | Switch model; with no name, pick from the provider's curated list |
 | `mode` | `<pentest\|redteam\|blueteam\|forensics>` | Switch the operating mode (prompt set) |
-| `autonomous` | `[on\|off]` | Arm / disarm autonomous command execution |
 | `config` | `<key> <value> \| <request>` | Set a setting, or a natural-language request |
-| `scope` | `<request>` | Edit the engagement scope from a natural-language request |
-| `target` | `<host>` | Set the current target host (the `${target}` var) |
-| `listener` | — | Pick a listener interface + port (`lhost`/`lport`) |
-| `wordlist` | `<path>` | Set the `${wordlist}` path |
 | `thread` | `<id>\|new` | Start or switch a conversation thread |
+
+#### `set engagement <param>` — edit one engagement field
+
+Everything about the loaded engagement is edited under `set engagement`:
+
+- **`set engagement`** (no arg) adopts the current directory, scaffolding a minimal
+  `scope.json` if absent and printing the commands to fill it in; **`set engagement
+  <path>`** does the same for another directory; **`set engagement setup`** runs the
+  full guided wizard.
+- **`set engagement <param> <value>`** edits one field directly (e.g. `set
+  engagement methodology ptes`); **`set engagement <param>`** with no value opens
+  that field's picker. Params are the `scope.json`/env field keys: `name`,
+  `timezone`, `methodology`, `stance`, `taxonomies`, `autonomous`,
+  `threat_model`, `osint`, `rules_of_engagement`, the runtime vars `target` /
+  `wordlist` / `listener`, and the **authorization** fields `allowed_hosts`,
+  `target_networks`, `allowed_ports`, `allowed_tools`, `allowed_methods`,
+  `daily_windows`, `authorized_start` / `authorized_end`, `autonomous_ceiling`.
+- Authorization fields (and the natural-language **`set engagement scope
+  <request>`** editor) always show a diff and ask you to confirm before writing —
+  scope never widens silently.
 
 ### `add <what>` — record engagement data
 
@@ -74,12 +89,6 @@ goes to the vault, never the chat), `foothold <host> <command|tunnel> <reach,csv
 
 `memory <id> | all`, `grants` (revoke all session approval grants), `foothold`
 (drop all registered pivot footholds).
-
-## Engagement
-
-| Verb | Input | Effect |
-|---|---|---|
-| `engagement` | `<setup \| threat-model>` | Run the scope setup wizard, or set the CVSS threat model — see [engagement.md](engagement.md) |
 
 ## Findings & reporting
 
@@ -107,11 +116,13 @@ CVSS scoring and the report pipeline.
 | `help` | `[<verb>]` | The verb reference (`help <verb>` lists a grouping verb's nouns) |
 | `exit`, `quit` | — | Close cleanly |
 
-**Interactive verbs need a loop.** `engagement setup`, a natural-language `set
-config <request>` / `set scope <request>`, and `set provider`/`set model` with no
-name prompt you back and forth, so they run in `skuggi-repl` or in the wrapped
-shell's chat loop (a bare `/skuggi`). Invoked one-shot as `/skuggi engagement
-setup`, they point you at the loop rather than half-running.
+**Interactive verbs need a loop.** `set engagement setup` (and the per-field
+`set engagement <param>` pickers, composite fields and gated authorization edits),
+a natural-language `set config <request>` / `set engagement scope <request>`, and
+`set provider`/`set model` with no name prompt you back and forth, so they run in
+`skuggi-repl` or in the wrapped shell's chat loop (a bare `/skuggi`). Invoked
+one-shot as `/skuggi set engagement setup`, they point you at the loop rather than
+half-running.
 
 ## `cmd`: the command cheatsheet (transparent, suggest-style)
 
@@ -145,7 +156,7 @@ cmd nmap-host
 
 `$(date …)` and `${target}` are left **literal** so your shell expands them at run
 time — the wrapped shell exports `target` from the engagement's primary host (a
-sole allowed host/network, or the one you `set target <host>`). A few shipped
+sole allowed host/network, or the one you `set engagement target <host>`). A few shipped
 entries:
 
 | Alias | Rendered (abridged) | Purpose |

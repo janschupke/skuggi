@@ -32,6 +32,7 @@ from skuggi.frontend import (
     completion,
     control,
     dispatch,
+    engagement_params,
     menu,
     outcomes,
     presenters,
@@ -40,7 +41,6 @@ from skuggi.frontend import (
     render,
     verbosity,
     verbs,
-    wizard,
 )
 from skuggi.frontend import help as help_mod
 from skuggi.frontend.repl_flows import ReplFlows
@@ -141,7 +141,6 @@ class Tui:
             "osint": self._cmd_osint,
             "research": self._cmd_research,
             "forensics": self._cmd_forensics,
-            "engagement": self._cmd_engagement,
             "login": self._flows.login,
             "doctor": self._cmd_doctor,
             "findings": self._cmd_findings,
@@ -167,11 +166,10 @@ class Tui:
         }
         self._set_nouns: dict[str, Callable[[str], None]] = {
             **{n: self._styled(a) for n, a in control.SET_ACTIONS.items()},
+            "engagement": self._set_engagement,
             "provider": self._set_provider,
             "model": self._set_model,
             "config": self._flows.set_config,
-            "scope": self._flows.set_scope,
-            "listener": self._flows.set_listener,
         }
         self._add_nouns: dict[str, Callable[[str], None]] = {
             "note": self._styled(control.add_record_for("note")),
@@ -390,22 +388,24 @@ class Tui:
             return
         self._emit(control.set_model_named(self.core, arg, "repl"))
 
-    def _cmd_engagement(self, arg: str) -> None:
-        first = arg.split(maxsplit=1)[0] if arg.split() else ""
-        if first in wizard.WIZARD_ARGS:
+    def _set_engagement(self, arg: str) -> None:
+        """``set engagement``: adopt/scaffold a root, run the wizard, or edit a field.
+
+        A path (or nothing) adopts/scaffolds; ``setup``/``new``/``edit`` opens the
+        wizard; a known param edits one field -- directly when the value is clear,
+        or via the interactive widget / gated diff otherwise.
+        """
+        inv = engagement_params.classify(arg)
+        if inv.action == "adopt":
+            self._emit(control.set_engagement(self.core, inv.target, "repl"))
+        elif inv.action == "wizard":
             self._flows.engagement_wizard()
-            return
-        if first == "threat-model":
-            rest = arg.split(maxsplit=1)[1] if len(arg.split()) > 1 else ""
-            self.console.print(dispatch.run_threat_model(self.core, rest))
-            return
-        adopt = verbs.cmd("set engagement [<path>]", "repl")
-        self.console.print(
-            "[yellow]usage:[/yellow] "
-            f"{verbs.cmd('engagement setup | threat-model', 'repl')} "
-            f"-- adopt/scaffold a root with {adopt}, "
-            f"scope summary is {verbs.cmd('show engagement', 'repl')}"
-        )
+        elif engagement_params.needs_prompt(inv.target, has_value=bool(inv.value)):
+            self._flows.set_engagement_param(inv.target, inv.value)
+        else:
+            self._emit(
+                control.set_engagement_param(self.core, inv.target, inv.value, "repl")
+            )
 
     def _cmd_doctor(self, arg: str) -> None:
         view = parse_doctor_flags(arg)
@@ -492,7 +492,7 @@ class Tui:
         if eng is None:
             self.console.print(
                 f"[yellow]no engagement loaded[/yellow] -- run "
-                f"{verbs.cmd('engagement setup', 'repl')} to create one"
+                f"{verbs.cmd('set engagement setup', 'repl')} to create one"
             )
             return
         self.console.print(

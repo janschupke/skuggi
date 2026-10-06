@@ -71,6 +71,24 @@ SetEngagementOutcome = EngagementAdopted | EngagementScaffolded | SetEngagementE
 
 
 @dataclass(frozen=True, slots=True)
+class EngagementFieldUpdated:
+    """One engagement field was edited in place (`name` -> `value` display text)."""
+
+    name: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class EngagementParamError:
+    """A ``set engagement <param>`` edit was rejected (`message` says why)."""
+
+    message: str
+
+
+EngagementParamOutcome = EngagementFieldUpdated | EngagementParamError
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderUsage:
     """No argument given -- the front-end shows its own usage line."""
 

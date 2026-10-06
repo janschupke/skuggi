@@ -122,12 +122,12 @@ def test_show_env_reports_target_source(tmp_path: Path) -> None:
 def test_set_target_and_wordlist_one_shot(tmp_path: Path) -> None:
     core = engaged_core(tmp_path, _SCOPE)
     try:
-        control.set_target(core, "10.0.0.5", "repl")
+        control.set_engagement_param(core, "target", "10.0.0.5", "repl")
         assert core.env.target == "10.0.0.5"
-        control.set_wordlist(core, "/wl/rock.txt", "repl")
+        control.set_engagement_param(core, "wordlist", "/wl/rock.txt", "repl")
         assert core.env.wordlist == "/wl/rock.txt"
         # A bare invocation shows usage, changing nothing.
-        out = _text(control.set_target(core, "", "repl"))
+        out = _text(control.set_engagement_param(core, "target", "", "repl"))
         assert "usage" in out
         assert core.env.target == "10.0.0.5"
     finally:
@@ -137,7 +137,9 @@ def test_set_target_and_wordlist_one_shot(tmp_path: Path) -> None:
 def test_set_target_rejects_a_whitespace_host(tmp_path: Path) -> None:
     core = engaged_core(tmp_path, _SCOPE)
     try:
-        out = _text(control.set_target(core, "10.0.0.5 evil", "repl"))
+        out = _text(
+            control.set_engagement_param(core, "target", "10.0.0.5 evil", "repl")
+        )
         assert "whitespace" in out.lower()
         assert core.env.target is None  # nothing persisted
     finally:
@@ -147,7 +149,9 @@ def test_set_target_rejects_a_whitespace_host(tmp_path: Path) -> None:
 def test_set_wordlist_bare_shows_usage(tmp_path: Path) -> None:
     core = engaged_core(tmp_path, _SCOPE)
     try:
-        assert "usage" in _text(control.set_wordlist(core, "", "repl"))
+        assert "usage" in _text(
+            control.set_engagement_param(core, "wordlist", "", "repl")
+        )
         assert core.env.wordlist is None
     finally:
         core.close()
@@ -157,7 +161,11 @@ def test_set_target_and_wordlist_require_an_engagement(tmp_path: Path) -> None:
     core = engaged_core(tmp_path, _SCOPE)
     try:
         core.engagement = None
-        assert "no engagement" in _text(control.set_target(core, "10.0.0.5", "repl"))
-        assert "no engagement" in _text(control.set_wordlist(core, "/wl.txt", "repl"))
+        assert "no engagement" in _text(
+            control.set_engagement_param(core, "target", "10.0.0.5", "repl")
+        )
+        assert "no engagement" in _text(
+            control.set_engagement_param(core, "wordlist", "/wl.txt", "repl")
+        )
     finally:
         core.close()

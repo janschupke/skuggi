@@ -5,8 +5,8 @@ inside an authorized network but are not yet in the engagement's ``allowed_hosts
 so the command guard still blocks them -- the recon -> scan loop never closes. This
 module computes those candidates as a pure function over the collected corpus; the
 verifier surfaces them as a *proposal* the operator applies through the gated,
-non-grantable ``set scope`` flow (never auto-applied, so an authorization change is
-always a deliberate, confirmed act -- audit C4).
+non-grantable ``set engagement scope`` flow (never auto-applied, so an
+authorization change is always a deliberate, confirmed act -- audit C4).
 """
 
 from __future__ import annotations

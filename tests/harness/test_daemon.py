@@ -38,7 +38,7 @@ def test_complete_descends_to_the_value_level(daemon: Daemon) -> None:
     # The bug the operator hit: `set mode <TAB>` offered nothing because the noun
     # leaf was a dead `None`. The tree now descends to the value set.
     assert set(candidates(daemon, ["set", "mode"])) == set(MODES)
-    assert set(candidates(daemon, ["set", "autonomous"])) == {"on", "off"}
+    assert set(candidates(daemon, ["set", "engagement", "autonomous"])) == {"on", "off"}
     assert "all" in candidates(daemon, ["remove", "memory"])
     assert set(candidates(daemon, ["show", "tools"])) == {
         "all",
@@ -183,7 +183,7 @@ def test_show_mode_reflects_the_active_mode(daemon: Daemon) -> None:
 
 def test_show_autonomous_reports_the_armed_state(daemon: Daemon) -> None:
     assert "off" in chunks(daemon, {"op": "input", "text": "show autonomous"})
-    chunks(daemon, {"op": "input", "text": "set autonomous on"})
+    chunks(daemon, {"op": "input", "text": "set engagement autonomous on"})
     assert "on" in chunks(daemon, {"op": "input", "text": "show autonomous"})
 
 
@@ -196,8 +196,10 @@ def test_prompt_frame_carries_the_active_mode(daemon: Daemon) -> None:
 
 
 def test_slash_autonomous_toggles(daemon: Daemon) -> None:
-    assert "ON" in chunks(daemon, {"op": "input", "text": "/set autonomous on"})
-    assert "off" in chunks(daemon, {"op": "input", "text": "/set autonomous off"})
+    chunks(daemon, {"op": "input", "text": "/set engagement autonomous on"})
+    assert daemon.core.autonomous
+    chunks(daemon, {"op": "input", "text": "/set engagement autonomous off"})
+    assert not daemon.core.autonomous
 
 
 def test_slash_help_and_unknown(daemon: Daemon) -> None:
@@ -629,16 +631,15 @@ def test_help_for_a_verb_lists_nouns(daemon: Daemon) -> None:
 def test_is_set_interactive_detects_no_value_forms() -> None:
     assert attach.is_set_interactive("set provider")
     assert attach.is_set_interactive("set model")
-    assert attach.is_set_interactive("set listener")
+    assert attach.is_engagement_interactive("set engagement listener")  # moved here
     assert not attach.is_set_interactive("set provider openai")
-    assert not attach.is_set_interactive("set mode pentest")
     assert not attach.is_set_interactive("show status")
 
 
 def test_set_listener_one_shot_points_at_the_chat_loop(daemon: Daemon) -> None:
-    out = chunks(daemon, {"op": "input", "text": "set listener"})
+    out = chunks(daemon, {"op": "input", "text": "set engagement listener"})
     assert "interactive" in out
-    assert "/skuggi set listener" in out  # the shell grammar for the chat loop
+    assert "/skuggi set engagement listener" in out  # shell grammar for the loop
 
 
 def test_attach_set_listener_picks_interface_and_port(
@@ -650,7 +651,7 @@ def test_attach_set_listener_picks_interface_and_port(
         lambda *_a, **_k: [("eth0", "192.168.1.10"), ("tun0", "10.8.0.2")],
     )
     # The chat line, the chosen interface label, then the port.
-    answers = iter(["set listener", "tun0  10.8.0.2", "4444"])
+    answers = iter(["set engagement listener", "tun0  10.8.0.2", "4444"])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(answers, None), emitted.append)
     assert any("choose" in f for f in emitted)  # the interface picker frame

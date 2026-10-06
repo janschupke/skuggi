@@ -30,12 +30,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
-from skuggi.agent.core import parse_toggle
 from skuggi.config.configs import ConfigError
 from skuggi.frontend import (
     dispatch,
+    engagement_params,
     presenters,
     presenters_cmd,
+    presenters_engagement,
     presenters_journal,
     render,
     show_filters,
@@ -163,9 +164,37 @@ def show_notes(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.St
 
 
 def set_engagement(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
-    """Adopt the engagement root `rest` (cwd by default), scaffolding if absent."""
-    return presenters.present_set_engagement(
+    """Adopt the engagement root `rest` (cwd by default), scaffolding if absent.
+
+    The adopt/scaffold branch of ``set engagement`` -- the front-ends route a param
+    edit (``set engagement methodology …``) or the wizard elsewhere; only a path
+    (or nothing) reaches here.
+    """
+    return presenters_engagement.present_set_engagement(
         dispatch.run_set_engagement(core, rest), surface
+    )
+
+
+def set_engagement_param(
+    core: AgentCore, name: str, value: str, surface: verbs.Surface
+) -> render.Styled:
+    """One-shot ``set engagement <param> <value>`` for a direct or env param.
+
+    Only the non-interactive params reach here; the front-end sends composite /
+    authorization / no-value / listener / scope edits through the interactive flow.
+    An env var (target/wordlist) persists to env.json via ``_set_env_field``; a
+    direct config field persists in place via ``dispatch.run_engagement_param``.
+    """
+    param = engagement_params.get(name)
+    if param is not None and param.kind == "env":
+        value = value.strip()
+        if not value:
+            return presenters.usage(f"set engagement {name} {param.usage}", surface)
+        if core.engagement is None:
+            return presenters.present_error("no engagement loaded")
+        return _set_env_field(core, name, value)
+    return presenters_engagement.present_engagement_param(
+        dispatch.run_engagement_param(core, name, value)
     )
 
 
@@ -205,17 +234,6 @@ def set_mode(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styl
     return presenters.present_mode(core.mode)
 
 
-def set_autonomous(
-    core: AgentCore, rest: str, _surface: verbs.Surface
-) -> render.Styled:
-    """Arm or disarm autonomous command execution from an on/off toggle."""
-    try:
-        state = core.set_autonomous(parse_toggle(rest))
-    except ValueError as e:
-        return presenters.present_error(str(e))
-    return presenters.present_autonomous(state)
-
-
 def set_thread(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
     """Start a new conversation thread, or switch to the named one."""
     if rest in ("new", ""):
@@ -240,26 +258,6 @@ def _set_env_field(core: AgentCore, name: str, value: str | None) -> render.Styl
         return presenters.present_error(str(exc))
     core.apply_env(updated)
     return presenters.present_env_update(name, value)
-
-
-def set_target(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
-    """Set the current ``${target}`` runtime var (``set target <host>``)."""
-    rest = rest.strip()
-    if not rest:
-        return presenters.usage("set target <host>", surface)
-    if core.engagement is None:
-        return presenters.present_error("no engagement loaded")
-    return _set_env_field(core, "target", rest)
-
-
-def set_wordlist(core: AgentCore, rest: str, surface: verbs.Surface) -> render.Styled:
-    """Set the ``${wordlist}`` runtime var (``set wordlist <path>``)."""
-    rest = rest.strip()
-    if not rest:
-        return presenters.usage("set wordlist <path>", surface)
-    if core.engagement is None:
-        return presenters.present_error("no engagement loaded")
-    return _set_env_field(core, "wordlist", rest)
 
 
 def show_env(core: AgentCore, _rest: str, _surface: verbs.Surface) -> render.Styled:
@@ -389,13 +387,9 @@ SHOW_ACTIONS: dict[str, Action] = {
 }
 
 SET_ACTIONS: dict[str, Action] = {
-    "engagement": set_engagement,
     "case": set_case,
     "mode": set_mode,
-    "autonomous": set_autonomous,
     "thread": set_thread,
-    "target": set_target,
-    "wordlist": set_wordlist,
 }
 
 REMOVE_ACTIONS: dict[str, Action] = {

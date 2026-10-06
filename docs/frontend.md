@@ -60,7 +60,7 @@ The wire protocol is line-delimited JSON with two shapes:
 Interactive verbs prompt back through an **`{"ask":…}` frame** (and `{"choose":…}` /
 `{"confirm":…}` for pick-lists and yes/no): the daemon emits a question, the client
 prompts the operator and sends the answer as the next `input`, and the whole
-exchange runs inside one attach reply. This is how the `engagement setup` wizard
+exchange runs inside one attach reply. This is how the `set engagement setup` wizard
 ([wizard.py](../src/skuggi/frontend/wizard.py)), the guided provider/credential setup
 ([setup.py](../src/skuggi/frontend/setup.py)), and the natural-language `set config`
 escalation ([configflow.py](../src/skuggi/frontend/configflow.py)) work; all are

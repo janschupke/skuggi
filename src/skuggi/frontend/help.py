@@ -51,12 +51,18 @@ def help_lines(
     argument, the terse grouped outline (name + summary, no grammar); ``verbose``
     expands every verb's full grammar inline instead of only in ``help <verb>``.
     """
-    verb = arg.strip().split(" ", 1)[0]
+    parts = arg.strip().split()
+    verb = parts[0] if parts else ""
+    noun = parts[1] if len(parts) > 1 else None
     if verb:
-        detail = verbs.help_detail(verb)
+        detail = verbs.help_detail(verb, noun)
+        if detail is None and noun is not None:
+            # An unknown / flat second word: fall back to the verb's own detail.
+            detail, noun = verbs.help_detail(verb), None
         if detail is None:
             return [render.danger(f"no such command: {verb}")]
-        lines = [render.heading(f"{verbs.cmd(verb, surface)}:")]
+        label = f"{verb} {noun}" if noun else verb
+        lines = [render.heading(f"{verbs.cmd(label, surface)}:")]
         lines += [
             _row(verbs.cmd(name, surface), usage, summary, indent="  ")
             for name, usage, summary in detail

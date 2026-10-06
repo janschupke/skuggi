@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from skuggi.common.modes import Mode
-from skuggi.frontend import verbs
+from skuggi.frontend import engagement_params, verbs
 
 
 def test_cmd_formats_per_surface() -> None:
@@ -13,9 +13,9 @@ def test_cmd_formats_per_surface() -> None:
 
 
 def test_cmd_keeps_multiword_invocations() -> None:
-    assert verbs.cmd("engagement setup", "shell") == "/skuggi engagement setup"
-    assert verbs.cmd("engagement setup", "repl") == "/engagement setup"
-    assert verbs.cmd("engagement setup", "chat") == "engagement setup"
+    assert verbs.cmd("set engagement setup", "shell") == "/skuggi set engagement setup"
+    assert verbs.cmd("set engagement setup", "repl") == "/set engagement setup"
+    assert verbs.cmd("set engagement setup", "chat") == "set engagement setup"
 
 
 def test_cmd_defaults_to_shell() -> None:
@@ -33,12 +33,7 @@ def test_grouping_verbs_carry_nouns() -> None:
         "provider",
         "model",
         "mode",
-        "autonomous",
         "config",
-        "scope",
-        "target",
-        "listener",
-        "wordlist",
         "thread",
     }
     assert verbs.noun_names("add") == {
@@ -55,6 +50,13 @@ def test_grouping_verbs_carry_nouns() -> None:
 def test_plain_verb_has_no_nouns() -> None:
     assert verbs.nouns_of("report") == ()
     assert verbs.noun_names("report") == frozenset()
+
+
+def test_set_engagement_options_match_the_param_registry() -> None:
+    # `verbs` is a leaf and hand-lists the engagement params; pin them to the one
+    # registry so grammar, completion and help never drift from dispatch.
+    assert verbs.option_names("set", "engagement") == set(engagement_params.names())
+    assert verbs.option_names("set", "mode") == frozenset()  # a flat noun
 
 
 def test_only_agent_path_verbs_are_engagement() -> None:
@@ -89,6 +91,16 @@ def test_help_for_plain_verb_is_a_single_row() -> None:
 
 def test_help_for_unknown_verb_is_none() -> None:
     assert verbs.help_for("nope") is None
+
+
+def test_help_detail_descends_into_a_hierarchical_noun() -> None:
+    rows = verbs.help_detail("set", "engagement")
+    assert rows is not None
+    params = {inv.split()[2] for inv, _usage, _summary in rows}
+    assert params == set(engagement_params.names())
+    # a flat noun (no options) has no second level, and an unknown one is None
+    assert verbs.help_detail("set", "mode") is None
+    assert verbs.help_detail("set", "nope") is None
 
 
 # --- mode gating ------------------------------------------------------------

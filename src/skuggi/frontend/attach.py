@@ -21,23 +21,21 @@ from typing import TYPE_CHECKING
 from skuggi.agent import protocol
 from skuggi.common import palette
 from skuggi.common.logs import get_logger
-from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.engagement.scope import OSINT_SOURCES
 from skuggi.frontend import (
     cmdflow,
     configflow,
     dispatch,
+    engagement_params,
+    engagementflow,
     installflow,
-    listenerflow,
     memoryflow,
-    scopeflow,
     setup,
     verbs,
     wizard,
 )
 from skuggi.frontend.confirm import Choose, Notify
 from skuggi.frontend.prompter import Prompter
-from skuggi.tooling import probe
 
 if TYPE_CHECKING:
     import threading
@@ -70,21 +68,25 @@ def engagement_catalog(core: AgentCore) -> wizard.Catalog:
 
 
 def is_wizard(line: str) -> bool:
-    """Whether `line` opens the interactive engagement wizard."""
+    """Whether `line` opens the engagement wizard (``set engagement setup``)."""
     verb, rest = verbs.split_verb(line)
-    parts = rest.split()
-    return verb == "engagement" and bool(parts) and parts[0] in wizard.WIZARD_ARGS
+    noun, _, tail = rest.partition(" ")
+    parts = tail.split()
+    return (
+        verb == "set"
+        and noun == "engagement"
+        and bool(parts)
+        and parts[0] in wizard.WIZARD_ARGS
+    )
 
 
-def attach_wizard(
-    core: AgentCore, lock: threading.Lock, read_line: ReadLine, emit: Emit
-) -> None:
-    """Run the engagement wizard over the attach connection.
+def _attach_prompter(emit: Emit, read_line: ReadLine) -> Prompter:
+    """Build the Prompter that round-trips widget frames over the attach socket.
 
-    Menus (``{"choose"}``) and the checklist (``{"multiselect"}``) round-trip to
-    the client, which renders prompt_toolkit widgets locally; autocomplete is
-    REPL-only and degrades to a plain ``{"ask"}`` prompt here. The step bar and
-    status lines ride ``{"chunk"}``. The turn closes with a non-exit ``end`` frame.
+    Menus (``{"choose"}``) and the checklist (``{"multiselect"}``) render in the
+    client; autocomplete is REPL-only and degrades to a plain ``{"ask"}`` prompt;
+    the step bar and status lines ride ``{"chunk"}``. Shared by the wizard and the
+    single-field engagement edits so the two collect input identically.
     """
 
     def ask(prompt: str) -> str | None:
@@ -141,7 +143,7 @@ def attach_wizard(
     def progress(step: int, total: int, label: str) -> None:
         emit({"chunk": f"[{step}/{total}] {label}\n"})
 
-    prompter = Prompter(
+    return Prompter(
         ask=ask,
         ask_complete=ask_complete,
         choose=choose,
@@ -150,7 +152,17 @@ def attach_wizard(
         notify=notify,
         progress=progress,
     )
-    core.note_interaction("engagement", "setup")
+
+
+def attach_wizard(
+    core: AgentCore, lock: threading.Lock, read_line: ReadLine, emit: Emit
+) -> None:
+    """Run the engagement wizard over the attach connection.
+
+    The turn closes with a non-exit ``end`` frame.
+    """
+    prompter = _attach_prompter(emit, read_line)
+    core.note_interaction("set", "engagement setup")
     with lock:
         try:
             wizard.run_wizard(
@@ -216,18 +228,13 @@ def attach_cmd_editor(
 
 
 def is_set_interactive(line: str) -> bool:
-    """Whether `line` is a no-value ``set`` noun that prompts (provider/model/listener).
+    """Whether `line` is a no-value ``set`` noun that prompts (provider/model).
 
     Only the no-value forms prompt; ``set provider openai`` stays a one-shot.
-    ``set listener`` always prompts (pick an interface, enter a port).
     """
     verb, rest = verbs.split_verb(line)
     parts = rest.split()
-    return (
-        verb == "set"
-        and len(parts) == 1
-        and parts[0] in {"provider", "model", "listener"}
-    )
+    return verb == "set" and len(parts) == 1 and parts[0] in {"provider", "model"}
 
 
 def attach_set(
@@ -256,40 +263,53 @@ def attach_set(
     with lock:
         if noun == "provider":
             setup.run_setup(core, ask, choose, notify)
-        elif noun == "model":
-            setup.run_model_select(core, core.provider, ask, choose, notify)
         else:
-            _attach_listener(core, ask, choose, notify)
+            setup.run_model_select(core, core.provider, ask, choose, notify)
     emit({"end": True, "exit": False})
 
 
-def _attach_listener(
-    core: AgentCore,
-    ask: Callable[[str], str | None],
-    choose: Choose,
-    notify: Notify,
-) -> None:
-    """Run the ``set listener`` picker over the attach loop's prompt closures."""
-    if core.engagement is None:
-        notify("no engagement loaded")
-        return
+# ----- interactive engagement-field edits ------------------------------------
 
-    def apply(lhost: str, lport: str | None) -> None:
-        env = EngagementEnv.model_validate(
-            {**core.env.model_dump(), "lhost": lhost, "lport": lport}
-        )
-        core.apply_env(env)
-        notify(
-            f"listener set to {lhost}:{lport}" if lport else f"listener set to {lhost}"
-        )
 
-    listenerflow.run_set_listener(
-        interfaces=probe.local_interfaces(),
-        choose=choose,
-        ask=ask,
-        notify=notify,
-        apply=apply,
+def is_engagement_interactive(line: str) -> bool:
+    """Whether `line` is a ``set engagement <param>`` that needs an interactive turn.
+
+    Composite / authorization / listener / scope params, and any direct param with
+    no value, prompt; a one-shot direct or env edit (a value present) does not.
+    """
+    verb, rest = verbs.split_verb(line)
+    noun, _, tail = rest.partition(" ")
+    if verb != "set" or noun != "engagement":
+        return False
+    inv = engagement_params.classify(tail)
+    return inv.action == "param" and engagement_params.needs_prompt(
+        inv.target, has_value=bool(inv.value)
     )
+
+
+def attach_engagement_param(
+    core: AgentCore, lock: threading.Lock, line: str, read_line: ReadLine, emit: Emit
+) -> None:
+    """Run one interactive ``set engagement <param>`` edit over the attach loop."""
+    _, rest = verbs.split_verb(line)
+    tail = rest.partition(" ")[2]
+    inv = engagement_params.classify(tail)
+    prompter = _attach_prompter(emit, read_line)
+    core.note_interaction("set", f"engagement {tail}")
+    with lock:
+        try:
+            engagementflow.run_param_edit(
+                core,
+                inv.target,
+                inv.value,
+                prompter=prompter,
+                catalog=engagement_catalog(core),
+                grants=core.grants,
+            )
+        except Exception as exc:  # defensive: never kill the daemon thread
+            log.exception("engagement field edit failed")
+            emit({"chunk": f"edit failed: {exc}\n"})
+    emit({"end": True, "exit": False})
 
 
 # ----- natural-language config escalation ------------------------------------
@@ -376,42 +396,6 @@ def attach_cmd_suggest(
 # ----- scope edit ------------------------------------------------------------
 
 
-def is_scope_request(line: str) -> bool:
-    """Whether `line` is a ``set scope <request>`` (always interactive)."""
-    verb, rest = verbs.split_verb(line)
-    if verb != "set":
-        return False
-    noun, _, tail = rest.partition(" ")
-    return noun == "scope" and bool(tail.strip())
-
-
-def attach_scope(
-    core: AgentCore,
-    lock: threading.Lock,
-    request: str,
-    read_line: ReadLine,
-    emit: Emit,
-) -> None:
-    """Run the scope-edit confirm flow over the attach connection."""
-
-    def choose(prompt: str, options: list[str], default: str | None) -> str | None:
-        emit({"choose": {"prompt": prompt, "options": options, "default": default}})
-        return read_line()
-
-    core.note_interaction("set", f"scope {request}")
-    with lock:
-        scopeflow.run_scope_request(
-            request,
-            choose=choose,
-            notify=lambda text: emit({"chunk": text + "\n"}),
-            propose=core.scope.propose,
-            preview=core.scope.preview,
-            apply=core.scope.apply,
-            grants=core.grants,
-        )
-    emit({"end": True, "exit": False})
-
-
 def intercept(
     core: AgentCore,
     lock: threading.Lock,
@@ -421,13 +405,15 @@ def intercept(
 ) -> bool:
     """Run `line` as an interactive attach flow if it is one; else return False.
 
-    The round-trip flows (wizard, set-interactive, cmd editor/suggest, config/
-    scope edits, install-missing, doctor-research) each own a multi-turn
-    sub-dialogue over this connection; this is the one place that recognises and
-    dispatches them so the daemon's attach loop stays a thin router.
+    The round-trip flows (wizard, set-interactive, single engagement-field edits,
+    cmd editor/suggest, config edits, install-missing, doctor-research) each own a
+    multi-turn sub-dialogue over this connection; this is the one place that
+    recognises and dispatches them so the daemon's attach loop stays a thin router.
     """
     if is_wizard(line):
         attach_wizard(core, lock, read_line, emit)
+    elif is_engagement_interactive(line):
+        attach_engagement_param(core, lock, line, read_line, emit)
     elif is_set_interactive(line):
         attach_set(core, lock, line, read_line, emit)
     elif is_cmd_editor(line):
@@ -438,9 +424,6 @@ def intercept(
     elif is_config_request(core, line):
         request = verbs.split_verb(line)[1].partition(" ")[2]
         attach_config(core, lock, request, read_line, emit)
-    elif is_scope_request(line):
-        request = verbs.split_verb(line)[1].partition(" ")[2]
-        attach_scope(core, lock, request, read_line, emit)
     elif is_install_missing(line):
         attach_install_missing(core, lock, read_line, emit)
     elif (research_tool := doctor_research_tool(line)) is not None:

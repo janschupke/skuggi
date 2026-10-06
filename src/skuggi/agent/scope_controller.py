@@ -85,6 +85,40 @@ def scope_diff(
     ]
 
 
+def changed_fields(
+    before: EngagementConfig, after: EngagementConfig
+) -> list[tuple[str, str, str]]:
+    """``(field, old, new)`` for *every* engagement field the edit changed.
+
+    Unlike :func:`scope_diff` (scoped to the NL-editable ``SCOPE_FIELDS``), this
+    covers any field -- used by the per-field authorization edits
+    (``set engagement allowed_ports …`` and friends) so their gated diff shows
+    exactly what changed, whatever the field.
+    """
+    b = before.model_dump(mode="json")
+    a = after.model_dump(mode="json")
+    return [
+        (field, _render(b.get(field)), _render(a.get(field)))
+        for field in a
+        if b.get(field) != a.get(field)
+    ]
+
+
+def build_field_edit(
+    engagement: EngagementConfig, field_key: str, value: object
+) -> EngagementConfig:
+    """The engagement with `field_key` set to `value`, re-validated.
+
+    Pure, like :func:`apply_scope_edits`: it works on the JSON dump so the result
+    goes back through full ``EngagementConfig`` validation (a bad CIDR / host /
+    port / tier is rejected here, not written). `value` is already parsed into the
+    field's shape by the caller (the param registry's transform).
+    """
+    raw = engagement.model_dump(mode="json")
+    raw[field_key] = value
+    return EngagementConfig.model_validate(raw)
+
+
 class ScopeController:
     """Maps NL requests to scope edits, previews them, and applies on confirm."""
 

@@ -35,6 +35,7 @@ from skuggi.frontend import (
     completion,
     control,
     dispatch,
+    engagement_params,
     memoryflow,
     outcomes,
     presenters,
@@ -43,7 +44,6 @@ from skuggi.frontend import (
     render,
     verbosity,
     verbs,
-    wizard,
 )
 from skuggi.frontend import (
     help as help_mod,
@@ -359,7 +359,6 @@ class Daemon:
             "visualize": self._styled(control.visualize),
             "replay": self._replay,
             "review": self._review,
-            "engagement": self._engagement,
             "doctor": self._doctor,
             "login": self._login,
             "ingest": self._styled(control.ingest),
@@ -419,11 +418,10 @@ class Daemon:
             arg,
             {
                 **{n: self._styled(a) for n, a in control.SET_ACTIONS.items()},
+                "engagement": self._set_engagement,
                 "provider": self._set_provider,
                 "model": self._set_model,
                 "config": self._config,
-                "scope": self._scope,
-                "listener": self._listener,
             },
         )
 
@@ -513,7 +511,7 @@ class Daemon:
         if described:
             yield described + "\n"
         else:
-            yield f"no engagement loaded -- run {self._cmd('engagement setup')}\n"
+            yield f"no engagement loaded -- run {self._cmd('set engagement setup')}\n"
 
     def _show_db(self, _rest: str) -> Iterator[str]:
         yield dispatch.run_db_stats(self.core) + "\n"
@@ -543,22 +541,34 @@ class Daemon:
         for table in tables:
             yield table_ansi(table)
 
-    def _engagement(self, arg: str) -> Iterator[str]:
-        first = arg.split(maxsplit=1)[0] if arg.split() else ""
-        if first in wizard.WIZARD_ARGS:
-            # Reached only as a raw one-shot; the client routes the wizard through
-            # the attach loop. Point at the command that works here.
-            hint = self._cmd("engagement setup")
-            yield f"engagement setup is interactive -- run {hint}\n"
+    def _set_engagement(self, arg: str) -> Iterator[str]:
+        """``set engagement`` over the socket: one-shot adopt / direct param edits.
+
+        Adopt/scaffold and a one-shot direct or env edit run here; the wizard and
+        the interactive params (composite / authorization / no-value / listener /
+        scope) need the chat loop's round-trip, so they point there (the chat loop
+        intercepts them before dispatch via ``attach``).
+        """
+        inv = engagement_params.classify(arg)
+        if inv.action == "adopt":
+            yield from self._styled(control.set_engagement)(inv.target)
             return
-        if first == "threat-model":
-            rest = arg.split(maxsplit=1)[1] if len(arg.split()) > 1 else ""
-            yield dispatch.run_threat_model(self.core, rest) + "\n"
+        if inv.action == "wizard":
+            yield (
+                f"the engagement wizard is interactive -- run "
+                f"{self._cmd('set engagement setup')} in the chat loop\n"
+            )
             return
-        yield (
-            f"usage: {self._cmd('engagement setup | threat-model')} -- "
-            f"adopt/scaffold a root with {self._cmd('set engagement [<path>]')}, "
-            f"scope summary is {self._cmd('show engagement')}\n"
+        if engagement_params.needs_prompt(inv.target, has_value=bool(inv.value)):
+            yield (
+                f"editing {inv.target} is interactive -- run "
+                f"{self._cmd('set engagement ' + arg)} in the chat loop\n"
+            )
+            return
+        yield from self._emit(
+            control.set_engagement_param(
+                self.core, inv.target, inv.value, self._surface()
+            )
         )
 
     def _config(self, arg: str) -> Iterator[str]:
@@ -571,22 +581,6 @@ class Daemon:
             )
             return
         yield text + "\n"
-
-    def _scope(self, arg: str) -> Iterator[str]:
-        # A scope edit is always a natural-language request, so it needs the
-        # interactive confirm (diff -> approve); one-shot cannot round-trip.
-        yield (
-            f"editing scope is interactive -- run {self._cmd('set scope ' + arg)} "
-            f"in the chat loop\n"
-        )
-
-    def _listener(self, _arg: str) -> Iterator[str]:
-        # The listener picker is interactive (choose an interface, enter a port),
-        # so a one-shot cannot round-trip; it runs in the chat loop via attach_set.
-        yield (
-            f"setting a listener is interactive -- run {self._cmd('set listener')} "
-            f"in the chat loop\n"
-        )
 
     def _login(self, _arg: str) -> Iterator[str]:
         # Login only reports progress (no questions), so it runs here directly;

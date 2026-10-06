@@ -268,6 +268,12 @@ KNOWN_KEYS: frozenset[str] = frozenset(
     f.key for section in _SECTIONS for f in section.fields
 )
 
+# The wizard field for each key, so `set engagement <param>` can reuse a field's
+# widget / transform / option source to collect or parse one value in isolation.
+FIELDS_BY_KEY: dict[str, Field] = {
+    f.key: f for section in _SECTIONS for f in section.fields
+}
+
 
 def _ask_field(  # noqa: PLR0911, PLR0912 -- a widget dispatch is one return/branch per widget
     prompter: Prompter, catalog: Catalog, field: Field, current: object

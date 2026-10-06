@@ -344,14 +344,16 @@ class EngagementManager:
     def set_autonomous(self, want: bool | None) -> bool:
         """Toggle autonomous execution; returns the new state.
 
-        Raises ValueError when no engagement is loaded (there is nothing to arm).
+        Persists the new value to scope.json through ``update_engagement_fields``
+        (an engagement's autonomous flag is part of its config, so it survives a
+        restart), hot-reloading in place. Raises ValueError when no engagement is
+        loaded (there is nothing to arm).
         """
         if self.engagement is None:
             msg = "no engagement loaded"
             raise ValueError(msg)
         target = (not self.engagement.autonomous) if want is None else want
-        self.engagement = self.engagement.model_copy(update={"autonomous": target})
-        self._core.rebuild_graph()
+        self.update_engagement_fields({"autonomous": target})
         return target
 
     # ----- engagement data ---------------------------------------------------
@@ -497,3 +499,34 @@ class EngagementManager:
                 engagement.model_dump_json(indent=2), encoding="utf-8"
             )
         self._core.rebuild_graph()
+
+    def update_engagement_fields(self, updates: dict[str, object]) -> EngagementConfig:
+        """Merge `updates` into the scope, re-validate, persist in place, hot-reload.
+
+        The general in-place editor behind ``set engagement <param>``: unlike
+        ``adopt_engagement`` it keeps the current session (no new ledger session),
+        mirroring ``apply_engagement_scope``/``update_threat_model``. The merge
+        goes through ``model_dump`` -> ``model_validate`` because
+        ``model_copy(update=)`` does NOT re-validate, so a bad value raises
+        ``InvalidScopeError`` rather than being persisted. Requires an active
+        engagement; a ``threat_model`` change should go through
+        ``update_threat_model`` instead so the ledger version is recorded.
+        """
+        if self.engagement is None:
+            msg = "no engagement loaded; cannot edit it"
+            raise ConfigError(msg)
+        raw = self.engagement.model_dump(mode="json")
+        raw.update(updates)
+        try:
+            updated = EngagementConfig.model_validate(raw)
+        except ValidationError as exc:
+            keys = frozenset(
+                str(err["loc"][0]) for err in exc.errors() if err.get("loc")
+            )
+            summary = "; ".join(
+                f"{'.'.join(str(p) for p in err.get('loc', ()))}: {err['msg']}"
+                for err in exc.errors()
+            )
+            raise InvalidScopeError(summary or str(exc), keys) from exc
+        self.apply_engagement_scope(updated)
+        return updated

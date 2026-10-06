@@ -15,14 +15,16 @@ The typed results live in :mod:`skuggi.frontend.outcomes` and their rendering in
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
 from skuggi.common import palette
-from skuggi.common.paths import packaged_template
 from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import ThreatModel
+from skuggi.engagement.workspace import safe_engagement_name
+from skuggi.frontend import engagement_params
 from skuggi.frontend.outcomes import (
     AddedCredential,
     AddedFoothold,
@@ -32,6 +34,9 @@ from skuggi.frontend.outcomes import (
     AddUsage,
     BadSeverity,
     EngagementAdopted,
+    EngagementFieldUpdated,
+    EngagementParamError,
+    EngagementParamOutcome,
     EngagementScaffolded,
     FindingRecorded,
     Indexed,
@@ -95,8 +100,7 @@ if TYPE_CHECKING:
     from skuggi.agent.core import AgentCore
     from skuggi.agent.readiness import Readiness
 
-# The packaged scope template and the name it scaffolds to in the cwd.
-_SCOPE_TEMPLATE = "scope.example.json"
+# The scope file a fresh engagement scaffolds to in its root.
 _SCOPE_OUT = "scope.json"
 
 
@@ -183,18 +187,32 @@ def run_latency(core: AgentCore) -> str:
 # ----- scaffold -------------------------------------------------------------
 
 
-def run_scaffold(dest_dir: Path) -> ScaffoldOutcome:
-    """Copy the packaged scope template into `dest_dir`, never overwriting.
+def _scaffold_name(dest_dir: Path) -> str:
+    """A valid engagement name derived from the directory (fallback ``engagement``)."""
+    try:
+        return safe_engagement_name(dest_dir.name)
+    except ValueError:
+        return "engagement"
 
-    The operator edits the resulting ``scope.json`` and points an engagement at
-    it. A pre-existing file is left untouched (the template is a starting point,
-    not a reset).
+
+def run_scaffold(dest_dir: Path) -> ScaffoldOutcome:
+    """Write a *minimal* scope.json into `dest_dir`, never overwriting.
+
+    A minimal engagement is just a name (derived from the directory) and a
+    timezone; every other field keeps its ``EngagementConfig`` default. The
+    operator fills it in afterwards with ``set engagement <param>`` (the adopt
+    output lists the commands) or the wizard -- a gentler start than the fully
+    populated example, which stays the reconcile reference template. A pre-existing
+    file is left untouched (a scaffold is a starting point, not a reset).
     """
     target = dest_dir / _SCOPE_OUT
     if target.exists():
         return ScaffoldExists(target)
     try:
-        target.write_bytes(packaged_template(_SCOPE_TEMPLATE).read_bytes())
+        body = json.dumps(
+            {"name": _scaffold_name(dest_dir), "timezone": "UTC"}, indent=2
+        )
+        target.write_text(body + "\n", encoding="utf-8")
     except OSError as exc:
         return ScaffoldError(str(exc))
     return Scaffolded(target)
@@ -207,9 +225,9 @@ def run_set_engagement(core: AgentCore, arg: str) -> SetEngagementOutcome:
     """Adopt the engagement rooted at `arg` (cwd when empty), scaffolding if absent.
 
     The root *is* the engagement directory. It is created if missing; a directory
-    without a ``scope.json`` is seeded from the packaged template; then the root is
-    adopted (scope + ledger + vault hot-reloaded). A bad path or an invalid scope
-    is returned as an error for the front-end to re-ask, never a crash.
+    without a ``scope.json`` is seeded with a minimal scope (see ``run_scaffold``);
+    then the root is adopted (scope + ledger + vault hot-reloaded). A bad path or an
+    invalid scope is returned as an error for the front-end to re-ask, never a crash.
     """
     raw = arg.strip()
     root = (Path(raw).expanduser() if raw else Path.cwd()).resolve()
@@ -232,6 +250,37 @@ def run_set_engagement(core: AgentCore, arg: str) -> SetEngagementOutcome:
             name=scope.name, root=root, scope_path=root / _SCOPE_OUT
         )
     return EngagementAdopted(name=scope.name, root=root)
+
+
+def _display_value(value: object) -> str:
+    """A short human rendering of an edited field value for the confirmation line."""
+    if isinstance(value, (list, tuple, frozenset, set)):
+        return ", ".join(str(v) for v in value) or "(none)"
+    if value is None:
+        return "(none)"
+    return str(value)
+
+
+def run_engagement_param(
+    core: AgentCore, name: str, value: str
+) -> EngagementParamOutcome:
+    """Apply a one-shot ``set engagement <param> <value>`` edit (direct, non-gated).
+
+    Only the direct (non-authorization, non-composite, non-env) params route here
+    with a value present; the raw string is parsed by the param registry's
+    transform and persisted in place via ``update_engagement_fields`` (re-validated,
+    no new session). A malformed value or a rejecting validation is returned as an
+    error for the front-end to show, never a crash.
+    """
+    try:
+        parsed = engagement_params.parse_value(name, value)
+    except ValueError as exc:
+        return EngagementParamError(str(exc))
+    try:
+        core.update_engagement_fields({name: parsed})
+    except ConfigError as exc:  # includes InvalidScopeError (a bad value)
+        return EngagementParamError(str(exc))
+    return EngagementFieldUpdated(name=name, value=_display_value(parsed))
 
 
 # ----- provider -------------------------------------------------------------
@@ -424,7 +473,7 @@ def run_findings(core: AgentCore, arg: str) -> str | None:
 
 
 _TM_LEVELS = frozenset({"low", "medium", "high"})
-_TM_USAGE = "engagement threat-model <conf> <int> <avail> [| note]  (low|medium|high)"
+_TM_USAGE = "threat_model <conf> <int> <avail> [| note]  (low|medium|high)"
 
 
 def run_threat_model(core: AgentCore, arg: str) -> str:

@@ -53,7 +53,9 @@ def test_verifier_summary_appends_a_gated_scope_proposal() -> None:
     out = nodes._with_scope_proposal("base summary", results, deps)
     assert "base summary" in out
     assert "10.0.0.42" in out
-    assert "set scope" in out  # routed through the gated flow, not auto-applied
+    assert (
+        "set engagement scope" in out
+    )  # routed through the gated flow, not auto-applied
 
 
 def test_verifier_summary_unchanged_without_candidates() -> None:

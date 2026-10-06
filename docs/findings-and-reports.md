@@ -63,8 +63,8 @@ forced.
 
 **Threat model.** An optional CVSS Environmental threat model (CR/IR/AR) tailors
 scores to the asset. It can be set up front in the scope or during the engagement
-with `engagement threat-model <conf> <int> <avail> [| note]` (the agent advises; the
-operator applies). Each change is versioned (`threat_model_versions`) and logged;
+with `set engagement threat_model` (a guided CVSS CR/IR/AR picker; the agent
+advises, the operator applies). Each change is versioned (`threat_model_versions`) and logged;
 findings scored under an earlier version are flagged ⚠ outdated in the listing, and
 `findings rescore [all|<id>]` refreshes them from their stored base vector — recorded
 scores change only on that explicit action.

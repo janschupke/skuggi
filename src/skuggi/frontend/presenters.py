@@ -16,8 +16,6 @@ from skuggi.common import palette
 from skuggi.engagement.runtime_env import EngagementEnv
 from skuggi.frontend import render, verbs
 from skuggi.frontend.outcomes import (
-    EngagementAdopted,
-    EngagementScaffolded,
     Installed,
     InstallFailed,
     InstallOutcome,
@@ -52,8 +50,6 @@ from skuggi.frontend.outcomes import (
     ReconcileUsage,
     SessionCount,
     SessionStats,
-    SetEngagementError,
-    SetEngagementOutcome,
 )
 from skuggi.frontend.render import Styled
 from skuggi.install import configdiff, reconcile
@@ -654,24 +650,3 @@ def present_unknown(verb: str, surface: verbs.Surface) -> Styled:
     return [
         render.danger(f"unknown command: {verb!r} -- try {verbs.cmd('help', surface)}")
     ]
-
-
-def present_set_engagement(
-    outcome: SetEngagementOutcome, surface: verbs.Surface
-) -> Styled:
-    """Render a ``set engagement`` outcome identically on both surfaces."""
-    match outcome:
-        case EngagementAdopted(name, root):
-            return [render.success(f"adopted engagement {name!r} at {root}")]
-        case EngagementScaffolded(name, root, scope_path):
-            return [
-                render.info(f"scaffolded a scope template at {scope_path}"),
-                render.success(f"adopted engagement {name!r} at {root}"),
-                render.info(
-                    "edit the scope with "
-                    + verbs.cmd("engagement setup", surface)
-                    + f" or by editing {scope_path}"
-                ),
-            ]
-        case SetEngagementError(message):
-            return [render.danger(f"could not set engagement: {message}")]

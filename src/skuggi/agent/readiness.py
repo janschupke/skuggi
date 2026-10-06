@@ -55,7 +55,7 @@ class Readiness:
         if not self.has_llm or not self.provider_configured:
             steps.append(PendingStep("set provider", "configure a model provider"))
         if self.engagement is None:
-            steps.append(PendingStep("engagement setup", "scope an engagement"))
+            steps.append(PendingStep("set engagement setup", "scope an engagement"))
         return tuple(steps)
 
 

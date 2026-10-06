@@ -86,15 +86,6 @@ from skuggi.tooling.registry import ToolRegistry
 log = logs.get_logger(__name__)
 
 
-def parse_toggle(arg: str) -> bool | None:
-    """Parse an on/off argument; None (neither) means "flip the current state".
-
-    Shared by the REPL and the daemon so /autonomous parses identically in
-    both front-ends.
-    """
-    return {"on": True, "off": False}.get(arg.strip().lower())
-
-
 class AgentCore:
     """Owns the agent session; front-ends render its output."""
 
@@ -290,6 +281,10 @@ class AgentCore:
     def apply_engagement_scope(self, engagement: EngagementConfig) -> None:
         """Persist an edited scope in place and hot-reload it (delegated)."""
         self.engagement_mgr.apply_engagement_scope(engagement)
+
+    def update_engagement_fields(self, updates: dict[str, object]) -> EngagementConfig:
+        """Merge field updates into the scope, persist, hot-reload (delegated)."""
+        return self.engagement_mgr.update_engagement_fields(updates)
 
     @property
     def env(self) -> EngagementEnv:
