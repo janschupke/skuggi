@@ -13,7 +13,6 @@ from typing import cast
 
 from langgraph.graph.state import CompiledStateGraph
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import NestedCompleter
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.shortcuts import CompleteStyle
 from rich.console import Console
@@ -99,16 +98,16 @@ class Tui:
 
         cancel_bindings, self._cancel_state = menu.cancel_bindings()
         providers, models = completion.provider_model_names(self.core.settings.provider)
+        tree = completion.completion_tree(
+            self.core.commands.names(),
+            reconcile.known_names(),
+            provider_names=providers,
+            model_names=models,
+        )
+        completion.install_tab_binding(cancel_bindings, tree)
         self.session: PromptSession[str] = session or PromptSession(
             history=InMemoryHistory(),
-            completer=NestedCompleter.from_nested_dict(
-                completion.completion_tree(
-                    self.core.commands.names(),
-                    reconcile.known_names(),
-                    provider_names=providers,
-                    model_names=models,
-                )
-            ),
+            completer=completion.build_completer(tree),
             complete_style=CompleteStyle.READLINE_LIKE,
             complete_while_typing=False,
             key_bindings=cancel_bindings,

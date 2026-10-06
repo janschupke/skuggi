@@ -7,6 +7,9 @@ shipping with dead completion again.
 
 from __future__ import annotations
 
+from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.document import Document
+
 from skuggi.common.modes import MODES
 from skuggi.frontend import completion, verbs
 
@@ -62,3 +65,50 @@ def test_every_grouping_verb_has_a_noun_dict() -> None:
         node = tree[grouping]
         assert isinstance(node, dict)
         assert set(node) == set(verbs.noun_names(grouping))
+
+
+# --- Interactive Tab behavior ------------------------------------------------
+
+
+def _complete(text: str) -> list[str]:
+    """The completions the interactive completer offers for `text` (cursor at end)."""
+    completer = completion.build_completer(_tree())
+    doc = Document(text, len(text))
+    return [
+        c.text
+        for c in completer.get_completions(
+            doc, CompleteEvent(completion_requested=True)
+        )
+    ]
+
+
+def test_partial_hyphenated_and_dotted_names_complete() -> None:
+    # Stock NestedCompleter breaks on `-`/`.`; build_completer uses a whole-token
+    # pattern so a partial past the separator still matches the full name.
+    assert "nmap-host" in _complete("cmd nmap-h")  # hyphen, cmd cheatsheet name
+    assert "config.json" in _complete("reconcile config.j")  # dot, reconcile file
+    # a bare-prefix partial (no separator yet) keeps working too
+    assert "nmap-host" in _complete("cmd nm")
+
+
+def test_tab_inserts_space_only_at_a_complete_unambiguous_word() -> None:
+    tree = _tree()
+    # end of a complete word -> Tab should add a space (then the next Tab descends)
+    assert completion.tab_inserts_space(tree, "set") is True
+    assert completion.tab_inserts_space(tree, "cmd") is True
+    # a partial word -> complete it, do not add a space
+    assert completion.tab_inserts_space(tree, "se") is False
+    # trailing space -> already descended; let completion list the children
+    assert completion.tab_inserts_space(tree, "set ") is False
+    # a nested complete, unambiguous noun also advances
+    assert completion.tab_inserts_space(tree, "set provider") is True
+    # but `mode` is a strict prefix of `model`, so it completes instead of a space
+    assert completion.tab_inserts_space(tree, "set mode") is False
+
+
+def test_tab_does_not_add_space_when_word_is_a_prefix_of_a_sibling() -> None:
+    # A complete word that is also a strict prefix of a sibling must still complete
+    # (to reach the longer sibling) rather than swallow a space.
+    tree: dict[str, object] = {"set": None, "setup": None}
+    assert completion.tab_inserts_space(tree, "set") is False
+    assert completion.tab_inserts_space(tree, "setup") is True

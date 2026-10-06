@@ -290,18 +290,18 @@ def _make_session(  # pragma: no cover -- real terminal
     ``state`` lets the caller show the exit hint only on an empty prompt.
     """
     from prompt_toolkit import PromptSession  # noqa: PLC0415 -- keep ptk off hot paths
-    from prompt_toolkit.completion import NestedCompleter  # noqa: PLC0415
     from prompt_toolkit.history import InMemoryHistory  # noqa: PLC0415
     from prompt_toolkit.shortcuts import CompleteStyle  # noqa: PLC0415
 
-    from skuggi.frontend import menu  # noqa: PLC0415 -- lazy; keep ptk off hot paths
+    # lazy; keep ptk off hot paths
+    from skuggi.frontend import completion, menu  # noqa: PLC0415
 
+    bindings, state = menu.cancel_bindings()
     completer = None
     tree = ready.get("tree")
     if isinstance(tree, dict):
-        completer = NestedCompleter.from_nested_dict(tree)
-
-    bindings, state = menu.cancel_bindings()
+        completer = completion.build_completer(tree)
+        completion.install_tab_binding(bindings, tree)
     session: PromptSession[str] = PromptSession(
         history=InMemoryHistory(),
         completer=completer,

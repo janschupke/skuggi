@@ -11,7 +11,14 @@ leaf was a dead ``None``.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import re
+from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from prompt_toolkit.completion import CompleteEvent, Completer, Completion
+    from prompt_toolkit.document import Document
+    from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 
 from skuggi.common.modes import MODES
 from skuggi.frontend import engagement_params, verbs
@@ -89,3 +96,121 @@ def completion_tree(
     files: dict[str, object] = dict.fromkeys(reconcile_names)
     tree["reconcile"] = {"diff": dict(files), "all": None, **files}
     return tree
+
+
+# --- Interactive Tab behavior (prompt_toolkit surfaces only) ------------------
+#
+# Stock ``NestedCompleter`` falls short in two ways the REPL and attach loop need
+# fixed. (1) Its per-level ``WordCompleter`` uses the default word pattern, which
+# breaks on ``-``/``.`` -- so ``cmd nmap-h`` or ``set model gpt-5-`` stop matching
+# the moment you type past the hyphen/dot. ``build_completer`` swaps in a
+# whole-token (``\S+``) pattern so hyphenated/dotted leaves complete. (2) At the
+# end of a complete word it re-offers the same word and nothing advances;
+# ``install_tab_binding`` makes Tab insert a space there (bash-like), so the next
+# Tab lists the children.
+#
+# prompt_toolkit is imported lazily inside these functions: the module stays
+# ptk-free for the daemon's fire-and-forget ``--complete`` tree build.
+
+
+def build_completer(tree: dict[str, object]) -> Completer:
+    """A completer whose per-level matcher treats a whole token as the word.
+
+    So ``nmap-host``/``gpt-5-mini``/``config.json`` complete past the ``-``/``.``
+    that the stock ``WordCompleter`` word pattern would treat as a boundary.
+    """
+    from prompt_toolkit.completion import (  # noqa: PLC0415 -- keep ptk off hot paths
+        NestedCompleter,
+        WordCompleter,
+    )
+
+    class _TokenNestedCompleter(NestedCompleter):
+        r"""``NestedCompleter`` with a whole-token (``\S+``) word pattern.
+
+        ``from_nested_dict`` builds via ``cls``, so this subclass propagates to
+        every nested level. Only the no-space (leaf-of-recursion) branch differs
+        from the base: it builds its ``WordCompleter`` with the token pattern.
+        """
+
+        def get_completions(
+            self, document: Document, complete_event: CompleteEvent
+        ) -> Iterator[Completion]:
+            text = document.text_before_cursor.lstrip()
+            stripped_len = len(document.text_before_cursor) - len(text)
+            if " " in text:
+                first_term = text.split()[0]
+                completer = self.options.get(first_term)
+                if completer is not None:
+                    remaining_text = text[len(first_term) :].lstrip()
+                    move_cursor = len(text) - len(remaining_text) + stripped_len
+                    from prompt_toolkit.document import Document  # noqa: PLC0415
+
+                    new_document = Document(
+                        remaining_text,
+                        cursor_position=document.cursor_position - move_cursor,
+                    )
+                    yield from completer.get_completions(new_document, complete_event)
+            else:
+                word_completer = WordCompleter(
+                    list(self.options.keys()),
+                    ignore_case=self.ignore_case,
+                    pattern=re.compile(r"\S+"),
+                )
+                yield from word_completer.get_completions(document, complete_event)
+
+    return _TokenNestedCompleter.from_nested_dict(tree)
+
+
+def _node_at(tree: dict[str, object], tokens: Iterable[str]) -> object | None:
+    """Walk `tree` by the already-complete `tokens`; the node reached, or None.
+
+    Mirrors the daemon's host-shell ``_complete`` walk so both surfaces resolve a
+    partial line to the same node.
+    """
+    node: object = tree
+    for tok in tokens:
+        if isinstance(node, dict) and tok in node:
+            node = node[tok]
+        else:
+            return None
+    return node
+
+
+def tab_inserts_space(tree: dict[str, object], text_before_cursor: str) -> bool:
+    """Whether Tab should insert a space rather than complete.
+
+    True only when the cursor sits at the end of a complete, UNAMBIGUOUS word: the
+    text is non-empty and does not end in whitespace, its last token is an exact
+    key at the resolved node, and that token is not a strict prefix of any sibling
+    key (so a word that is also a prefix of a longer one still completes normally).
+    """
+    if not text_before_cursor or text_before_cursor[-1].isspace():
+        return False
+    tokens = text_before_cursor.split()
+    node = _node_at(tree, tokens[:-1])
+    if not isinstance(node, dict):
+        return False
+    last = tokens[-1]
+    if last not in node:
+        return False
+    return not any(k != last and k.startswith(last) for k in node)
+
+
+def install_tab_binding(bindings: KeyBindings, tree: dict[str, object]) -> None:
+    """Add the "space at the end of a valid word" Tab handler to `bindings`.
+
+    At a complete word, Tab inserts a space (so the next Tab lists the children);
+    otherwise it defers to prompt_toolkit's own readline-style completion (fill the
+    common prefix, a second Tab lists), i.e. the prior behavior is unchanged there.
+    """
+    from prompt_toolkit.key_binding.bindings.completion import (  # noqa: PLC0415
+        display_completions_like_readline,
+    )
+
+    @bindings.add("tab")
+    def _(event: KeyPressEvent) -> None:
+        buf = event.current_buffer
+        if tab_inserts_space(tree, buf.document.text_before_cursor):
+            buf.insert_text(" ")
+        else:
+            display_completions_like_readline(event)
