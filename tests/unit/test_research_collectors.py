@@ -16,6 +16,7 @@ import pytest
 
 from skuggi.intel.collectors.base import CollectContext, HttpRequest
 from skuggi.intel.schema import IntelItem, IntelResult
+from skuggi.research.collectors import local as local_mod
 from skuggi.research.collectors.cve import CveCollector
 from skuggi.research.collectors.exploitdb import ExploitDbCollector
 from skuggi.research.collectors.metasploit import MetasploitCollector
@@ -333,3 +334,34 @@ def test_cve_falls_back_to_keyword_without_an_upstream_version() -> None:
     CveCollector().collect(_task("cve"), _ctx(fetch))
     assert seen.get("keywordSearch") == "wordpress"
     assert "virtualMatchString" not in seen
+
+
+class _Proc:
+    def __init__(self, stdout: str, returncode: int = 0) -> None:
+        self.stdout = stdout
+        self.returncode = returncode
+
+
+def test_default_local_run_returns_stdout_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(local_mod, "have", lambda _b: True)
+    monkeypatch.setattr(
+        "skuggi.research.collectors.local.subprocess.run",
+        lambda *_a, **_k: _Proc('{"ok": 1}'),
+    )
+    assert local_mod.default_local_run(["searchsploit", "x"]) == '{"ok": 1}'
+
+
+def test_default_local_run_fails_closed_on_oversized_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A pathologically large tool result must not be handed on (it would be read
+    # whole by a JSON parser); fail closed to a coverage gap instead.
+    big = "x" * (local_mod._MAX_OUTPUT_CHARS + 1)
+    monkeypatch.setattr(local_mod, "have", lambda _b: True)
+    monkeypatch.setattr(
+        "skuggi.research.collectors.local.subprocess.run",
+        lambda *_a, **_k: _Proc(big),
+    )
+    assert local_mod.default_local_run(["searchsploit", "x"]) is None

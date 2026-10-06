@@ -23,6 +23,15 @@ LocalRun = Callable[[list[str]], "str | None"]
 CacheLoader = Callable[[], "dict[str, object] | None"]
 
 _TIMEOUT_S = 20.0
+# A fail-closed ceiling on captured output. This path does NOT use the hardened
+# `common.execution.run`, deliberately: that caps output to a head+tail slice
+# (right for a lossy model brief), but a research collector parses this output
+# whole as JSON, so a middle-elided slice would be invalid JSON and fail the
+# parse. Instead, bound it here -- an output past the ceiling returns None (a
+# coverage gap), so a pathological tool result can never be read into memory
+# unbounded nor handed on truncated. The binaries are local, trusted and on the
+# allow-list, so the realistic output is a bounded local-DB query, not gigabytes.
+_MAX_OUTPUT_CHARS = 8 * 1024 * 1024
 _MSF_CACHE = Path.home() / ".msf4" / "store" / "modules_metadata.json"
 
 # The ONLY binaries a research collector may spawn. Research is the one mode where
@@ -84,7 +93,9 @@ def default_local_run(argv: list[str]) -> str | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    if proc.returncode != 0:
+    # Fail closed on a non-zero exit, and on a pathologically large result rather
+    # than parse it whole (see `_MAX_OUTPUT_CHARS`).
+    if proc.returncode != 0 or len(proc.stdout) > _MAX_OUTPUT_CHARS:
         return None
     return proc.stdout
 
