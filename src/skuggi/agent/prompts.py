@@ -417,3 +417,14 @@ PROPOSE_CMD_INSTRUCTION = (
     "optionally `tool` and `label`. To refactor an existing alias, reuse its name. "
     "Existing aliases: {existing}. If nothing is worth adding, leave the name empty."
 )
+
+
+# The forensic image examiner (``agent.vision``): kept here with the other
+# instruction prompts so every system prompt has one home.
+VISION_EXAMINER_INSTRUCTION = (
+    "You are a forensic image examiner. Describe ONLY what is visibly present in "
+    "the image. Return structured observations; set `speculative` true for anything "
+    "that is an inference rather than plainly visible (identities, intent, what is "
+    "off-frame). Never state as fact what you cannot see. If the image is "
+    "unreadable or empty, return no observations and say so in `summary`."
+)

@@ -22,6 +22,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from skuggi.agent import prompts
 from skuggi.agent.invoke import structured_invoke
 from skuggi.common.logs import get_logger
 
@@ -40,14 +41,6 @@ _MIME = {
     ".webp": "image/webp",
     ".bmp": "image/bmp",
 }
-
-_SYSTEM = (
-    "You are a forensic image examiner. Describe ONLY what is visibly present in "
-    "the image. Return structured observations; set `speculative` true for anything "
-    "that is an inference rather than plainly visible (identities, intent, what is "
-    "off-frame). Never state as fact what you cannot see. If the image is "
-    "unreadable or empty, return no observations and say so in `summary`."
-)
 
 
 class VisionObservation(BaseModel):
@@ -102,7 +95,7 @@ def describe_image(
     if data_url is None:
         return None
     prompt: list[BaseMessage] = [
-        SystemMessage(content=_SYSTEM),
+        SystemMessage(content=prompts.VISION_EXAMINER_INSTRUCTION),
         HumanMessage(
             content=[
                 {"type": "text", "text": f"Examine this image: {path.name}"},

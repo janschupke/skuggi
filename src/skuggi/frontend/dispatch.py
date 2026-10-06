@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
 from skuggi.common import palette
+from skuggi.common.paths import ensure_dir
 from skuggi.config.configs import ConfigError
 from skuggi.engagement.engagement import ThreatModel
 from skuggi.engagement.workspace import safe_engagement_name
@@ -232,7 +233,7 @@ def run_set_engagement(core: AgentCore, arg: str) -> SetEngagementOutcome:
     raw = arg.strip()
     root = (Path(raw).expanduser() if raw else Path.cwd()).resolve()
     try:
-        root.mkdir(parents=True, exist_ok=True)
+        ensure_dir(root)
     except OSError as exc:
         return SetEngagementError(f"cannot create {root}: {exc}")
     scaffolded = False
