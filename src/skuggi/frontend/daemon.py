@@ -43,6 +43,7 @@ from skuggi.frontend import (
     presenters_engagement,
     presenters_journal,
     render,
+    verb_router,
     verbosity,
     verbs,
 )
@@ -262,7 +263,7 @@ class Daemon:
             yield {"end": True, "exit": False}
             return
         available = verb not in verbs.KNOWN or verbs.is_available(verb, self.core.mode)
-        if available and verb in verbs.KNOWN and not verbs.is_engagement(verb):
+        if verb_router.should_audit(verb, self.core.mode):
             self.core.note_interaction(verb, rest)  # control verb -> audit log
         yield from self._render_verb(verb, rest, available=available)
         yield {"end": True, "exit": False}
@@ -388,13 +389,11 @@ class Daemon:
         router: dict[str, Callable[[str], Iterator[str]]],
     ) -> Iterator[str]:
         """Dispatch ``<verb> <noun> <rest>`` to `router`, or yield the noun usage."""
-        noun, _, rest = arg.partition(" ")
-        handler = router.get(noun.strip().lower())
+        handler, rest = verb_router.resolve_noun(router, arg)
         if handler is None:
-            options = " | ".join(n.name for n in verbs.nouns_of(verb))
-            yield f"usage: {self._cmd(f'{verb} <{options}>')}\n"
+            yield f"usage: {verb_router.noun_usage(verb, self._surface())}\n"
             return
-        yield from handler(rest.strip())
+        yield from handler(rest)
 
     def _styled(self, action: control.Action) -> Callable[[str], Iterator[str]]:
         """Adapt a shared control action to this surface's streaming emit."""
@@ -405,33 +404,39 @@ class Daemon:
         return handler
 
     def _show_router(self) -> dict[str, Callable[[str], Iterator[str]]]:
-        return {
-            **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
-            "engagement": self._show_engagement,
-            "db": self._show_db,
-            "latency": self._show_latency,
-            "tools": self._show_tools,
-            "history": self._history,
-            "trace": self._trace,
-        }
+        return verb_router.build_router(
+            control.SHOW_ACTIONS,
+            self._styled,
+            {
+                "engagement": self._show_engagement,
+                "db": self._show_db,
+                "latency": self._show_latency,
+                "tools": self._show_tools,
+                "history": self._history,
+                "trace": self._trace,
+            },
+        )
 
     def _show(self, arg: str) -> Iterator[str]:
         yield from self._route_noun("show", arg, self._show_router())
 
     def _set_router(self) -> dict[str, Callable[[str], Iterator[str]]]:
-        return {
-            **{n: self._styled(a) for n, a in control.SET_ACTIONS.items()},
-            "engagement": self._set_engagement,
-            "provider": self._set_provider,
-            "model": self._set_model,
-            "config": self._config,
-        }
+        return verb_router.build_router(
+            control.SET_ACTIONS,
+            self._styled,
+            {
+                "engagement": self._set_engagement,
+                "provider": self._set_provider,
+                "model": self._set_model,
+                "config": self._config,
+            },
+        )
 
     def _set(self, arg: str) -> Iterator[str]:
         yield from self._route_noun("set", arg, self._set_router())
 
     def _remove_router(self) -> dict[str, Callable[[str], Iterator[str]]]:
-        return {n: self._styled(a) for n, a in control.REMOVE_ACTIONS.items()}
+        return verb_router.build_router(control.REMOVE_ACTIONS, self._styled)
 
     def _remove(self, arg: str) -> Iterator[str]:
         yield from self._route_noun("remove", arg, self._remove_router())

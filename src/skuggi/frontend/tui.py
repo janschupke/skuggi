@@ -40,6 +40,7 @@ from skuggi.frontend import (
     presenters_engagement,
     presenters_journal,
     render,
+    verb_router,
     verbosity,
     verbs,
 )
@@ -155,22 +156,28 @@ class Tui:
         }
         # Noun routers for the grouping verbs; each is drift-checked against
         # `verbs.noun_names(<verb>)` so a new noun cannot be half-wired.
-        self._show_nouns: dict[str, Callable[[str], None]] = {
-            **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
-            "engagement": self._show_engagement,
-            "db": self._show_db,
-            "latency": self._show_latency,
-            "tools": self._show_tools,
-            "history": self._show_history,
-            "trace": self._show_trace,
-        }
-        self._set_nouns: dict[str, Callable[[str], None]] = {
-            **{n: self._styled(a) for n, a in control.SET_ACTIONS.items()},
-            "engagement": self._set_engagement,
-            "provider": self._set_provider,
-            "model": self._set_model,
-            "config": self._flows.set_config,
-        }
+        self._show_nouns: dict[str, Callable[[str], None]] = verb_router.build_router(
+            control.SHOW_ACTIONS,
+            self._styled,
+            {
+                "engagement": self._show_engagement,
+                "db": self._show_db,
+                "latency": self._show_latency,
+                "tools": self._show_tools,
+                "history": self._show_history,
+                "trace": self._show_trace,
+            },
+        )
+        self._set_nouns: dict[str, Callable[[str], None]] = verb_router.build_router(
+            control.SET_ACTIONS,
+            self._styled,
+            {
+                "engagement": self._set_engagement,
+                "provider": self._set_provider,
+                "model": self._set_model,
+                "config": self._flows.set_config,
+            },
+        )
         self._add_nouns: dict[str, Callable[[str], None]] = {
             "note": self._styled(control.add_record_for("note")),
             "loot": self._styled(control.add_record_for("loot")),
@@ -179,9 +186,9 @@ class Tui:
             "finding": self._styled(control.add_record_for("finding")),
             "memory": self._styled(control.add_memory),
         }
-        self._remove_nouns: dict[str, Callable[[str], None]] = {
-            n: self._styled(a) for n, a in control.REMOVE_ACTIONS.items()
-        }
+        self._remove_nouns: dict[str, Callable[[str], None]] = verb_router.build_router(
+            control.REMOVE_ACTIONS, self._styled
+        )
 
     # ----- delegated read state ----------------------------------------------
 
@@ -325,7 +332,7 @@ class Tui:
         if verb in verbs.KNOWN and not verbs.is_available(verb, self.core.mode):
             self._emit(presenters.present_unavailable(verb, self.core.mode))
             return None
-        if verb in verbs.KNOWN and not verbs.is_engagement(verb):
+        if verb_router.should_audit(verb, self.core.mode):
             self.core.note_interaction(verb, rest)  # control verb -> audit log
         handler = self._commands.get(verb)
         if handler is None:
@@ -345,16 +352,13 @@ class Tui:
         self, verb: str, arg: str, router: dict[str, Callable[[str], None]]
     ) -> None:
         """Dispatch ``<verb> <noun> <rest>`` to `router`, or show the noun usage."""
-        noun, _, rest = arg.partition(" ")
-        noun = noun.strip().lower()
-        handler = router.get(noun)
+        handler, rest = verb_router.resolve_noun(router, arg)
         if handler is None:
-            options = " | ".join(n.name for n in verbs.nouns_of(verb))
             self.console.print(
-                f"[yellow]usage:[/yellow] {verbs.cmd(f'{verb} <{options}>', 'repl')}"
+                f"[yellow]usage:[/yellow] {verb_router.noun_usage(verb, 'repl')}"
             )
             return
-        handler(rest.strip())
+        handler(rest)
 
     def _cmd_show(self, arg: str) -> None:
         """Inspect state: ``show <config|provider|model|…>``."""
