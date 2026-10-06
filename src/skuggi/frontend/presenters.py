@@ -259,7 +259,7 @@ def present_integrity(
     if not keyed:
         return [
             render.warning(
-                "integrity: not keyed (no engagement workspace — the timeline is "
+                "integrity: not keyed (no engagement workspace -- the timeline is "
                 "not tamper-evident here)"
             )
         ]
@@ -270,7 +270,7 @@ def present_integrity(
     ):
         if verdict.ok:
             out.append(
-                render.success(f"  {label}: OK — {verdict.checked} row(s) verified")
+                render.success(f"  {label}: OK -- {verdict.checked} row(s) verified")
             )
         else:
             out.append(

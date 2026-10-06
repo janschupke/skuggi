@@ -117,7 +117,7 @@ def harness_catalogue_block(command_names: tuple[str, ...]) -> str:
     renders, so it never drifts from the real command surface.
     """
     lines = [
-        f"{title}: " + "; ".join(f"{inv} — {summary}" for inv, summary in rows)
+        f"{title}: " + "; ".join(f"{inv} -- {summary}" for inv, summary in rows)
         for title, rows in verbs.help_sections()
     ]
     lines.append(f"saved cmd aliases: {', '.join(command_names) or '(none saved)'}")

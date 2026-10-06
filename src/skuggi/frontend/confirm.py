@@ -56,10 +56,10 @@ def confirm_write(  # noqa: PLR0913 -- the capability + keyword-only collaborato
     """
     grantable = capability not in _NON_GRANTABLE
     if grantable and grants.granted(capability):
-        notify(f"(session grant for {capability} active — applying without asking)")
+        notify(f"(session grant for {capability} active -- applying without asking)")
         return True
     if agentic:
-        notify("↳ the agent proposes this — approve to apply, deny to reject")
+        notify("↳ the agent proposes this -- approve to apply, deny to reject")
     options = ["approve", SESSION, "deny"] if grantable else ["approve", "deny"]
     choice = choose(prompt, options, "deny")
     if grantable and choice == SESSION:
