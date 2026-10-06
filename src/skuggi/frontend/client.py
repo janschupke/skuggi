@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import sys
 import threading
@@ -165,6 +166,30 @@ def _iter_lines(conn: socket.socket) -> Iterator[bytes]:
             yield line
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _is_color_sink(out: TextIO) -> bool:
+    """Whether painted chunks should keep their ANSI color when written to `out`.
+
+    The daemon paints every chunk (``force_terminal=True`` -- it cannot see the
+    client's stdout), so a redirect or pipe (``skuggi show findings > out.txt``)
+    would otherwise capture raw escape codes. Strip color when ``NO_COLOR`` is set
+    or ``out`` is not a tty -- the parity Rich already gives the standalone REPL.
+    """
+    if os.environ.get("NO_COLOR"):
+        return False
+    try:
+        return bool(out.isatty())
+    except (AttributeError, ValueError):
+        return False
+
+
+def _paint(chunk: str, *, color: bool) -> str:
+    """A server chunk ready for `out`: as painted, or with ANSI stripped."""
+    return chunk if color else _ANSI_RE.sub("", chunk)
+
+
 def run_over(conn: socket.socket, text: str, out: TextIO) -> int:
     """Send `text` over an open connection and stream the reply to `out`.
 
@@ -172,6 +197,7 @@ def run_over(conn: socket.socket, text: str, out: TextIO) -> int:
     Split from ``run`` so it is testable over a plain socket pair.
     """
     _send(conn, build_message(text))
+    color = _is_color_sink(out)
     spinner = _Spinner()
     spinner.maybe_start()
     exit_shell = False
@@ -185,7 +211,7 @@ def run_over(conn: socket.socket, text: str, out: TextIO) -> int:
                 continue
             chunk = resp.get("chunk")
             if chunk:
-                out.write(chunk)
+                out.write(_paint(str(chunk), color=color))
                 out.flush()
             if resp.get("end"):
                 exit_shell = bool(resp.get("exit"))
@@ -430,6 +456,7 @@ def _stream_turn(
     # spinner above. Tracked locally, and cleared in `finally`, so a mid-turn
     # Ctrl-C (which returns up through here) still erases the spinner's line.
     pending_spin: _Spinner | None = None
+    color = _is_color_sink(out)
     try:
         for line in frames:
             if spinner is not None:
@@ -453,7 +480,7 @@ def _stream_turn(
                 continue
             chunk = resp.get("chunk")
             if chunk:
-                out.write(chunk)
+                out.write(_paint(str(chunk), color=color))
                 out.flush()
             if resp.get("end"):
                 return bool(resp.get("exit"))

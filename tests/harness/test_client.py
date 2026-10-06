@@ -180,6 +180,48 @@ def test_stream_turn_returns_false_when_frames_run_dry() -> None:
     assert _stream_turn(iter([]), out) is False
 
 
+class _TtyStringIO(io.StringIO):
+    """A StringIO that reports itself as a terminal (a color sink)."""
+
+    def isatty(self) -> bool:
+        return True
+
+
+def test_stream_turn_strips_color_for_a_non_tty_sink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The daemon always paints (it cannot see the client's stdout); a redirect or
+    # pipe must not capture raw escape codes.
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    painted = "\x1b[31mred\x1b[0m\n"
+    out = io.StringIO()  # not a tty
+    lines = _reply({"chunk": painted}, {"end": True}).splitlines()
+    _stream_turn(iter(lines), out)
+    assert out.getvalue() == "red\n"
+
+
+def test_stream_turn_keeps_color_for_a_tty_sink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    painted = "\x1b[31mred\x1b[0m\n"
+    out = _TtyStringIO()
+    lines = _reply({"chunk": painted}, {"end": True}).splitlines()
+    _stream_turn(iter(lines), out)
+    assert out.getvalue() == painted
+
+
+def test_stream_turn_strips_color_when_no_color_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    painted = "\x1b[31mred\x1b[0m\n"
+    out = _TtyStringIO()  # a tty, but NO_COLOR forces a strip
+    lines = _reply({"chunk": painted}, {"end": True}).splitlines()
+    _stream_turn(iter(lines), out)
+    assert out.getvalue() == "red\n"
+
+
 def test_stream_turn_stops_spinner_on_first_frame() -> None:
     class _StubSpinner:
         def __init__(self) -> None:
