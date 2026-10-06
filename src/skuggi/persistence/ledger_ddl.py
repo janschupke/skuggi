@@ -1,11 +1,18 @@
-"""The ledger's SQL schema: table DDL and index DDL.
+"""The ledger's raw SQL DDL: the ``CREATE TABLE``/``TRIGGER`` and ``INDEX`` scripts.
 
-Split from :mod:`skuggi.persistence.ledger_schema` (the row dataclasses, column
-tuples and SQL helpers) to keep each module under the file-size cap. These two
-scripts are executed idempotently on every :class:`~skuggi.persistence.ledger.Ledger`
-open (``CREATE TABLE/INDEX IF NOT EXISTS``), so an existing database gains a new
-table or index automatically on next open. Column additions to existing tables are
-handled separately by the ``_*_MIGRATIONS`` in ``ledger_schema``.
+This module is pure SQL text with no Python dependency, which is the axis it is
+split on from :mod:`skuggi.persistence.ledger_schema` -- that module holds the
+Python *declarations* (row dataclasses, column tuples, the StrEnum vocabularies
+and the ``_*_MIGRATIONS``). The two change together on schema evolution but are
+different kinds of thing: raw DDL a light consumer never needs to parse, vs typed
+declarations that `visualize`/`presenters` import without touching sqlite. (They
+also cannot live in one module -- together they exceed the file-size cap -- but
+the SQL-vs-Python boundary is the reason they are two files, not the cap.)
+
+The two scripts here are executed idempotently on every
+:class:`~skuggi.persistence.ledger.Ledger` open (``CREATE ... IF NOT EXISTS``), so
+an existing database gains a new table or index automatically on next open; column
+additions to existing tables are the ``_*_MIGRATIONS`` in ``ledger_schema``.
 """
 
 from __future__ import annotations
