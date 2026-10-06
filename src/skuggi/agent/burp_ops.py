@@ -166,6 +166,57 @@ def sync(  # noqa: PLR0913 -- explicit deps for offline testability
     return [f"burp: {outcome.summary}"]
 
 
+def recon(  # noqa: PLR0913 -- explicit deps for offline testability
+    client: BurpClient,
+    engagement: EngagementConfig,
+    ledger: Ledger,
+    *,
+    session_id: str,
+    thread_id: str,
+    autonomous: bool,
+    host: str = "",
+) -> list[str]:
+    """One bounded read-only recon sweep: observe proxy traffic, pull issues.
+
+    The lightweight autonomous-recon pass -- a gated read of the proxy history
+    (what has been observed) followed by the gated scanner-issue pull (findings),
+    both deduped and recorded. Writes stay on the explicit scan/repeater verbs.
+    """
+
+    def _proxy_exec() -> tuple[str, str]:
+        entries = client.proxy_history(host_filter=host)
+        hosts = sorted({e.exchange.host for e in entries if e.exchange.host})
+        return (
+            f"proxy history: {len(entries)} exchanges across {len(hosts)} host(s)",
+            "",
+        )
+
+    proxy = run_burp_action(
+        engagement=engagement,
+        ledger=ledger,
+        session_id=session_id,
+        thread_id=thread_id,
+        action="proxy_history",
+        target_host="",
+        params=f"proxy_history {host}".strip(),
+        autonomous=autonomous,
+        execute=_proxy_exec,
+    )
+    lines = [f"burp: {proxy.summary}"]
+    lines.extend(
+        pull(
+            client,
+            engagement,
+            ledger,
+            session_id=session_id,
+            thread_id=thread_id,
+            autonomous=autonomous,
+            host=host,
+        )
+    )
+    return lines
+
+
 def _new_issues(
     issues: tuple[ScanIssue, ...], existing: set[tuple[str, str, str, str]]
 ) -> list[ScanIssue]:

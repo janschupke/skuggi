@@ -12,7 +12,14 @@ from pathlib import Path
 
 from skuggi.agent import burp_ops
 from skuggi.burp.client import BurpClient
-from skuggi.burp.models import RepeaterResult, ScanIssue, TaskState, TaskStatus
+from skuggi.burp.models import (
+    HttpExchange,
+    ProxyEntry,
+    RepeaterResult,
+    ScanIssue,
+    TaskState,
+    TaskStatus,
+)
 from skuggi.engagement.scope import BurpScope, EngagementConfig
 from skuggi.persistence.ledger import Ledger
 from skuggi.tooling.registry import RiskTier
@@ -32,6 +39,13 @@ class _FakeClient:
 
     def scan_issues(self, *, host_filter: str = "") -> tuple[ScanIssue, ...]:
         return self._issues
+
+    def proxy_history(
+        self, *, host_filter: str = "", limit: int = 200
+    ) -> tuple[ProxyEntry, ...]:
+        return (
+            ProxyEntry(exchange=HttpExchange(host="10.0.0.5", method="GET", path="/")),
+        )
 
     def task_status(self, handle: str) -> TaskStatus:
         return TaskStatus(
@@ -56,7 +70,7 @@ def _eng() -> EngagementConfig:
         "target_networks": ["10.0.0.0/24"],
         "autonomous": True,
         "burp": BurpScope(
-            allowed_actions=frozenset({"scan_issues", "active_scan"}),
+            allowed_actions=frozenset({"scan_issues", "active_scan", "proxy_history"}),
             passive_only=False,
             autonomous_ceiling=RiskTier.active,
         ),
@@ -268,3 +282,20 @@ def test_sync_pushes_scope(tmp_path: Path) -> None:
     assert client.scope is not None
     assert "include" in lines[0]
     assert led.burp_actions_for("s1")[0].action == "set_scope"
+
+
+def test_recon_sweeps_proxy_and_issues(tmp_path: Path) -> None:
+    led = _ledger(tmp_path / "l.db")
+    client = _FakeClient(issues=(_issue("XSS"),))
+    lines = burp_ops.recon(
+        _as_client(client),
+        _eng(),
+        led,
+        session_id="s1",
+        thread_id="t",
+        autonomous=True,
+    )
+    assert any("proxy history: 1 exchanges" in line for line in lines)
+    assert any("recorded 1 new findings" in line for line in lines)
+    actions = {row.action for row in led.burp_actions_for("s1")}
+    assert {"proxy_history", "scan_issues"} <= actions
