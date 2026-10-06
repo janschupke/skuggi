@@ -2,26 +2,20 @@
 
 from __future__ import annotations
 
-from skuggi.security.boundaries import BoundaryKind, command_boundary, label
+from skuggi.security.boundaries import BoundaryKind, boundary_kind, label
 
 
 def test_out_of_scope_is_a_hard_block() -> None:
-    assert (
-        command_boundary(allowed=False, within_ceiling=True) is BoundaryKind.HARD_BLOCK
-    )
-    assert (
-        command_boundary(allowed=False, within_ceiling=False) is BoundaryKind.HARD_BLOCK
-    )
+    assert boundary_kind(allowed=False, within_ceiling=True) is BoundaryKind.HARD_BLOCK
+    assert boundary_kind(allowed=False, within_ceiling=False) is BoundaryKind.HARD_BLOCK
 
 
 def test_in_scope_above_ceiling_is_an_escalation() -> None:
-    assert (
-        command_boundary(allowed=True, within_ceiling=False) is BoundaryKind.ESCALATION
-    )
+    assert boundary_kind(allowed=True, within_ceiling=False) is BoundaryKind.ESCALATION
 
 
 def test_in_scope_under_ceiling_runs() -> None:
-    assert command_boundary(allowed=True, within_ceiling=True) is None
+    assert boundary_kind(allowed=True, within_ceiling=True) is None
 
 
 def test_label_prefixes_the_kind() -> None:

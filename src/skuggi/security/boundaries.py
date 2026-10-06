@@ -42,11 +42,15 @@ class BoundaryKind(StrEnum):
 NON_SESSION_GRANTABLE = frozenset({"scope-edit"})
 
 
-def command_boundary(*, allowed: bool, within_ceiling: bool) -> BoundaryKind | None:
-    """Classify a guarded command. ``None`` means it runs (in scope, under ceiling).
+def boundary_kind(*, allowed: bool, within_ceiling: bool) -> BoundaryKind | None:
+    """Classify a guarded action. ``None`` means it runs (in scope, under ceiling).
+
+    Shared by every autonomous path -- a shell command (the turn graph) and an
+    OSINT reconnaissance source alike -- so a refusal is classified the same way
+    everywhere:
 
     - not ``allowed`` -> ``HARD_BLOCK`` (scope guard / egress; non-overridable).
-    - ``allowed`` but over the ceiling -> ``ESCALATION`` (operator runs it by hand).
+    - ``allowed`` but over the ceiling -> ``ESCALATION`` (operator acts by hand).
     - ``allowed`` and under the ceiling -> ``None`` (the harness runs it).
     """
     if not allowed:

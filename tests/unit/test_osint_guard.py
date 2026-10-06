@@ -2,7 +2,9 @@
 
 The OSINT analogue of test_engagement's allow/deny matrix: the guard must be
 conservative, so there is one case per deny gate (source disabled, subject out of
-scope, active source under passive-only, tier over ceiling) plus the allow.
+scope, active source under passive-only) plus the allow. The autonomous ceiling
+is NOT a guard gate -- it is a downstream ESCALATION decision (see the collector
+node), so an in-scope source above the ceiling is allowed by the guard.
 """
 
 from __future__ import annotations
@@ -60,11 +62,13 @@ def test_active_source_allowed_when_not_passive_and_ceiling_raised() -> None:
     assert check_osint_task("linkedin", "acme.com", scope).allowed
 
 
-def test_active_source_denied_above_ceiling_even_when_not_passive() -> None:
+def test_active_source_above_ceiling_is_in_scope_not_denied() -> None:
+    # The guard answers scope only; an in-scope active source above the ceiling
+    # passes here and is held as an ESCALATION downstream (test_osint_collectors),
+    # the same split the command path uses -- not a guard denial.
     scope = _scope(passive_only=False, autonomous_ceiling=RiskTier.recon)
     verdict = check_osint_task("linkedin", "acme.com", scope)
-    assert not verdict.allowed
-    assert "exceeds the OSINT ceiling" in verdict.reason
+    assert verdict.allowed
 
 
 @pytest.mark.parametrize(

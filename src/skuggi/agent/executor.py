@@ -421,7 +421,13 @@ def _run_or_propose(
     if route.foothold is not None:
         tier = max(tier, RiskTier.intrusive)
     ceiling = deps.engagement.autonomous_ceiling
-    if not deps.engagement.autonomous or tier > ceiling:
+    # One classifier for every autonomous path (shared with the OSINT loop): in
+    # scope but non-autonomous or over the ceiling is an ESCALATION, not a block.
+    within_ceiling = deps.engagement.autonomous and tier <= ceiling
+    if (
+        boundaries.boundary_kind(allowed=True, within_ceiling=within_ceiling)
+        is boundaries.BoundaryKind.ESCALATION
+    ):
         summary = boundaries.label(
             boundaries.BoundaryKind.ESCALATION,
             _proposed_reason(deps.engagement.autonomous, tier, ceiling, route),

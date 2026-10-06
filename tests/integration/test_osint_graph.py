@@ -31,6 +31,7 @@ from skuggi.osint.graph import build_osint_graph, osint_recursion_limit
 from skuggi.osint.schema import OsintPlan, OsintTask, OsintVerdict
 from skuggi.osint.state import OsintState
 from skuggi.persistence.ledger import Ledger, open_ledger
+from skuggi.tooling.registry import RiskTier
 
 
 class OsintScriptedModel(BaseChatModel):
@@ -196,7 +197,39 @@ def test_out_of_scope_task_is_denied_not_collected(
     assert final["completed"] == ["t1"]  # marked done so the loop ends
     result = final["results"][0]
     assert result.items == ()
-    assert "denied" in result.note
+    assert "hard block" in result.note  # out of scope is a HARD_BLOCK, not escalatable
+
+
+def test_above_ceiling_source_is_held_as_an_escalation(
+    tmp_path: Path, ledger: Ledger
+) -> None:
+    # linkedin is an active source (tier active) but the ceiling is recon: the task
+    # is in scope yet held for the operator -- an ESCALATION surfaced as a proposal,
+    # not a silent denial, mirroring the turn graph's `proposed` command.
+    scope = OsintScope(
+        domains=frozenset({"acme.com"}),
+        enabled_sources=frozenset({"linkedin"}),
+        passive_only=False,
+        autonomous_ceiling=RiskTier.recon,
+    )
+    plan = OsintPlan(
+        tasks=(
+            OsintTask(id="t1", source="linkedin", subject="acme.com", objective="x"),
+        )
+    )
+    model = OsintScriptedModel(
+        plan=plan, verdicts=(OsintVerdict(done=True, summary="base"),)
+    )
+    ws = Workspace.at(tmp_path / "eng")
+    ws.ensure()
+    final = _run(_deps(model, ledger, ws, osint=scope))
+    result = final["results"][0]
+    assert result.items == ()
+    assert result.note.startswith("escalation:")
+    assert "exceeds the OSINT ceiling" in result.note
+    # the operator-facing draft surfaces the held source as an actionable proposal
+    assert "held above the OSINT autonomous ceiling" in final["draft"]
+    assert "linkedin" in final["draft"]
 
 
 def test_loop_replans_to_close_gaps(tmp_path: Path, ledger: Ledger) -> None:

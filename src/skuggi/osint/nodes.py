@@ -16,7 +16,7 @@ from langchain_core.messages import AIMessage
 
 from skuggi.agent.executor import record_finding_drafts
 from skuggi.common.text import join_blocks, labeled
-from skuggi.engagement.osint_guard import check_osint_task
+from skuggi.engagement.osint_guard import check_osint_task, source_tier
 from skuggi.engagement.scope import OsintScope
 from skuggi.intel.collectors.base import collector_uses_driver, empty_result
 from skuggi.intel.nodes import ask_schema, collect_ready, extend_plan, results_block
@@ -28,6 +28,8 @@ from skuggi.osint.promote import promotable_hosts
 from skuggi.osint.scheduler import coverage_gaps
 from skuggi.osint.schema import OsintPlan, OsintTask, OsintVerdict
 from skuggi.osint.state import OsintState
+from skuggi.security import boundaries
+from skuggi.security.boundaries import BoundaryKind
 
 
 def _scope_block(osint: OsintScope) -> str:
@@ -93,7 +95,24 @@ def _collect_one(
         return empty_result(task, "no OSINT scope loaded")
     verdict = check_osint_task(task.source, task.subject, deps.osint)
     if not verdict.allowed:
-        return empty_result(task, f"denied: {verdict.reason}")
+        return empty_result(
+            task, boundaries.label(BoundaryKind.HARD_BLOCK, verdict.reason)
+        )
+    # In scope, but low-risk enough to run unattended? A source above the OSINT
+    # ceiling is held (ESCALATION) and surfaced to the operator, never silently
+    # dropped -- the same manual-escalation path the command loop uses, so both
+    # autonomous graphs classify a refusal the same way (audit: unify graphs).
+    tier = source_tier(task.source)
+    within = tier <= deps.osint.autonomous_ceiling
+    if (
+        boundaries.boundary_kind(allowed=True, within_ceiling=within)
+        is BoundaryKind.ESCALATION
+    ):
+        reason = (
+            f"source {task.source!r} tier '{tier.name}' exceeds the OSINT ceiling "
+            f"'{deps.osint.autonomous_ceiling.name}'; raise it via `set engagement`"
+        )
+        return empty_result(task, boundaries.label(BoundaryKind.ESCALATION, reason))
     collector = collector_for(task.source, deps.collectors)
     ctx = deps.collect_context
     if collector is None or ctx is None:
@@ -147,7 +166,27 @@ def verify_node(state: OsintState, deps: OsintDeps) -> dict[str, object]:
             command_id=None,
         )
     summary = _with_scope_proposal(resp.summary, results, deps)
+    summary = _with_ceiling_proposal(summary, results)
     return {"draft": summary, "gaps": list(resp.gaps), "done": resp.done}
+
+
+def _with_ceiling_proposal(summary: str, results: list[IntelResult]) -> str:
+    """Append a proposal for any source held above the OSINT autonomous ceiling.
+
+    The analogue of the turn graph's ``proposed`` command: an in-scope source
+    whose tier exceeds the ceiling is not run autonomously, but it IS operator-
+    actionable -- surfaced here so the operator can raise the ceiling via ``set
+    engagement`` and re-run, rather than being silently dropped as a denial.
+    """
+    held_prefix = f"{BoundaryKind.ESCALATION.value}: "
+    held = sorted({r.source for r in results if r.note.startswith(held_prefix)})
+    if not held:
+        return summary
+    proposal = (
+        "Sources held above the OSINT autonomous ceiling (not run): "
+        f"{', '.join(held)}. Raise the ceiling via `set engagement` to collect them."
+    )
+    return f"{summary}\n\n{proposal}" if summary else proposal
 
 
 def _with_scope_proposal(

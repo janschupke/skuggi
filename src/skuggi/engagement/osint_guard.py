@@ -48,12 +48,18 @@ def source_tier(source: OsintSource) -> RiskTier:
 def check_osint_task(
     source: OsintSource, subject: str, osint: OsintScope
 ) -> GuardVerdict:
-    """Is this OSINT task inside the engagement's OSINT boundary?
+    """Is this OSINT task inside the engagement's OSINT *scope*?
 
     The deny-chain, cheapest first: the source must be enabled, the subject must
-    be in scope, a passive-only engagement forbids an active source, and the
-    source's tier must not exceed the OSINT autonomous ceiling. Passing every
-    gate is in scope.
+    be in scope, and a passive-only engagement forbids an active source. Passing
+    every gate is in scope. These are HARD_BLOCK boundaries -- a denial here is
+    not operator-overridable without editing the scope.
+
+    The autonomous *ceiling* is deliberately NOT a gate here. Like the command
+    path (``agent.executor``), the ceiling is a separate ESCALATION decision made
+    by the caller after scope passes: an in-scope source above the ceiling is held
+    and surfaced to the operator, not denied. Keeping the two apart lets both
+    autonomous paths classify refusals the same way (``security.boundaries``).
     """
     if source not in osint.enabled_sources:
         return GuardVerdict(False, f"OSINT source {source!r} is not enabled")
@@ -61,15 +67,8 @@ def check_osint_task(
         return GuardVerdict(
             False, f"subject {subject!r} is outside the authorized OSINT scope"
         )
-    tier = source_tier(source)
-    if osint.passive_only and tier != RiskTier.recon:
+    if osint.passive_only and source_tier(source) != RiskTier.recon:
         return GuardVerdict(
             False, f"source {source!r} is active; this engagement is passive-only"
-        )
-    if tier > osint.autonomous_ceiling:
-        return GuardVerdict(
-            False,
-            f"source {source!r} tier '{tier.name}' exceeds the OSINT ceiling "
-            f"'{osint.autonomous_ceiling.name}'",
         )
     return GuardVerdict(True, "in scope")
