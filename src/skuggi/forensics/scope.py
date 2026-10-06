@@ -15,6 +15,13 @@ boundary is built in and non-negotiable, the analogue of
 
 The in-process analyzers (``forensics.analyzers``) run no binary at all, so they
 bypass (1)/(2); their evidence path is still confined via the same primitive.
+
+RESERVED -- not yet wired. Today the forensics loop is subprocess-free, so this
+guard has NO production caller; the read-only guarantee rests on architecture,
+not on this code. It is kept ready for the day an external-tool node is added,
+and ``tests/unit/test_forensics_readonly_invariant.py`` fails the moment any
+forensics module grows a process spawn without routing through
+``check_forensic_command``. Do not mistake this module for a live boundary.
 """
 
 from __future__ import annotations
