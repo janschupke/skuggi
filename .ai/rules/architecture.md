@@ -55,9 +55,15 @@ reference: [docs/architecture.md](../../docs/architecture.md).
   `configs.py` (JSON loaders). **`engagement/`** the scope boundary + workspace,
   plus `osint_guard.py` (the OSINT subject/source guard) and `case.py` (the
   forensics case metadata/probe/scaffold).
-- **`persistence/`** ledger, checkpointer (`memory.py`), preferences, FAISS
-  (`vectorstore.py`), transcript, reports/pdf. **`providers/`** the LLM factory
-  and codex OAuth. **`tooling/`** registry, host probe, doctor.
+- **`persistence/`** ledger (+ `ledger_schema`/`ledger_ddl`), `custody`+`integrity`
+  (hash-chained tamper-evidence), `review`, checkpointer (`memory.py`), preferences,
+  FAISS (`vectorstore.py`), `documents`, transcript, `session_summary`, reports/pdf,
+  `visualize`. **`providers/`** the LLM factory and codex/claude-cli adapters.
+  **`tooling/`** registry, host probe, doctor.
+- **`security/`** the deterministic data-plane boundary (`redaction`, `vault`,
+  `policy`, `tripwire`, `boundaries`). **`frameworks/`** offline CVSS +
+  WSTG/ATT&CK/PTES classification (`cvss`, `registry`, vendored `data/`).
+  **`eval/`** the offline + provider eval tiers (`skuggi-eval`).
 - **`common/`** cross-cutting leaves only (`paths`, `home`, `text`, `palette`,
   `execution`, `logs`, `clock`, `jwt`). **`install/`** first-run plumbing
   (`init`, `boot`, `envfile`, `ingest`, `update`).

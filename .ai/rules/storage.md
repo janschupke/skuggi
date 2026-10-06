@@ -7,9 +7,11 @@ rationale: [docs/install.md](../../docs/install.md).
   — `config.json`, `tools.json`, `layout.json`, `commands.json`, `env`.
 - **data home** `~/.local/share/skuggi` (`SKUGGI_DATA_HOME` > `XDG_DATA_HOME`)
   — `sessions.db`, `preferences.db`, `faiss_index/`, `logs/`, toolbox.
-- **`./engagements/<name>/`** stays **relative to the working directory** — an
-  engagement's scope, ledger, recon and reports belong to the client dir, not
-  the operator's home.
+- **The per-engagement root** stays **relative to the working directory** — the
+  directory you adopt with `set engagement` *is* the engagement (its scope,
+  ledger, recon and reports live directly inside it; there is no
+  `engagements/<name>/` wrapper). It belongs to the client dir, not the
+  operator's home.
 
 ## Rules
 

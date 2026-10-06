@@ -15,18 +15,43 @@ SQLite ledger.
 ### Source layout (`src/skuggi/`)
 
 - `agent/` — `core` (the hub), `graph`, `state`, `protocol`, `prompts`, `modes`
-  (pentest/redteam/blueteam/forensics), `vision`, `engagement_manager` +
-  `case_manager`
-- `forensics/` — the read-only, engagement-free forensics loop (own graph +
-  `analyzers/`, a built-in read-only tool allow-list, a separate case ledger)
+  (pentest/redteam/blueteam/**forensics**), `requests` (the shared request/`ask`
+  seam), `executor`, `vision` (the gated multimodal seam), `engagement_manager` +
+  `case_manager` (the two context planes)
+- `intel/` — shared core for both intelligence loops: `schema`, `http`,
+  `scheduler` (DAG), `store`, `collectors/` (the `Collector` protocol + shared
+  web-search/GitHub handlers)
+- `osint/` — the agentic OSINT loop (its own graph, built on `intel/`): `deps`,
+  `state`, `prompts`, `scheduler`, `nodes`, `graph`, `runner`, `schema`, `store`,
+  `collectors/`
+- `research/` — the agentic public-source research loop (its own graph, built on
+  `intel/`): `deps`, `state`, `prompts`, `scope`, `nodes`, `graph`, `runner`,
+  `schema`, `report`, `collectors/` (CVE/Exploit-DB/versions + local tools)
+- `forensics/` — the strictly read-only, engagement-free forensics loop (its own
+  linear `collect→examine→respond` graph): `deps`, `state`, `prompts`, `scope`
+  (the read-only tool allow-list + evidence confinement), `collect`, `nodes`,
+  `graph`, `runner`, `report`, `schema`, and `analyzers/` (pure-Python
+  hash/strings/hex/entropy/magic/encoding/logparse/keyed-decrypt/OCR). Bound to a
+  *case* (not an engagement), recording to a separate case ledger. See the
+  `forensics` mode + the `case` verb.
 - `frontend/` — `tui`, `daemon`, `shell`, `client` + dispatch (`verbs`,
   `commands`, `configflow`, `cmdflow`, `setup`, `wizard`, `menu`, `help`)
 - `config/` — `config` (typed `Settings`), `configs` (JSON loaders)
-- `engagement/` — `engagement` (scope boundary), `workspace`, `case`
-- `persistence/` — `ledger`, `memory` (checkpointer), `preferences`,
-  `vectorstore`, `transcript`, `reports`, `pdf`
-- `providers/` — `providers` (factory), `codex_chat`, `codex_login`
-- `tooling/` — `registry`, `probe`, `doctor`
+- `engagement/` — `engagement` (re-export facade) over `scope` (the boundary model)
+  + `guard` (parse + `check_command`), `workspace`, `risk`, `pivot`, `egress`,
+  `runtime_env`, `datafiles`, `osint_guard`, `case` (the forensics case: metadata +
+  probe + scaffold, no scope)
+- `security/` — the data-plane boundary: `redaction`, `vault`, `policy`,
+  `tripwire`, `boundaries` (deterministic, model-free)
+- `frameworks/` — offline security-framework awareness: `cvss` (deterministic v3.1),
+  `registry` + vendored `data/` (WSTG/ATT&CK/PTES, `scripts/sync_frameworks.py`)
+- `persistence/` — `ledger` (+ `ledger_schema`/`ledger_ddl`), `custody` +
+  `integrity` (hash-chained tamper-evidence), `review`, `memory` (checkpointer),
+  `preferences`, `vectorstore`, `documents`, `transcript`, `session_summary`,
+  `reports`, `pdf`, `visualize`
+- `providers/` — `providers` (factory), `codex_chat`, `codex_login`,
+  `claude_cli_chat`
+- `tooling/` — `registry`, `probe`, `doctor`, `commands`, `websearch`
 - `common/` — leaf utilities: `paths`, `home`, `text`, `palette`, `execution`,
   `logs`, `clock`, `jwt`
 - `install/` — `init`, `boot`, `envfile`, `ingest`, `update`
@@ -38,12 +63,14 @@ SQLite ledger.
   import graph, which imports must stay lazy, one-source-of-truth per concern
 - [Gates](.ai/rules/gates.md) — `make check` is the whole gate (ruff format
   --check · ruff · mypy strict · pytest 90% branch), same order as CI
-- [Storage & the three homes](.ai/rules/storage.md) — config/data XDG homes +
-  cwd-relative `engagements/`; never resolve a storage path at import time
+- [Storage & the three homes](.ai/rules/storage.md) — config/data XDG homes + the
+  cwd-relative per-engagement root (the adopted directory itself, no
+  `engagements/<name>/` wrapper); never resolve a storage path at import time
 - [The structured protocol](.ai/rules/protocol.md) — every LLM call is a strict
   typed exchange; prompts live in `agent/prompts.py`
-- [LLM providers](.ai/rules/providers.md) — four providers, codex OAuth, and the
-  lazy-import rule that keeps the OpenAI SDK out of the core import graph
+- [LLM providers](.ai/rules/providers.md) — five providers (incl. `claude-cli`),
+  codex OAuth, and the lazy-import rule that keeps the OpenAI SDK out of the core
+  import graph
 - [Testing](.ai/rules/testing.md) — the offline/opt-in layers, credential
   isolation, and never automating against real homes
 - [The practice range](.ai/rules/labs.md) — `labs/` is loopback-only via

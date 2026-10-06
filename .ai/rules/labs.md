@@ -1,7 +1,7 @@
 # The practice range
 
 `labs/` is a self-contained range of deliberately-vulnerable targets plus a
-controller. Docs: [docs/labs.md](../../docs/labs.md), [docs/lab.md](../../docs/lab.md).
+controller. Docs: [docs/labs.md](../../docs/labs.md), [docs/e2e-fixture.md](../../docs/e2e-fixture.md).
 
 ## Rules
 
