@@ -39,6 +39,7 @@ from skuggi.agent.session_archive import SessionArchive
 from skuggi.agent.state import AgentState
 from skuggi.agent.tooldoctor import ToolDoctor
 from skuggi.agent.turn_runner import TurnEvent, TurnRunner
+from skuggi.burp.client import BurpClient, make_burp_client
 from skuggi.common import execution, logs
 from skuggi.common.backends import ContainerBackend, ContainerConfig
 from skuggi.config.config import (
@@ -372,6 +373,20 @@ class AgentCore:
             if value is not None:
                 out[name] = value.get_secret_value()
         return out
+
+    def burp_client(self) -> BurpClient:
+        """A Burp bridge client for the configured backend (read from settings).
+
+        Construction is lazy (no network until a call), so this is cheap to build
+        per use. The API key, when the chosen bridge needs one, is read from the
+        env-only secret; reburp is unauthenticated and ignores it.
+        """
+        key = self.settings.burp_api_key
+        return make_burp_client(
+            self.settings.burp_backend,
+            self.settings.burp_base_url,
+            api_key=key.get_secret_value() if key else "",
+        )
 
     def _collect_context(
         self, source_config: dict[str, dict[str, str]]

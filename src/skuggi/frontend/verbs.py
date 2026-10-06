@@ -190,6 +190,7 @@ VERBS: tuple[Verb, ...] = (
             Noun("trace", "the worker's tool calls on this thread"),
             Noun("threads", "conversation threads"),
             Noun("status", "readiness + a session glance"),
+            Noun("burp", "Burp bridge status / scanner issues", "[issues]"),
             Noun("grants", "active session approval grants"),
         ),
     ),

@@ -252,6 +252,13 @@ def present_grants(active: tuple[str, ...]) -> Styled:
     ]
 
 
+def present_burp(lines: list[str], *, heading: str = "") -> Styled:
+    """Render ``show burp``: an optional heading over the connector's summary lines."""
+    out: Styled = [render.heading(heading)] if heading else []
+    out.extend(render.plain(line) for line in lines)
+    return out
+
+
 def present_integrity(
     timeline: CustodyVerdict, custody: CustodyVerdict, *, keyed: bool
 ) -> Styled:

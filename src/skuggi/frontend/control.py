@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from skuggi.agent import readiness
+from skuggi.burp import operator as burp_operator
 from skuggi.config.configs import ConfigError
 from skuggi.frontend import (
     dispatch,
@@ -74,6 +75,16 @@ def show_status(core: AgentCore, _rest: str, surface: verbs.Surface) -> render.S
     return presenters.present_status(
         dispatch.run_status(core), dispatch.run_session_stats(core), surface
     )
+
+
+def show_burp(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
+    """Burp bridge status, or its current scanner issues (``show burp issues``)."""
+    client = core.burp_client()
+    if rest.strip().lower() == "issues":
+        return presenters.present_burp(
+            burp_operator.fetch_issue_lines(client), heading="burp scanner issues:"
+        )
+    return presenters.present_burp(burp_operator.probe_status(client))
 
 
 def show_integrity(
@@ -369,6 +380,7 @@ SHOW_ACTIONS: dict[str, Action] = {
     "model": show_model,
     "grants": show_grants,
     "status": show_status,
+    "burp": show_burp,
     "integrity": show_integrity,
     "sessions": show_sessions,
     "threads": show_threads,
