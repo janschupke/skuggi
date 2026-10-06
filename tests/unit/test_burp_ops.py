@@ -12,15 +12,18 @@ from pathlib import Path
 
 from skuggi.agent import burp_ops
 from skuggi.burp.client import BurpClient
-from skuggi.burp.models import ScanIssue
+from skuggi.burp.models import ScanIssue, TaskState, TaskStatus
 from skuggi.engagement.scope import BurpScope, EngagementConfig
 from skuggi.persistence.ledger import Ledger
 from skuggi.tooling.registry import RiskTier
 
 
 class _FakeClient:
-    def __init__(self, issues: tuple[ScanIssue, ...] = ()) -> None:
+    def __init__(
+        self, issues: tuple[ScanIssue, ...] = (), *, state: TaskState = "running"
+    ) -> None:
         self._issues = issues
+        self._state = state
         self.scanned: list[str] = []
 
     def start_scan(self, url: str) -> str:
@@ -29,6 +32,14 @@ class _FakeClient:
 
     def scan_issues(self, *, host_filter: str = "") -> tuple[ScanIssue, ...]:
         return self._issues
+
+    def task_status(self, handle: str) -> TaskStatus:
+        return TaskStatus(
+            handle=handle,
+            action="active_scan",
+            state=self._state,
+            percent=40,
+        )
 
 
 def _ledger(path: Path) -> Ledger:
@@ -119,9 +130,20 @@ def test_pull_records_new_findings_then_dedupes(tmp_path: Path) -> None:
     assert len(led.findings_for("s1")) == 2
 
 
-def test_scans_lists_recorded_actions(tmp_path: Path) -> None:
+def _scans(led: Ledger, client: _FakeClient) -> list[str]:
+    return burp_ops.scans(
+        _as_client(client),
+        _eng(),
+        led,
+        session_id="s1",
+        thread_id="t",
+        autonomous=True,
+    )
+
+
+def test_scans_polls_running_scan(tmp_path: Path) -> None:
     led = _ledger(tmp_path / "l.db")
-    client = _FakeClient()
+    client = _FakeClient(state="running")
     burp_ops.scan(
         _as_client(client),
         _eng(),
@@ -131,12 +153,35 @@ def test_scans_lists_recorded_actions(tmp_path: Path) -> None:
         autonomous=True,
         url="https://10.0.0.5/",
     )
-    lines = burp_ops.scans(led, session_id="s1")
-    assert any("active_scan" in line and "scan-42" in line for line in lines)
+    lines = _scans(led, client)
+    assert any("handle=scan-42" in line and "running 40%" in line for line in lines)
+    # a still-running scan is not reconciled
+    assert not any("reconcile" in line for line in lines)
+
+
+def test_scans_reconciles_finished_scan_into_findings(tmp_path: Path) -> None:
+    led = _ledger(tmp_path / "l.db")
+    client = _FakeClient(issues=(_issue("XSS"),), state="done")
+    burp_ops.scan(
+        _as_client(client),
+        _eng(),
+        led,
+        session_id="s1",
+        thread_id="t",
+        autonomous=True,
+        url="https://10.0.0.5/",
+    )
+    lines = _scans(led, client)
+    assert any("done" in line for line in lines)
+    assert any(
+        "reconcile scan-42" in line and "1 new findings" in line for line in lines
+    )
+    assert len(led.findings_for("s1")) == 1
+    # polling again reconciles nothing new (dedup)
+    again = _scans(led, client)
+    assert any("0 new findings" in line for line in again)
 
 
 def test_scans_empty(tmp_path: Path) -> None:
     led = _ledger(tmp_path / "l.db")
-    assert burp_ops.scans(led, session_id="s1") == [
-        "burp: no actions recorded this session"
-    ]
+    assert _scans(led, _FakeClient()) == ["burp: no actions recorded this session"]

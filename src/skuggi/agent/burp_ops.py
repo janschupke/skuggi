@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from skuggi.agent.executor import record_finding_drafts
 from skuggi.burp.actions import run_burp_action
+from skuggi.burp.client import BurpError
 from skuggi.burp.findings import issue_dedup_key, issue_to_draft
 from skuggi.burp.models import ScanIssue
 
@@ -131,13 +132,51 @@ def pull(  # noqa: PLR0913 -- explicit deps for offline testability
     return [f"burp: {outcome.summary}"]
 
 
-def scans(ledger: Ledger, *, session_id: str) -> list[str]:
-    """List the Burp actions recorded this session (status + any task handle)."""
+_POLLABLE = frozenset({"active_scan", "intruder"})
+
+
+def scans(  # noqa: PLR0913 -- explicit deps for offline testability
+    client: BurpClient,
+    engagement: EngagementConfig,
+    ledger: Ledger,
+    *,
+    session_id: str,
+    thread_id: str,
+    autonomous: bool,
+) -> list[str]:
+    """List recorded Burp actions, polling live task status and reconciling scans.
+
+    An in-flight scan/attack (an ``executed`` row with a Burp task ``handle``) is
+    polled for its current state; a completed active scan is reconciled -- its new
+    issues are pulled into findings through the gated :func:`pull` path (deduped,
+    so repeated polling never double-records).
+    """
     rows = ledger.burp_actions_for(session_id)
     if not rows:
         return ["burp: no actions recorded this session"]
     out: list[str] = []
     for row in rows:
-        handle = f" handle={row.handle}" if row.handle else ""
-        out.append(f"[{row.status}] {row.action} {row.target}{handle} -- {row.params}")
+        base = f"[{row.status}] {row.action} {row.target}"
+        if not (row.handle and row.status == "executed" and row.action in _POLLABLE):
+            out.append(f"{base} -- {row.params}")
+            continue
+        base = f"{base} handle={row.handle}"
+        try:
+            status = client.task_status(row.handle)
+        except BurpError as exc:
+            out.append(f"{base} -- poll failed ({exc})")
+            continue
+        percent = f" {status.percent}%" if status.percent is not None else ""
+        out.append(f"{base} -- {status.state}{percent}")
+        if status.finished and row.action == "active_scan":
+            reconciled = pull(
+                client,
+                engagement,
+                ledger,
+                session_id=session_id,
+                thread_id=thread_id,
+                autonomous=autonomous,
+                host=row.target,
+            )
+            out.extend(f"  reconcile {row.handle}: {line}" for line in reconciled)
     return out

@@ -107,7 +107,7 @@ def burp_command(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.
     elif sub == "pull":
         lines = burp_ops.pull(client, engagement, core.ledger, host=arg, **common)  # type: ignore[arg-type]
     elif sub == "scans":
-        lines = burp_ops.scans(core.ledger, session_id=core.session_id)
+        lines = burp_ops.scans(client, engagement, core.ledger, **common)  # type: ignore[arg-type]
     else:
         return [render.warning("usage: burp <scan <url> | pull [host] | scans>")]
     return [render.plain(line) for line in lines]
