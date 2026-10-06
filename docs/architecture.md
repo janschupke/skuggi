@@ -8,6 +8,8 @@ prompt_toolkit REPL ([src/skuggi/frontend/tui.py](../src/skuggi/frontend/tui.py)
 wrapped-shell daemon ([src/skuggi/frontend/daemon.py](../src/skuggi/frontend/daemon.py)). Neither
 holds agent logic; `AgentCore.turn` yields `TurnEvent`s (reset / status / token
 / final) so the same stream drives a Rich `Live` pane and a plain socket alike.
+The three front-end surfaces — the wrapped shell, the chat loop and the REPL — and
+the socket/attach protocol are documented in [frontend.md](frontend.md).
 
 ## The structured protocol
 
@@ -256,60 +258,17 @@ Files that can be read top-to-bottom in one sitting:
   and the OAuth refresh) and a `CodexAuth` (`httpx.Auth`) under a thin
   `ChatOpenAI` subclass. See [codex-auth.md](codex-auth.md).
 
-## The shell wrapper
+## The front-ends
 
-The default `skuggi` command runs your real `$SHELL` as a child that inherits
-the terminal, so `ls`, `cat`, `nmap` colours, completion, history and `Ctrl+C`
-are handled natively by the shell — skuggi never sits in the keystroke path. It
-points the child at a temporary init file that sources your own rc, prepends 🐐
-to the prompt, and defines a shell **function** literally named `/skuggi` (both
-bash and zsh resolve a function by that name before treating the word as a
-path). The function forwards its arguments to the thin `skuggi-client`, which
-talks to a warm in-process agent daemon
-([src/skuggi/frontend/daemon.py](../src/skuggi/frontend/daemon.py)) over a Unix socket — so a
-`/skuggi` prompt reaches a graph/ledger/engagement already loaded, with no
-per-call cold start. `/skuggi exit` leaves. bash and zsh get the hook; other
-shells degrade to a plain child with `/skuggi` disabled.
+The shell wrapper, the socket dispatch and the attach protocol — how `/skuggi`
+reaches the warm daemon, how free-typed commands are logged, and how interactive
+verbs prompt back — are documented in [frontend.md](frontend.md).
 
-Enforcement scope, stated honestly: the boundary applies to commands the *agent*
-proposes (the worker's `command`, guarded by the executor). Commands you free-type in the shell are your own
-and are not vetoed — reliable pre-exec interception of a live interactive shell
-is not feasible across shells. They are, however, *logged*: a zsh `preexec`
-hook (a bash `PROMPT_COMMAND` equivalent) forwards each free-typed command to
-the daemon, which records it on the timeline as `passthrough` (navigation noise
-like `cd`/`ls` is filtered to the audit `cli` channel). The forwarder guards
-against its own `/skuggi`/`skuggi-client` calls, runs backgrounded, and fails
-open — logging never blocks or breaks your real shell.
+## Related subsystems
 
-## Dispatch and the attach protocol
-
-Both front-ends are **verb-first**: the first word is the action, the rest is
-its input. One registry ([verbs.py](../src/skuggi/frontend/verbs.py)) is the single
-source of the known-verb set, argument hints and the `/help` listing, so the
-REPL's `/verb` table and the daemon's socket dispatch can never drift. The
-handlers live in each front-end (Rich tables and colour in the REPL, plain text
-over the socket) but route off the same registry; the REPL additionally treats
-bare text as an implicit `ask`.
-
-The wire protocol is line-delimited JSON with two shapes:
-
-- **one-shot** — the client sends `{"op":"input","text":…}`, the daemon streams
-  `{"chunk":…}` frames and closes with `{"end":true,"exit":<bool>}`. This is
-  every `/skuggi <verb>` invocation; `exit` true tells the client to leave the
-  shell.
-- **attach** — a bare `/skuggi` sends `{"op":"attach"}` and then runs an
-  interactive loop over the *same* connection: each line is sent, its reply
-  streamed, and the session (thread, ledger, engagement) stays live between
-  lines. `Daemon.run_attached` drives it with the same dispatch as a one-shot
-  input. Leaving the loop (blank line / `exit` / `Ctrl-D`) returns to the shell
-  with the daemon still warm; only the one-shot `/skuggi exit` leaves the shell.
-
-Interactive verbs prompt back through an **`{"ask":…}` frame**: the daemon emits
-a question, the client prompts the operator and sends the answer as the next
-`input`, and the whole exchange runs inside one attach reply. This is how the
-`engagement setup` wizard ([wizard.py](../src/skuggi/frontend/wizard.py)) and the
-natural-language `config` escalation ([configflow.py](../src/skuggi/frontend/configflow.py))
-work; both are front-end-agnostic (the REPL supplies its `PromptSession`, the
-attach loop supplies the socket round-trip) so one implementation serves both.
-`AgentCore.adopt_engagement` hot-reloads a rewritten scope into the running
-session — new workspace, ledger, tools and graph — without a restart.
+- [osint-research.md](osint-research.md) — the autonomous OSINT and research loops
+  (second and third compiled graphs, built on the shared `intel/` core).
+- [engagement.md](engagement.md) — the scope boundary, the guard, autonomy and the
+  forensics case plane.
+- [findings-and-reports.md](findings-and-reports.md) — the ledger (with its
+  hash-chained tamper-evidence), CVSS scoring, and the report/PDF pipeline.

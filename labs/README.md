@@ -16,24 +16,10 @@ Full guide (topology, credentials, the `labctl` workflow, per-lab intent): [../d
 This is separate from the frozen automated-test target in `tests/e2e/fixtures/lab/`, which
 CI drives and which never changes as these labs evolve.
 
-## The ladder
-
-| # | Lab | Tier | Stack / area | Non-obvious hook |
-|---|-----|------|--------------|------------------|
-| 01 | `01-trivial-goat-cms` | trivial | PHP/MariaDB blog | — (textbook baseline) |
-| 02 | `02-easy-taskflow` | easy | Node/Express + MongoDB | NoSQLi + JWT from a leaked `.env.bak` |
-| 03 | `03-easy-nebula-wiki` | easy | Flask + Redis + Postgres | SSTI → RCE; session forgery |
-| 04 | `04-easy-helix-actuator` | easy | Java/Spring Boot | actuator env/heapdump → DB creds |
-| 05 | `05-medium-ledgerline-api` | medium | Go REST | mass-assignment + TOCTOU race; hidden endpoints |
-| 06 | `06-medium-northwind-smb` | medium | Samba + Linux pivot | null-session loot; non-rockyou crack; cred reuse |
-| 07 | `07-medium-bazaar-microservices` | medium | SPA + Node + Python, segmented | SSRF → internal-only admin |
-| 08 | `08-hard-cirrus-cloud` | hard | LocalStack (S3/IAM/STS/Secrets) | SSRF → IMDS → assume-role → S3 |
-| 09 | `09-hard-bastion-pivot` | hard | 3 hosts / 2 networks | deserialization → pivot → crown jewels |
-| 10 | `10-hard-relay` | hard | bespoke TCP service | fingerprint + protocol-reversing |
-
-Trivial/easy use standard vectors (easy still needs ~2 chained steps). **Medium and hard are
-deliberately non-obvious**: no default-seclist path, no textbook single vector — hidden
-endpoints, custom-wordlist cracks, logic flaws, and segmented networks.
+The ten labs, their tiers and their non-obvious hooks are listed in the full guide,
+[../docs/labs.md](../docs/labs.md#the-ladder) — trivial/easy use standard, scanner-visible
+vectors; medium and hard are deliberately non-obvious (no default-seclist path, no textbook
+single vector, segmented networks).
 
 ## Using labctl (from the repo root)
 

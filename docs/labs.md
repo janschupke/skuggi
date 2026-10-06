@@ -6,7 +6,7 @@ not a single-flag path. You drive them with skuggi exactly like a real engagemen
 manage them with `labctl` (via the `make lab-*` targets).
 
 This range is separate from the frozen e2e fixture in `tests/e2e/fixtures/lab/`
-([lab.md](lab.md)), which CI drives and which never changes as these labs evolve.
+([e2e-fixture.md](e2e-fixture.md)), which CI drives and which never changes as these labs evolve.
 
 > ⚠️ Every lab is **intentionally insecure** and loopback-only. Nothing calls out at
 > **runtime** — LocalStack stands in for AWS, Samba for a Windows DC, and every

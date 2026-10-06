@@ -43,7 +43,7 @@ model is nondeterministic.
 **L5** is the only layer that runs a *real command against a real target*. Every
 other layer that exercises the executor monkeypatches `skuggi.execution.run`; L5
 lets it run for real (`shell=False`, argv exec'd) against the frozen e2e fixture
-target (`tests/e2e/fixtures/lab/`, [docs/lab.md](lab.md)) and asserts on the
+target (`tests/e2e/fixtures/lab/`, [docs/e2e-fixture.md](e2e-fixture.md)) and asserts on the
 captured output. This fixture is deliberately separate from the user-facing
 practice range in `labs/` ([docs/labs.md](labs.md)): the range evolves, the
 fixture stays pinned to these oracles. The worker is
@@ -162,7 +162,7 @@ matched narrowly on that phrase so every other provider error still fails.
 
 ## Running the e2e layer
 
-Needs the docker lab up ([docs/lab.md](lab.md)); when it is down the whole layer
+Needs the docker lab up ([docs/e2e-fixture.md](e2e-fixture.md)); when it is down the whole layer
 skips with a fix hint rather than failing:
 
 ```

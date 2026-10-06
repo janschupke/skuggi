@@ -30,7 +30,7 @@ uv run skuggi-init                             # 3
 isolated environment under `uv tool dir` and drops every `[project.scripts]`
 entry point into `uv tool dir --bin` (usually `~/.local/bin`): `skuggi`,
 `skuggi-repl`, `skuggi-init`, `skuggi-ingest`, `skuggi-doctor`, `skuggi-client`,
-`skuggi-pdf`, `skuggi-eval`.
+`skuggi-login`, `skuggi-pdf`, `skuggi-visualize`, `skuggi-eval`.
 
 - `--editable` matters for two reasons beyond convenience. The tool
   environment's `.pth` points back at this checkout's `src`, so a code edit is
@@ -100,7 +100,9 @@ Harness config describes
 memory and the same session history.
 
 `skuggi-doctor` prints where each of these resolved on this machine — start
-there rather than reasoning about the table above.
+there rather than reasoning about the table above. For the full file reference,
+the resolution precedence and the complete config-key surface, see
+[configuration.md](configuration.md).
 
 ### Overriding a path
 
@@ -137,12 +139,13 @@ and a second checkout can never clobber the first one's data.
 ## Credentials
 
 The app owns its credentials. Start `skuggi` (it boots with or without a
-configured provider) and run `/setup`: it walks you through choosing a provider
-and, for `openai`/`anthropic`, writes the key to `~/.config/skuggi/env` at mode
-0600 for you — no `export`, no editing files by hand. For a ChatGPT account,
-`/setup` (or `/login`, or `skuggi-login` before you start) runs the OAuth
-browser flow itself and writes `~/.codex/auth.json`. `ollama` needs no
-credential. `skuggi-doctor` shows which providers are configured.
+configured provider) and run `set provider` with no name: it walks you through
+choosing a provider and, for `openai`/`anthropic`, writes the key to
+`~/.config/skuggi/env` at mode 0600 for you — no `export`, no editing files by
+hand. For a ChatGPT account, `set provider` → `chatgpt` (or `login`, or
+`skuggi-login` before you start) runs the OAuth browser flow itself and writes
+`~/.codex/auth.json`. `ollama` needs no credential. `skuggi-doctor` shows which
+providers are configured.
 
 Setting them by hand still works if you prefer:
 

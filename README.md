@@ -1,22 +1,25 @@
 # skuggi
 
-A locally-hosted **pentesting agent harness**. You drive an authorized
-engagement through a LangGraph agent; for each request it advises, **proposes a
-shell command** (checked against a strict engagement boundary), or summarizes.
-Every prompt, agent reply, command (including commands you free-type in the
-shell) and finding is written, in order and with timestamps, to a per-engagement
-SQLite ledger — each finding traceable prompt → command → finding. The session
-is retrievable and replayable (`/skuggi replay`), exportable as a Markdown
-report, and can be critiqued privately by the LLM (`/skuggi review`). Harness
-chatter (control verbs, CLI noise) is kept in a separate audit log, out of the
-client-facing report.
+A locally-hosted **pentesting agent harness**. You drive an authorized engagement
+through a LangGraph agent; for each request it advises, **proposes a shell command**
+(checked against a strict engagement boundary), or summarizes. Every prompt, agent
+reply, command (including commands you free-type in the shell) and finding is
+written, in order and with timestamps, to a per-engagement SQLite ledger — each
+finding traceable prompt → command → finding. The session is retrievable and
+replayable (`/skuggi replay`), exportable as a Markdown or PDF report, and can be
+critiqued privately by the LLM (`/skuggi review`). Harness chatter (control verbs,
+CLI noise) is kept in a separate audit log, out of the client-facing report.
+
+Beyond the main turn loop it also runs autonomous **OSINT** and **research**
+intelligence loops, and a strictly read-only **forensics** mode for examining local
+evidence.
 
 The default `skuggi` command wraps your **real shell**: you keep your prompt,
-colours, completion, history and signals, and only `/skuggi <verb> …` reaches
-the agent (a warm in-process daemon). Interaction is **verb-first** — the first
-word is the action, the rest is its input (`/skuggi ask scan the web host`); a
-bare `/skuggi` opens an interactive chat loop against the warm daemon and hands
-the shell back when you leave it. `skuggi-repl` is the pure agent chat.
+colours, completion, history and signals, and only `/skuggi <verb> …` reaches the
+agent (a warm in-process daemon). Interaction is **verb-first** — the first word is
+the action, the rest is its input (`/skuggi ask scan the web host`); a bare
+`/skuggi` opens an interactive chat loop against the warm daemon and hands the shell
+back when you leave it. `skuggi-repl` is the pure agent chat.
 
 Five LLM providers, switchable at runtime:
 
@@ -28,16 +31,16 @@ Five LLM providers, switchable at runtime:
 | `claude-cli` | the local `claude` binary's own login (your subscription)²  | JSON fallback¹    |
 | `ollama`     | `$OLLAMA_BASE_URL` (default `http://localhost:11434`)       | native            |
 
-¹ Every LLM reply is a strict structured response (the request/response protocol
-in [docs/architecture.md](docs/architecture.md)). Most providers get it natively
+¹ Every LLM reply is a strict structured response (the request/response protocol in
+[docs/architecture.md](docs/architecture.md)). Most providers get it natively
 (`with_structured_output`); the ChatGPT-account endpoint and the `claude-cli`
 subprocess have no native structured output, so they use a JSON contract with one
 repair retry. See [docs/codex-auth.md](docs/codex-auth.md).
 
-² `claude-cli` shells out to a locally installed Claude Code CLI (`claude -p`),
-which uses your own Claude Pro/Max subscription. Anthropic prohibits and blocks
-third-party use of subscription OAuth tokens directly, so this is the supported
-way to drive a Claude subscription from skuggi; for an API key, use `anthropic`.
+² `claude-cli` shells out to a locally installed Claude Code CLI (`claude -p`), which
+uses your own Claude Pro/Max subscription. Anthropic prohibits and blocks
+third-party use of subscription OAuth tokens directly, so this is the supported way
+to drive a Claude subscription from skuggi; for an API key, use `anthropic`.
 
 ## Status & legal
 
@@ -55,8 +58,8 @@ way to drive a Claude subscription from skuggi; for an API key, use `anthropic`.
 
 ## Install
 
-Requires Python ≥3.12 and [uv](https://docs.astral.sh/uv/) (developed on 3.14;
-CI covers 3.12–3.14).
+Requires Python ≥3.12 and [uv](https://docs.astral.sh/uv/) (developed on 3.14; CI
+covers 3.12–3.14).
 
 Clone the repo to a **permanent** location — not a temp directory — then install
 from it:
@@ -67,34 +70,43 @@ cd ~/dev/skuggi
 make install-cli
 ```
 
-That installs `skuggi` (and every `skuggi-*` command) onto your `$PATH`, puts
-uv's bin directory on `$PATH` if it is not already there, and seeds the harness
-config. **Open a new shell**, then check it:
+That installs `skuggi` (and every `skuggi-*` command) onto your `$PATH`, puts uv's
+bin directory on `$PATH` if it is not already there, and seeds the harness config.
+**Open a new shell**, then check it:
 
 ```sh
 command -v skuggi        # → ~/.local/bin/skuggi
 skuggi-doctor            # → the install table: both homes, config files, tools
 ```
 
-If `skuggi: command not found` persists, uv's bin directory is not on your
-`$PATH`; add it and reopen the shell:
+If `skuggi: command not found` persists, uv's bin directory is not on your `$PATH`;
+add it and reopen the shell:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"     # `uv tool dir --bin` prints the directory
 ```
 
-Then give it a credential — any one of these:
+Then give it a credential. The simplest path is to start skuggi (it boots with or
+without a provider) and run the guided setup, which writes the key for you at mode
+0600:
+
+```sh
+skuggi
+/skuggi set provider            # pick a provider; writes the key / runs OAuth
+```
+
+Or set one by hand — any of these:
 
 ```sh
 printf 'ANTHROPIC_API_KEY=sk-ant-...\n' > ~/.config/skuggi/env && chmod 600 ~/.config/skuggi/env
 export ANTHROPIC_API_KEY=sk-ant-...      # or just export it from your shell rc
-codex login                              # or arrange OpenAI/ChatGPT auth
+/skuggi login                            # ChatGPT-account OAuth (also: skuggi-login)
 ```
 
-Now `skuggi` runs **from any directory**. Its config and databases live in two
-fixed homes, so every invocation reads the same harness (see
-[Configuration](#configuration)); only the engagement workspace is relative to
-where you are, because that is where the client's data belongs.
+Now `skuggi` runs **from any directory**. Its config and databases live in two fixed
+homes, so every invocation reads the same harness (see
+[Configuration](#configuration-and-storage)); only the engagement workspace is
+relative to where you are, because that is where the client's data belongs.
 
 To start an engagement, point skuggi at a directory — that directory *is* the
 engagement (its `scope.json`, ledger, recon output and reports live inside it):
@@ -109,13 +121,13 @@ skuggi
 `set engagement <path>` adopts (and, if needed, creates + scaffolds) another
 directory instead of the current one. With no engagement — no `scope.json` in the
 current directory and no `SKUGGI_ENGAGEMENT_ROOT` override — skuggi runs agent-only
-(no scope, no ledger). The adopted root is session-scoped and is not persisted;
-a restart re-discovers it by probing the current directory.
+(no scope, no ledger). The adopted root is session-scoped and is not persisted; a
+restart re-discovers it by probing the current directory.
 
 Installing from an existing checkout moves any `configs/` and `data/` you already
 had into the two homes, once — that state is gitignored, so it is not left behind.
-It is a move, not a copy, so there is only ever one live copy of each database.
-For the full story, and for troubleshooting, see [docs/install.md](docs/install.md).
+It is a move, not a copy, so there is only ever one live copy of each database. For
+the full story, and for troubleshooting, see [docs/install.md](docs/install.md).
 
 ## Usage
 
@@ -123,14 +135,14 @@ For the full story, and for troubleshooting, see [docs/install.md](docs/install.
 skuggi                 # the native shell wrapper (🐐 prompt), from anywhere
 ```
 
-Inside the wrapped shell your normal commands run natively; `/skuggi <verb>`
-reaches the agent:
+Inside the wrapped shell your normal commands run natively; `/skuggi <verb>` reaches
+the agent:
 
 ```
 🐐 ~ %  ls                              # your real shell, native colours
 🐐 ~ %  /skuggi ask scan the web host   # → agent proposes an in-scope command
-🐐 ~ %  /skuggi cmd nmap               # → search the cheatsheet; `cmd nmap-host` resolves one
-🐐 ~ %  /skuggi findings                # → harness control
+🐐 ~ %  /skuggi cmd nmap                # → search the cheatsheet; `cmd nmap-host` resolves one
+🐐 ~ %  /skuggi show findings           # → harness control (inspect state)
 🐐 ~ %  /skuggi                         # → open the chat loop (blank line leaves)
 🐐 ~ %  /skuggi exit                    # → leave the harness
 ```
@@ -143,441 +155,141 @@ skuggi-repl            # or: python -m skuggi
 
 ```
 > what is exposed on the target?     # bare text is an implicit `ask`
-> /provider anthropic
+> /set provider anthropic
 > /ingest docs
 > /quit
 ```
 
-## Verbs
+## The verb grammar
 
-The first word after `/skuggi` (or after `/` in `skuggi-repl`) is the verb; the
-rest is its input. In `skuggi-repl`, bare text with no leading `/` is an
-implicit `ask`. The two front-ends share one registry
-([src/skuggi/frontend/verbs.py](src/skuggi/frontend/verbs.py)), so `/help` always matches.
+The first word after `/skuggi` (or after `/` in `skuggi-repl`) is the **verb**; the
+rest is its input. Four **grouping verbs** take a *noun* and route on it:
 
-| Verb | Effect |
-|---|---|
-| `ask <prompt>` | Send a prompt to the agent |
-| `cmd [list \| <query> \| <name> \| add \| edit <name> \| rm <name>]` | Search the command cheatsheet; resolve an exact name to render, scope-check & advise (never runs it); `add`/`edit`/`rm` manage it |
-| `add note <text> \| loot <text> \| finding <severity> <title>` | Record an engagement artifact by hand: a timestamped note or loot entry (workspace files), or a finding in the ledger (same store the agent writes) |
-| `notes` | List the engagement notes you have recorded |
-| `loot` | List the captured loot you have recorded |
-| `findings` | List findings recorded this session |
-| `report [pdf]` | Write a Markdown engagement report (add `pdf` for a styled PDF too) |
-| `replay [list \| <session>]` | Reconstruct & view a session transcript (`list` enumerates sessions) |
-| `review [<session>]` | Private LLM critique of a session — feedback for you, never client-facing |
-| `memory [add <text> \| forget <id> \| clear]` | Show / add / forget remembered operator preferences |
-| `engagement [setup]` | Show the scope, or run the interactive setup wizard |
-| `config [show \| <key> <value> \| <request>]` | Show or change app settings |
-| `doctor [install <tool>]` | Probe host tools; install a missing one on request |
-| `mode <pentest\|redteam\|blueteam\|forensics>` | Switch the prompt set (see below) |
-| `case [<path>]` | Adopt a forensics case directory (cwd by default), scaffolding if absent |
-| `forensics [<instruction>]` | Run the read-only forensic examination loop over the case evidence (forensics mode) |
-| `autonomous [on\|off]` | Toggle autonomous command execution |
-| `provider <openai\|chatgpt\|anthropic\|claude-cli\|ollama>` | Switch provider, recompile graph |
-| `model <name>` | Switch model on the current provider |
-| `thread new\|list\|<id>` | Start / list / resume a conversation thread |
-| `history [n]` | Show the last `n` messages on the current thread |
-| `trace` | Show the command trail on the current thread |
-| `ingest <path>` | Index a file or directory of `*.md` / `*.txt` |
-| `update` | Update skuggi in place (`git pull --ff-only`, then refresh the install) |
-| `clear` | Clear the screen (`skuggi-repl` only) |
-| `help` | Verb reference |
-| `exit`, `quit` | Close cleanly |
+- `show <what>` — inspect state (`show findings`, `show engagement`, `show tools`, …)
+- `set <what>` — change config / session state (`set mode redteam`, `set provider`,
+  `set autonomous on`, `set target <host>`, …)
+- `add <what>` — record engagement data (`add note`, `add loot`, `add finding`, …)
+- `remove <what>` — delete records (`remove memory <id>`, …)
 
-**Interactive verbs need a loop.** `engagement setup` and a natural-language
-`config <request>` prompt you back and forth, so they run in `skuggi-repl` or in
-the wrapped shell's chat loop (a bare `/skuggi`). Invoked one-shot as
-`/skuggi engagement setup`, they point you at the loop rather than half-running.
+Plain verbs include `ask`, `cmd`, `osint`, `research`, `forensics`, `engagement`,
+`findings`, `report`, `visualize`, `replay`, `review`, `doctor`, `login`, `ingest`,
+`update`, `reconcile`, `help`, `exit`. `help` (or `help <verb>`) always lists what
+is available in the current mode.
 
-## cmd: the command cheatsheet (transparent, suggest-style)
+**The full verb/noun reference, the `cmd` command cheatsheet, and operator memory
+are in [docs/usage.md](docs/usage.md).** In short:
 
-`cmd` is a searchable cheatsheet of real CLI invocations
-([src/skuggi/templates/commands.example.json](src/skuggi/templates/commands.example.json)) — main
-use-cases for every non-interactive tool skuggi knows (nmap, nikto, gobuster,
-ffuf, sqlmap, ldapsearch, enum4linux-ng, nxc, hydra, john, hashcat, cewl,
-msfvenom, …). It works in two steps:
-
-- **`cmd <query>`** lists every entry whose name, tool or description contains
-  the substring — `cmd nmap` shows all the nmap shorthands. `cmd` / `cmd list`
-  shows the whole sheet.
-- **`cmd <exact-name>`** *renders* that one entry, **prints the full command**,
-  checks it against the engagement scope, records it (`proposed` in scope,
-  `blocked` out of scope) and has the agent advise — it never executes.
-
-**Automatic, timestamped output.** Each tool declares an output flag and a
-destination folder (`nmap → recon/nmap`, `gobuster`/`ffuf → recon/dirs`,
-`sqlmap → recon/web`, crackers → `loot`, …). A rendered command therefore
-carries a consistent output path:
-
-```
-cmd nmap-host
-  $ nmap -sV -sC ${target} -oA recon/nmap/$(date +%Y-%m-%d_%H%M%S)_${target}_host
-```
-
-`$(date …)` and `${target}` are left **literal** so your shell expands them at
-run time — the wrapped shell exports `target` from the engagement's primary
-host (a sole allowed host/network, or an explicit `primary_target` in
-`scope.json`). Set it yourself (`export target=…`) when the scope has several.
-
-**Editing.** The cheatsheet is just `<config home>/commands.json` — edit it by
-hand, or use the guided editor: `cmd add`, `cmd edit <name>`, `cmd rm <name>`
-(the interactive add/edit run inside the `/skuggi` chat loop). A few shipped
-entries:
-
-| Alias | Rendered (abridged) | Purpose |
-|---|---|---|
-| `nmap-host` | `nmap -sV -sC ${target} -oA recon/nmap/…_host` | service/version + default scripts |
-| `nmap-full` | `nmap -p- -sV ${target} -oA recon/nmap/…_full` | all TCP ports with service detection |
-| `gobuster-dir` | `gobuster dir -u ${target} -o recon/dirs/…_dir.txt` | directory brute-force (append `-w`) |
-| `ffuf-dir` | `ffuf -u ${target} -of json -o recon/dirs/…_dir.json` | URL fuzzing (FUZZ keyword, append `-w`) |
-| `sqlmap-url` | `sqlmap --batch -u ${target} --output-dir recon/web/…_url` | test a URL for SQL injection |
-| `hashcat-ntlm` | `hashcat -m 1000 -a 0 -o loot/…_ntlm.txt` | crack NTLM with a wordlist |
-
-## memory: standing operator preferences
-
-`memory` is the harness's durable memory of how *you* like to work — which tool
-to prefer when several would do, the language to write helper scripts in, how
-terse a reply should be, reporting conventions. Remembered preferences are
-injected into the planner, worker and critic every turn, so the agent follows
-your standing instructions across threads and sessions.
-
-They fill two ways:
-
-- **Automatically, with your approval.** After a turn whose message reads like a
-  standing directive (`always…`, `prefer…`, `from now on…`, `use X over Y`), the
-  harness extracts the durable preference and *proposes* it. In the chat loop (or
-  `skuggi-repl`) it previews the directive and asks you to approve before writing;
-  a one-shot `/skuggi ask` only announces what it would remember and writes
-  nothing (there is no loop to confirm against). One-off requests and
-  target-specific facts are ignored. Turn the proposing off with `config
-  memory_auto false` (or `SKUGGI_MEMORY_AUTO=0`).
-- **Manually.** `add memory <text>` stores one; `show memory` lists them with
-  ids; `remove memory <id>` drops one; `remove memory all` empties the store.
-
-Memory is **global** across engagements — a preference is about the operator,
-not a target — and lives in the data home's `preferences.db`, separate from the
-ledger. It is capped (`memory_max`, default 100): at the cap the automatic path
-refuses new captures and warns rather than evicting anything, so you prune it
-yourself with `remove memory`.
-
-## engagement setup: the scope wizard
-
-`engagement setup` runs a grouped, step-by-step wizard (Identity, Authorization,
-Schedule, Targets, Capabilities, Approach) with a horizontal step bar. Methods,
-methodology, taxonomies and stance are dropdowns/checklists; timezone and tools
-autocomplete (in the REPL); the authorized window is optional (a blank start/end
-means no time bound). It validates the answers, writes `scope.json` into the
-active engagement root, and **hot-reloads** the boundary into the running
-session — no restart. A rejected answer re-asks only the field that
-failed, keeping everything else; a blank keeps the current value when editing;
-`Ctrl-C`/`Esc` cancels.
+- **`cmd`** (offensive modes) is a searchable cheatsheet of real CLI invocations
+  (nmap, gobuster, sqlmap, …): `cmd <query>` searches it; `cmd <name>` renders one,
+  prints the full command, scope-checks it and advises — it never executes.
+- **memory** is the harness's durable record of how *you* like to work, injected
+  into every turn. `add memory <text>` / `show memory` / `remove memory <id>`, plus
+  an opt-in post-turn auto-capture that previews and asks before writing.
 
 ## The engagement boundary
 
-The authorized scope for one engagement is its workspace's `scope.json`
-(template: [src/skuggi/templates/scope.example.json](src/skuggi/templates/scope.example.json)), loaded at
-start and never committed:
+The authorized scope for one engagement is its workspace's `scope.json` (template:
+[src/skuggi/templates/scope.example.json](src/skuggi/templates/scope.example.json)),
+loaded at start and never committed. Every command the agent proposes is parsed and
+checked by a single guard (`check_command` in
+[src/skuggi/engagement/guard.py](src/skuggi/engagement/guard.py)): exclusions deny
+first, then the tool must be recognized and authorized, its method and (if scoped)
+its ports allowed, the time inside the authorized windows, and every target inside
+an allowed network/host. The rule is conservative — anything it cannot prove in
+scope is denied.
 
-```json
-{
-  "name": "acme-external-2026",
-  "timezone": "Europe/Helsinki",
-  "authorized_start": "2026-09-01T00:00:00+03:00",
-  "authorized_end": "2026-12-31T23:59:59+02:00",
-  "daily_windows": [{ "start": "09:00:00", "end": "17:00:00" }],
-  "target_networks": ["192.0.2.0/24"],
-  "allowed_hosts": ["scanme.example.com"],
-  "allowed_tools": ["nmap", "curl"],
-  "allowed_methods": ["recon", "scan"],
-  "autonomous": false,
-  "methodology": "phases",
-  "taxonomies": ["wstg"],
-  "threat_model": { "confidentiality_requirement": "high" }
-}
-```
-
-Every command the agent proposes is parsed and checked by a single guard
-(`check_command` in [src/skuggi/engagement/engagement.py](src/skuggi/engagement/engagement.py)), in
-order: recognized tool → authorized tool → authorized method → inside the date
-window → inside the daily clock window → every extracted target inside an
-allowed network/host → every data-file path confined to the workspace. The rule
-is conservative: a target-requiring command with no in-scope target is denied,
-and anything the guard cannot prove in scope is denied.
-
-`allowed_methods` is coarse by design: each registry entry declares one static
-method (`nmap`→`scan`, `curl`→`recon`), so it gates tool *categories* and
-largely reinforces `allowed_tools` — it does not distinguish `nmap -sn` from
-`nmap -A`.
+Commands **suggest by default** (recorded `proposed` for you to run by hand). In
+**autonomous mode** (`set autonomous on`, or `"autonomous": true`) the agent runs
+in-scope commands itself — but only up to a **risk ceiling**: a command above
+`autonomous_ceiling` is still held `proposed`. An agent-cleared command runs through
+the host subprocess by default, or an isolated **container** backend
+(`execution_backend: container`). The scope wizard (`engagement setup`), the full
+field reference, the workspace tree and the forensics case plane are documented in
+[docs/engagement.md](docs/engagement.md).
 
 ## Keeping secrets out of the model
 
 skuggi feeds command output, retrieved documents and prior findings back to the
 model, so a deterministic boundary ([src/skuggi/security/](src/skuggi/security/))
-scrubs secrets and PII out of every model-bound request first — no model, no
-network, just rule-based detectors. A discovered secret becomes a reversible
-`«KIND:id»` placeholder backed by a per-engagement 0600 vault; the model reasons
-over the placeholder, and when it proposes a command that uses one, the harness
-rehydrates the real value into the argv *just before the tool runs* — so a
-credential reaches the tool, never the chat. An egress tripwire re-scans the
-whole assembled request as a last resort, and is a hard gate in the tests.
+scrubs secrets and PII out of every model-bound request first — no model, no network,
+just rule-based detectors. A discovered secret becomes a reversible `«KIND:id»`
+placeholder backed by a per-engagement 0600 vault; the model reasons over the
+placeholder, and the harness rehydrates the real value into the argv *just before
+the tool runs*. Sensitive inputs (wordlists, credential lists) live as files under
+`inputs/`; the agent sees only a metadata inventory and points a tool at one *by
+path*. An egress tripwire re-scans the whole assembled request as a hard gate. The
+full model: [docs/architecture.md](docs/architecture.md#the-data-plane-boundary).
 
-Sensitive inputs stay out of the chat entirely: wordlists and credential/user
-lists live as files under the workspace `inputs/` folder (pulled documents under
-`evidence/`), the agent sees only a metadata inventory (name, size, line count,
-hash — never contents) and points a tool at one *by path*, and the guard confines
-every such path to the workspace. Binary documents (pdf/docx/xlsx) are parsed by
-pure-Python readers with no-execute guardrails — no subprocess, macros refused,
-size/zip-bomb capped — and their text is redacted before it reaches the model.
-Findings are stored raw (they are the record behind the report) but their
-model-facing title/description are redacted, and the raw `evidence` never reaches
-a request. The boundary closes the model-egress path; it cannot police the
-operator's own terminal, which is inside the trust boundary.
+## OSINT and research
 
-## Commands: suggest by default, autonomous on request
+Two autonomous intelligence loops run alongside the main turn graph:
 
-The worker returns a structured response; when it proposes a `command`, the
-executor node sends it through the engagement guard and never runs a blocked one.
-For an in-scope command:
+- **`osint`** (offensive modes) — engagement-scoped reconnaissance over *subjects*
+  (orgs, apex domains, people, GitHub orgs). It runs only when the scope has an
+  `osint` block, and a dedicated OSINT guard denies any out-of-scope subject or
+  disabled source.
+- **`research`** — engagement-independent public-source research (CVEs, exploits,
+  end-of-life/version data). Report-only; writes a briefing, no ledger findings.
 
-- **suggest mode (default, `autonomous: false`)** — records the command as
-  `proposed` and hands it back for you to run by hand.
-- **autonomous mode (`autonomous: true` in the scope, or `/autonomous on`)** —
-  executes it (`shell=False`, argv exec'd directly, output byte-capped,
-  wall-clock timeout) in the workspace's `recon/` directory, records the result,
-  and feeds it back to the worker for the next step (bounded by
-  `max_tool_rounds`). The prompt shows `!` and the banner shows autonomous ON
-  while armed.
-
-Blocked, proposed and executed commands are all persisted with timestamps.
+Both are built on a shared `intel/` core and respect the same redaction boundary.
+See [docs/osint-research.md](docs/osint-research.md).
 
 ## Modes
 
-`/mode pentest|redteam|blueteam` swaps the planner/worker/critic prompt set
-([src/skuggi/agent/prompts.py](src/skuggi/agent/prompts.py)); the graph and guard are
-identical across these three. Set the default with `SKUGGI_MODE`.
-
-`/mode forensics` is different: a strictly read-only, engagement-free discipline for
-examining local evidence. It binds to a **case** (a directory, adopted with
-`/set case <path>`) instead of an engagement, with its own separate ledger
-(`case.db`). Drop evidence into the case `evidence/` directory and run
-`/forensics` to examine it: the loop hashes each artifact, runs an in-process
-analyzer battery (strings, hexdump, entropy, magic-type, encoding/decoding, log
-parsing, and — with the `forensics` extra — OCR and AI vision over images), records
-a chain-of-custody procedure log, and writes a cited Markdown/PDF case report.
-Nothing is ever written to or executed from the evidence; the forensic tool surface
-is a built-in read-only allow-list and every positional path is confined to the
-case. Offensive verbs (`cmd`, `osint`) are unavailable in this mode, and every
-finding the examiner cannot tie to collected evidence is marked speculative.
-
-OCR and keyed decryption need the optional `forensics` extra (installed by
-`make install`); OCR also needs the system `tesseract` binary
-(`brew install tesseract` / `apt-get install -y tesseract-ocr`), which
-`skuggi-doctor` reports on. AI vision runs only on a vision-capable provider
-(`openai`/`anthropic`) and is skipped gracefully otherwise.
+`set mode pentest|redteam|blueteam` swaps the planner/worker/critic prompt set; the
+graph and guard are identical across the three. Set the default with `SKUGGI_MODE`.
+`set mode forensics` is different — a strictly read-only, engagement-free discipline
+bound to a **case** (`set case <path>`) with its own `case.db` ledger, an in-process
+analyzer battery (strings, hexdump, entropy, magic, encoding, log parsing, OCR, AI
+vision) and a chain-of-custody log. Offensive verbs drop out of forensics mode. See
+[docs/engagement.md](docs/engagement.md#modes).
 
 ## Tools and `skuggi-doctor`
 
 Recognized tools live in the JSON registry
-([src/skuggi/templates/tools.example.json](src/skuggi/templates/tools.example.json)): each tool's binary,
-its engagement method, how to read its version, which flags carry targets, and
-per-installer install commands. `skuggi-doctor` (or `/doctor`) probes the host
-`PATH` and/or a skuggi-managed venv (per `SKUGGI_TOOL_SOURCE=host|managed|combine`),
-captures versions, and reports what is missing with install hints filtered to
-the package managers actually present on this host. It also reports the standard
-runtimes/toolchains (ruby, python3, node, …) and net tools (dig, ssh, …) an
-operator relies on. `/doctor install <tool>` installs a missing one — issuing
-the subcommand is the confirmation.
+([src/skuggi/templates/tools.example.json](src/skuggi/templates/tools.example.json)):
+each tool's binary, its engagement method, how to read its version, which flags
+carry targets/ports, and per-installer install commands. `skuggi-doctor` (or
+`/skuggi doctor`) probes the host `PATH` and/or a skuggi-managed venv (per
+`SKUGGI_TOOL_SOURCE=host|managed|combine`), captures versions, and reports what is
+missing with install hints filtered to the package managers present on this host. It
+also reports the standard runtimes/toolchains and net tools an operator relies on.
+`doctor install <tool>` installs a missing one — issuing the subcommand is the
+confirmation.
 
 ## Findings, the ledger and reports
 
 The harness persists to a per-engagement SQLite **ledger**
-([src/skuggi/persistence/ledger.py](src/skuggi/persistence/ledger.py), `<engagement root>/ledger.db`),
-separate from the checkpointer, with `sessions`, `commands`, `findings` and
-`finding_refs` tables. A finding links to its session and (by default) to the most
-recent command, so it is always traceable. `/report` writes a Markdown report into
-the workspace's `reports/` with the scope, findings grouped by severity, and the
-timestamped command log.
+([src/skuggi/persistence/ledger.py](src/skuggi/persistence/ledger.py), `<engagement
+root>/ledger.db`), separate from the checkpointer, with an `events` timeline plus
+`commands`, `findings` and the engagement-data tables. A finding links to its
+session and source command, so it is always traceable. The timeline is
+**hash-chained** for tamper-evidence (`show integrity` verifies it).
 
-### Framework-aware findings and deterministic CVSS
+Findings are **scored, not guessed**: the agent proposes a CVSS v3.1 vector,
+`skuggi.frameworks.cvss` computes the score deterministically, and findings can carry
+WSTG/ATT&CK classification ids from a vendored, offline snapshot. Every finding is
+born `draft`; only **approved** findings reach a report (`findings approve|reject`).
+`/skuggi report` writes a revisioned Markdown report (add `pdf` for a styled PDF);
+`/skuggi visualize` builds an interactive HTML dashboard. The full lifecycle, CVSS,
+threat model and PDF pipeline: [docs/findings-and-reports.md](docs/findings-and-reports.md).
 
-Findings are **scored, not guessed**. The agent proposes a CVSS v3.1 *vector* (it
-assesses the metrics); `skuggi.frameworks.cvss` computes the base/temporal/
-environmental score deterministically — no model does the arithmetic, and the stored
-`(version, vector)` reconstructs every number on its own. Each finding can also carry
-classification IDs from the engagement's chosen **frameworks** — OWASP WSTG and MITRE
-ATT&CK ids, resolved to titles and links from a vendored, version-pinned snapshot
-([src/skuggi/frameworks/data/](src/skuggi/frameworks/data/)) that is refreshed only by
-a maintainer (`make frameworks`), so lookups stay offline and cannot drift.
+## Configuration and storage
 
-Each engagement selects a driving **methodology** (built-in phases, PTES, or ATT&CK
-adversary-emulation) and the classification **taxonomies** to tag with; an optional
-**threat model** (CVSS Environmental requirements) tailors scores to the asset. See
-[docs/audit-llm-vs-mechanism.md](docs/audit-llm-vs-mechanism.md) for why scoring and
-classification moved from the LLM to deterministic code. You can also record a scored
-finding by hand: `/skuggi add finding CVSS:3.1/AV:N/... <title>`.
+skuggi follows the **XDG Base Directory** convention, seeded by `skuggi-init`.
+Editable config lives under `~/.config/skuggi` (`config.json`, `tools.json`,
+`layout.json`, `commands.json`, `env`); regenerable state lives under
+`~/.local/share/skuggi` (`sessions.db`, `preferences.db`, `faiss_index/`, `toolbox/`,
+`logs/`). Both honour the standard `XDG_*` variables, each with a `SKUGGI_*` override
+in front of it. **The engagement root is the one deliberate exception** — it stays
+relative to your working directory, because a workspace is about *a case*, not about
+*you*.
 
-**Review lifecycle.** Every finding — the agent's and the operator's — is born
-`draft`; only **approved** findings reach a report. Review with `/skuggi findings`
-(the listing shows author and status), then `findings approve <id>` or
-`findings reject <id> <reason>`. A rejected finding's reason is fed back to the agent
-so it stops re-asserting it.
-
-**Threat model, during the engagement.** The CVSS Environmental requirements can be
-set up front or during the PTES Threat Modeling phase with
-`engagement threat-model <conf> <int> <avail> [| note]` (the agent advises; the
-operator applies). Each change is versioned and logged; findings scored under an
-earlier version are flagged ⚠ outdated in the listing, and `findings rescore [all|<id>]`
-refreshes them from their stored base vector — recorded scores change only on that
-explicit action.
-
-**Report revisions.** Reports are timestamped and never overwritten; each `/skuggi
-report` is a new revision that cites the previous one and writes a unified `.diff`
-beside it (the revision notes). `report note <text>` adds a line to the engagement's
-`reports/CHANGELOG.md`.
-
-### PDF reports
-
-Markdown is the canonical artifact; a styled, client-ready PDF is derived from
-it. `/report pdf` writes a `.pdf` next to the `.md`, and the standalone
-`skuggi-pdf` renders any Markdown file (a report, or anything under `docs/`):
-
-```sh
-skuggi-pdf data/reports/<file>.md            # -> <file>.pdf
-skuggi-pdf docs/architecture.md -o arch.pdf --html   # also emit the HTML
-make pdf IN=docs/architecture.md
-```
-
-The pipeline is `Markdown -> HTML -> PDF`
-([src/skuggi/persistence/pdf.py](src/skuggi/persistence/pdf.py)): markdown-it-py parses the report,
-Pygments highlights fenced code, a Jinja2 shell wraps it in the print
-stylesheet ([src/skuggi/templates/report.css](src/skuggi/templates/report.css)),
-and WeasyPrint paints the PDF. Styling is pure CSS — edit `report.css` to
-restyle every report — and the severity/method colours are pulled from
-[src/skuggi/common/palette.py](src/skuggi/common/palette.py), the same source the terminal
-uses. It needs the optional `pdf` dependency group (installed by `make install`)
-and WeasyPrint's native Pango library:
-
-```sh
-brew install pango            # macOS
-# apt install libpango-1.0-0 libpangoft2-1.0-0   # Debian/Ubuntu
-uv sync --group pdf           # if you skipped `make install`
-```
-
-## The per-engagement workspace
-
-An engagement *is* a directory — the root you adopt with `set engagement`
-([src/skuggi/engagement/workspace.py](src/skuggi/engagement/workspace.py)). There is no
-`engagements/<name>/` wrapper; the root you point at holds the workspace directly,
-created on adoption:
-
-```
-<engagement root>/
-  scope.json            # the engagement boundary (the engagement setup)
-  findings/             # per-finding artefacts (structured records are in the ledger)
-  notes/notes.md        # `/skuggi add note` — timestamped operator notes
-  recon/nmap/  recon/dirs/  recon/domains/  recon/web/   # cmd output is written here
-  inputs/               # operator-supplied wordlists / user & credential lists (fed to tools by path)
-  evidence/             # files pulled from a target (downloads, documents)
-  loot/                 # cracked hashes, captured creds, payloads
-  loot/loot.md          # `/skuggi add loot` — timestamped loot log
-  reports/              # /report output
-  scripts/  tests/
-  ledger.db             # this engagement's ledger
-  .vault.db             # 0600 secret vault for reversible redaction (never committed)
-```
-
-The layout is configurable
-([src/skuggi/templates/layout.example.json](src/skuggi/templates/layout.example.json)). Keep your
-engagement roots out of version control (or gitignore them) — they hold the ledger
-and loot.
-
-## Configuration
-
-skuggi is a command you run from anywhere, so its files do not live next to your
-cwd. It follows the **XDG Base Directory** convention — the same config/data
-split most modern CLI tools use, seeded by `skuggi-init`. Editable config (small,
-backup-friendly) lives under `~/.config/skuggi`; regenerable state (databases,
-the FAISS index, history) lives under `~/.local/share/skuggi`. Both honour the
-standard `XDG_*` variables, each with a `SKUGGI_*` override in front of it:
-
-| | Default | Overrides | Holds |
-|---|---|---|---|
-| **Config home** | `~/.config/skuggi` | `SKUGGI_CONFIG_HOME`, else `XDG_CONFIG_HOME/skuggi` | `config.json`, `tools.json`, `layout.json`, `commands.json`, `env` |
-| **Data home** | `~/.local/share/skuggi` | `SKUGGI_DATA_HOME`, else `XDG_DATA_HOME/skuggi` | `sessions.db`, `preferences.db`, `faiss_index/`, `toolbox/` |
-
-**The engagement root stays relative to your working directory.** That is the
-one deliberate exception, and the reason for the split: an engagement's scope,
-ledger, recon output and reports belong to the directory you adopted (the current
-one by default, or `set engagement <path>`), not to a global dotdir. Harness
-config is about *you*; a workspace is about *a case*. The root is session-scoped —
-an explicit `SKUGGI_ENGAGEMENT_ROOT` overrides the cwd probe, but nothing is
-persisted. `skuggi-doctor` prints where every one of these resolved.
-
-Values resolve in priority order, highest first:
-
-1. an environment variable (prefix `SKUGGI_*`, or the unprefixed vendor names)
-2. `<config home>/env` — same spelling as the environment, so
-   `SKUGGI_PROVIDER=anthropic` and a bare `ANTHROPIC_API_KEY=...`
-3. `<config home>/config.json`
-4. the built-in defaults
-
-So a one-off `SKUGGI_PROVIDER=anthropic` still wins for a single run. Config tiers:
-
-- **App config** (`<config home>/config.json`): providers/models, embedding
-  models, storage paths, graph bounds, mode, the pentest-harness paths. Edit it
-  directly or with the `config` verb.
-- **Harness config** (shared, same home): the recognized-tool registry
-  `tools.json`, the optional workspace-layout override `layout.json`, and the
-  optional `cmd` cheatsheet `commands.json`.
-- **Engagement setup** (per-case, in `<engagement root>/scope.json`): the
-  boundary above.
-
-A path you set explicitly is taken as written, so a *relative* one still resolves
-against the working directory — `SKUGGI_CONFIG_PATH=./configs/config.json` gives
-you a project-local config if you want one.
-
-The **`config` verb** edits the app config in place: `config` (or `config show`)
-prints every setting with credentials redacted; `config <key> <value>` validates
-and persists one setting, applying `provider`/`mode` to the live session (other
-keys take effect on restart); and `config <natural-language request>` asks the
-LLM to propose `key=value` edits, shows them, and applies them on your
-confirmation. It never writes a secret.
-
-**Secrets never go in `config.json`.** The API keys — `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, plus `OLLAMA_BASE_URL` — are read from the environment, from
-`<config home>/env`, or from `~/.codex/auth.json`; see
-[.env.example](.env.example) for the `env` template. The JSON config source drops
-these fields even if a file mistakenly contains one; the `env` file is *not*
-filtered, because holding credentials is the only reason it exists. Keep it at
-`chmod 600` — `skuggi-doctor` warns if it is group- or world-readable.
-
-## Storage layout
-
-Harness config, in the **config home** (`~/.config/skuggi`):
-
-- `config.json` — app config (the `config` verb edits this)
-- `tools.json` — the recognized-tool registry
-- `layout.json`, `commands.json` — optional workspace layout and `cmd` cheatsheet
-- `env` — optional secrets file (`chmod 600`)
-- `scope.example.json` — the template to copy for a new engagement
-
-Harness state, in the **data home** (`~/.local/share/skuggi`):
-
-- `sessions.db` — LangGraph checkpoint store
-- `preferences.db` — harness memory (global operator preferences)
-- `faiss_index/` — FAISS retrieval index
-- `toolbox/` — the managed tool venv (`SKUGGI_TOOL_SOURCE=managed|combine`)
-- `ledger.db`, `reports/` — agent-only fallback when no engagement is selected
-
-Per-case, **relative to your working directory**:
-
-- `<engagement root>/` — the directory you adopt with `set engagement` (cwd by
-  default): its scope, ledger, recon output and reports (keep it out of git)
-
-The templates themselves ship inside the package
-([src/skuggi/templates/](src/skuggi/templates/)) so that an install with no
-checkout can still seed a config home.
+Values resolve env → `<config home>/env` → `config.json` → defaults, so a one-off
+`SKUGGI_PROVIDER=anthropic` wins for a single run. Secrets never go in `config.json`
+(the JSON source drops them); they come from the environment, `env`, or
+`~/.codex/auth.json`. `set config` edits the app config in place. The full key
+surface, the homes, and the storage layout: [docs/configuration.md](docs/configuration.md).
 
 ## Entry points
 
@@ -586,7 +298,10 @@ checkout can still seed a config home.
 - `skuggi-init` — create the config/data homes and seed them from the templates
 - `skuggi-doctor` — probe the host for the registry's tools and report
 - `skuggi-ingest` — index files/directories into the FAISS store
+- `skuggi-login` — ChatGPT-account OAuth login for the `chatgpt` provider
 - `skuggi-pdf` — render a Markdown file to a styled PDF (needs the `pdf` extra)
+- `skuggi-visualize` — render the engagement dashboard HTML
+- `skuggi-eval` — the local eval system (see [docs/testing.md](docs/testing.md))
 - `skuggi-client` — the thin client the shell's `/skuggi` hook calls (not run
   directly)
 
@@ -595,7 +310,7 @@ checkout can still seed a config home.
 ```sh
 make install     # uv sync --all-groups --all-extras, plus the git hooks
 make install-cli # put `skuggi` on $PATH (editable) and seed the homes
-make check       # ruff format --check, ruff, mypy --strict, pytest — what CI runs
+make check       # ruff format --check, ruff, file-size cap, mypy --strict, pytest — what CI runs
 make eval        # the real-provider layer; costs money, needs credentials
 make e2e         # the real pipeline against the frozen e2e fixture target (bring it up first)
 make lab-list    # the user-facing practice range (labs/): 10 tiered engagements
@@ -605,31 +320,42 @@ make bench       # the full eval benchmark across providers; costs money
 
 `make check` is the gate. The test suite is five layers, three of them offline;
 `make eval` (real providers) and `make e2e` (the frozen [e2e fixture
-target](docs/lab.md)) are opt-in — see [docs/testing.md](docs/testing.md). A committed, local-only
-**eval system** (`skuggi-eval`) scores the agent across seven dimensions — four
-deterministic (`compliance`, `methodology`, `schema`, `result_compat`) and three
-quality (`factuality`, `budget`, `latency`) — and hard-gates on regression against
-[evals/baseline.json](evals/baseline.json); see [evals/README.md](evals/README.md).
+target](docs/e2e-fixture.md)) are opt-in — see [docs/testing.md](docs/testing.md). A
+committed, local-only **eval system** (`skuggi-eval`) scores the agent across seven
+dimensions — four deterministic (`compliance`, `methodology`, `schema`,
+`result_compat`) and three quality (`factuality`, `budget`, `latency`) — and
+hard-gates on regression against [evals/baseline.json](evals/baseline.json); see
+[evals/README.md](evals/README.md).
 
 ## Further reading
 
+- [docs/usage.md](docs/usage.md) — the full verb/noun grammar, the `cmd` cheatsheet,
+  and operator memory.
+- [docs/engagement.md](docs/engagement.md) — the scope boundary, the guard, the setup
+  wizard, autonomy (risk ceiling + container backend), the workspace, and modes.
+- [docs/configuration.md](docs/configuration.md) — the two homes, resolution
+  precedence, the config-key surface, and the storage layout.
+- [docs/findings-and-reports.md](docs/findings-and-reports.md) — the ledger and its
+  tamper-evidence, the finding lifecycle, deterministic CVSS, and the report/PDF
+  pipeline.
+- [docs/osint-research.md](docs/osint-research.md) — the autonomous OSINT and research
+  loops and their configuration.
 - [docs/install.md](docs/install.md) — installing the `skuggi` command, the two
   homes, how `update` behaves per install shape, and troubleshooting.
-- [docs/architecture.md](docs/architecture.md) — the agent graph, state channels
-  and persistence, and a tour of the standalone modules.
+- [docs/architecture.md](docs/architecture.md) — the agent graph, state channels,
+  persistence, and the data-plane boundary.
+- [docs/frontend.md](docs/frontend.md) — the shell wrapper, socket dispatch, and the
+  attach protocol.
 - [docs/codex-auth.md](docs/codex-auth.md) — the `openai` / `chatgpt` providers,
   `~/.codex/auth.json`, OAuth refresh, and the model-name gotcha.
-- [docs/testing.md](docs/testing.md) — the test layers and the eval system.
-- [evals/README.md](evals/README.md) — the local eval system: golden sets, the
-  deterministic gate, the configurable model matrix, cross-model divergence, and
-  the baseline.
 - [docs/audit-llm-vs-mechanism.md](docs/audit-llm-vs-mechanism.md) — why severity
   (CVSS) and finding classification (WSTG/ATT&CK) are deterministic code, not LLM
-  judgement, and how the vendored framework data stays pinned and offline.
-- [docs/labs.md](docs/labs.md) — the practice range: 10 tiered engagement
-  exercises (`labs/`) with planted loot, and the `labctl` wipe/restore workflow.
-- [docs/lab.md](docs/lab.md) — the frozen e2e fixture target
-  (`tests/e2e/fixtures/lab/`) that the L5 suite drives, and its pinned oracles.
+  judgement.
+- [docs/testing.md](docs/testing.md) — the test layers and the eval system.
+- [docs/labs.md](docs/labs.md) — the practice range: 10 tiered engagement exercises
+  (`labs/`) with planted loot, and the `labctl` wipe/restore workflow.
+- [docs/e2e-fixture.md](docs/e2e-fixture.md) — the frozen e2e fixture target that the
+  L5 suite drives, and its pinned oracles.
 
 ## License
 
