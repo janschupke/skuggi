@@ -92,7 +92,18 @@ class ParsedCommand:
 
 
 class GuardVerdict(NamedTuple):
-    """The outcome of checking one command against the engagement."""
+    """The outcome of one scope check -- the shared contract of every guard.
+
+    All four scope guards return this: ``check_command`` (here),
+    ``osint_guard.check_osint_task``, ``research.scope.check_research_source`` and
+    ``forensics.scope.check_forensic_command``. They take DIFFERENT inputs by
+    design -- a shell command's argv/targets/ports/time, an OSINT source+subject,
+    a research source name, a forensic tool+argv+path -- because they guard
+    genuinely different dimensions, so there is no common input type to unify
+    them under, and forcing one would be speculative generality. What they DO
+    share is this verdict and the invariant behind it: deny-by-default, the first
+    failing gate wins, and anything not proven in scope is ``allowed=False``.
+    """
 
     allowed: bool
     reason: str
