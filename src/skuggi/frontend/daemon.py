@@ -344,8 +344,15 @@ class Daemon:
         turn = getattr(self.core, turn_name)
         yield from self._stream_turn(turn(text))
 
-    def _control(self, verb: str, arg: str) -> Iterator[str]:
-        handlers: dict[str, Callable[[str], Iterator[str]]] = {
+    def _control_handlers(self) -> dict[str, Callable[[str], Iterator[str]]]:
+        """The verb -> handler map for every control verb (not help/chat/exit).
+
+        Exposed as a method so the drift test can assert it covers
+        ``verbs.KNOWN`` exactly: KNOWN membership routes a verb here, but does
+        NOT guarantee a key, so a verb wired into the REPL but forgotten here
+        would silently answer "unknown verb" without this guard.
+        """
+        return {
             "cmd": self._cheat,
             "osint": partial(self._loop, "osint"),
             "research": partial(self._loop, "research"),
@@ -366,8 +373,10 @@ class Daemon:
             "reconcile": self._reconcile,
             "clear": self._clear,
         }
-        handler = handlers.get(verb)
-        if handler is None:  # pragma: no cover -- KNOWN guards this in _dispatch
+
+    def _control(self, verb: str, arg: str) -> Iterator[str]:
+        handler = self._control_handlers().get(verb)
+        if handler is None:
             yield f"unknown verb: {verb!r}\n"
             return
         yield from handler(arg)
@@ -397,40 +406,37 @@ class Daemon:
 
         return handler
 
+    def _show_router(self) -> dict[str, Callable[[str], Iterator[str]]]:
+        return {
+            **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
+            "engagement": self._show_engagement,
+            "db": self._show_db,
+            "latency": self._show_latency,
+            "tools": self._show_tools,
+            "history": self._history,
+            "trace": self._trace,
+        }
+
     def _show(self, arg: str) -> Iterator[str]:
-        yield from self._route_noun(
-            "show",
-            arg,
-            {
-                **{n: self._styled(a) for n, a in control.SHOW_ACTIONS.items()},
-                "engagement": self._show_engagement,
-                "db": self._show_db,
-                "latency": self._show_latency,
-                "tools": self._show_tools,
-                "history": self._history,
-                "trace": self._trace,
-            },
-        )
+        yield from self._route_noun("show", arg, self._show_router())
+
+    def _set_router(self) -> dict[str, Callable[[str], Iterator[str]]]:
+        return {
+            **{n: self._styled(a) for n, a in control.SET_ACTIONS.items()},
+            "engagement": self._set_engagement,
+            "provider": self._set_provider,
+            "model": self._set_model,
+            "config": self._config,
+        }
 
     def _set(self, arg: str) -> Iterator[str]:
-        yield from self._route_noun(
-            "set",
-            arg,
-            {
-                **{n: self._styled(a) for n, a in control.SET_ACTIONS.items()},
-                "engagement": self._set_engagement,
-                "provider": self._set_provider,
-                "model": self._set_model,
-                "config": self._config,
-            },
-        )
+        yield from self._route_noun("set", arg, self._set_router())
+
+    def _remove_router(self) -> dict[str, Callable[[str], Iterator[str]]]:
+        return {n: self._styled(a) for n, a in control.REMOVE_ACTIONS.items()}
 
     def _remove(self, arg: str) -> Iterator[str]:
-        yield from self._route_noun(
-            "remove",
-            arg,
-            {n: self._styled(a) for n, a in control.REMOVE_ACTIONS.items()},
-        )
+        yield from self._route_noun("remove", arg, self._remove_router())
 
     # ----- control handlers (plain text over the socket) --------------------
 
@@ -659,19 +665,19 @@ class Daemon:
     def _clear(self, _arg: str) -> Iterator[str]:
         yield "clear is only available in skuggi-repl\n"
 
+    def _add_memory(self, rest: str) -> Iterator[str]:
+        yield from self._emit(control.add_memory(self.core, rest, self._surface()))
+
+    def _add_router(self) -> dict[str, Callable[[str], Iterator[str]]]:
+        router: dict[str, Callable[[str], Iterator[str]]] = {
+            noun: self._styled(control.add_record_for(noun))
+            for noun in ("note", "loot", "cred", "foothold", "finding")
+        }
+        router["memory"] = self._add_memory
+        return router
+
     def _add(self, arg: str) -> Iterator[str]:
-        noun, _, rest = arg.partition(" ")
-        noun = noun.strip().lower()
-        if noun == "memory":
-            yield from self._emit(
-                control.add_memory(self.core, rest.strip(), self._surface())
-            )
-            return
-        if noun in {"note", "loot", "cred", "foothold", "finding"}:
-            yield from self._styled(control.add_record_for(noun))(rest.strip())
-            return
-        options = " | ".join(n.name for n in verbs.nouns_of("add"))
-        yield from self._emit(presenters.usage(f"add <{options}>", self._surface()))
+        yield from self._route_noun("add", arg, self._add_router())
 
     def _findings(self, arg: str) -> Iterator[str]:
         """Review a finding (approve/reject/rescore); listing is `show findings`."""

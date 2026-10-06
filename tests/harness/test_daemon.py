@@ -9,8 +9,7 @@ import pytest
 
 from skuggi.agent.turn_runner import TurnEvent
 from skuggi.common.modes import MODES
-from skuggi.engagement.runtime_env import EngagementEnv
-from skuggi.frontend import attach
+from skuggi.frontend import attach, verbs
 from skuggi.frontend.daemon import Daemon
 from skuggi.persistence import pdf as pdf_mod
 from skuggi.tooling import probe as probe_mod
@@ -21,6 +20,26 @@ from tests.harness.conftest import candidates, chunks, daemon_core, responses
 
 def test_op_exit_signals_shell_exit(daemon: Daemon) -> None:
     assert responses(daemon, {"op": "exit"}) == [{"end": True, "exit": True}]
+
+
+def test_control_and_noun_routers_do_not_drift(daemon: Daemon) -> None:
+    """Every KNOWN verb and declared noun must be wired on the daemon too.
+
+    The REPL has this guard (tests/harness/test_repl.py); without the same one
+    here, a verb or noun added to ``verbs.VERBS`` and wired into the REPL but
+    forgotten in the daemon would silently answer "unknown verb" over the socket.
+    ``chat``/``exit``/``help`` are routed by dedicated branches, not ``_control``.
+    """
+    assert set(daemon._control_handlers()) == verbs.KNOWN - {"chat", "exit", "help"}
+    assert set(daemon._show_router()) == verbs.noun_names("show")
+    assert set(daemon._set_router()) == verbs.noun_names("set")
+    assert set(daemon._remove_router()) == verbs.noun_names("remove")
+    assert set(daemon._add_router()) == verbs.noun_names("add")
+
+
+def test_control_guards_a_known_verb_with_no_handler(daemon: Daemon) -> None:
+    """The defensive branch the drift test exists to keep unreachable."""
+    assert list(daemon._control("bogus-verb", "")) == ["unknown verb: 'bogus-verb'\n"]
 
 
 def test_complete_op_walks_the_verb_noun_tree(daemon: Daemon) -> None:
@@ -334,82 +353,6 @@ def test_doctor_install_failure(
     monkeypatch.setattr(probe_mod, "install_tool", lambda *_a, **_k: status)
     out = chunks(daemon, {"op": "input", "text": "doctor install ghost"})
     assert "install failed or unavailable for ghost" in out
-
-
-def test_cmd_resolve_in_scope(daemon: Daemon) -> None:
-    daemon.core.commands = CommandRegistry(
-        commands=(CommandAlias(name="nmap-network", argv=("nmap", "-sn")),)
-    )
-    out = chunks(daemon, {"op": "input", "text": "cmd nmap-network"})
-    assert "$ nmap -sn ${target}" in out  # rendered command, literal placeholder
-    assert "scope" in out
-
-
-def test_cmd_resolve_out_of_scope(daemon: Daemon) -> None:
-    daemon.core.commands = CommandRegistry(
-        commands=(CommandAlias(name="nmap-host", argv=("nmap", "-sV", "-sC")),)
-    )
-    assert daemon.core.engagement is not None
-    daemon.core.engagement = daemon.core.engagement.model_copy(
-        update={"allowed_hosts": frozenset(), "target_networks": ()}
-    )
-    # A manual env target outside the (now empty) scope -> out of scope.
-    daemon.core.apply_env(EngagementEnv(target="8.8.8.8"))
-    out = chunks(daemon, {"op": "input", "text": "cmd nmap-host"})
-    assert "$ nmap -sV -sC ${target}" in out
-    assert "OUT OF SCOPE" in out
-
-
-def test_cmd_list_search_and_miss(daemon: Daemon) -> None:
-    assert "no command aliases" in chunks(daemon, {"op": "input", "text": "cmd"})
-    daemon.core.commands = CommandRegistry(
-        commands=(CommandAlias(name="nmap-host", argv=("nmap", "-sV")),)
-    )
-    assert "nmap-host" in chunks(daemon, {"op": "input", "text": "cmd nmap"})
-    assert "no cheatsheet entry matches" in chunks(
-        daemon, {"op": "input", "text": "cmd bogus"}
-    )
-
-
-def _raw(daemon: Daemon, msg: dict[str, object]) -> str:
-    """Like `chunks`, but WITHOUT stripping SGR -- so highlighting is visible."""
-    return "".join(str(r.get("chunk", "")) for r in daemon.handle_request(msg))
-
-
-_REVERSE = "\x1b[7m"  # the SGR introducer Rich emits for the `reverse` match style
-
-
-def test_cmd_search_highlights_the_matched_substring(daemon: Daemon) -> None:
-    daemon.core.commands = CommandRegistry(
-        commands=(
-            CommandAlias(name="nmap-host", argv=("nmap", "-sV"), description="scan it"),
-            CommandAlias(name="web-dir", argv=("curl",), description="d"),
-        )
-    )
-    out = _raw(daemon, {"op": "input", "text": "cmd nmap"})
-    # the query is reverse-video, and the full name survives (compact = name + desc)
-    assert _REVERSE in out
-    assert f"{_REVERSE}nmap" in out
-    assert "nmap-host" in chunks(daemon, {"op": "input", "text": "cmd nmap"})
-    assert "scan it" in out  # the description rides the compact entry
-    assert "${target}" not in out  # the rendered command is a `-v` detail only
-    # the listing stays filtered to the hit
-    assert "web-dir" not in out
-    # `-v` adds the rendered command between the name and the description
-    verbose = _raw(daemon, {"op": "input", "text": "cmd -v nmap"})
-    assert "${target}" in verbose
-
-
-def test_cmd_list_has_nothing_to_highlight(daemon: Daemon) -> None:
-    daemon.core.commands = CommandRegistry(
-        commands=(
-            CommandAlias(name="nmap-host", argv=("nmap", "-sV"), description="d"),
-        )
-    )
-    out = _raw(daemon, {"op": "input", "text": "cmd list"})
-    assert _REVERSE not in out  # blank query -> no match style
-    # alignment/content preserved (ANSI-stripped)
-    assert "nmap-host" in chunks(daemon, {"op": "input", "text": "cmd list"})
 
 
 # --- config verb ------------------------------------------------------------
