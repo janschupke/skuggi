@@ -66,6 +66,7 @@ ToolSource = Literal["host", "managed", "combine"]
 # Which execution backend runs an agent-cleared command: a hardened host
 # subprocess, or a throwaway container with OS-level isolation.
 ExecutionBackendName = Literal["host", "container"]
+BurpBackendName = Literal["reburp", "mcp", "burp-mcp"]
 
 # The ChatGPT-account (codex) endpoints. Verified live: the responses route is
 # under /codex (a bare /backend-api/responses 404s), and refresh is the OpenAI
@@ -102,6 +103,7 @@ _SECRET_FIELDS = frozenset(
         "apify_token",
         "osint_search_api_key",
         "nvd_api_key",
+        "burp_api_key",
     }
 )
 
@@ -435,6 +437,21 @@ class Settings(BaseSettings):
     # no-op on claude-cli/ollama).
     forensics_max_files: int = 100
     forensics_vision: bool = True
+    # --- Burp Suite connector ---
+    # The connector talks to a bridge extension running inside Burp over loopback
+    # (default: the reburp REST bridge). ``burp_api_key`` is sent as a bearer token
+    # when the chosen bridge requires one (reburp is unauthenticated; the MCP
+    # servers key their endpoint); it is env-only like every other secret. The
+    # per-source config carries non-secret tuning (e.g. the auto-record confidence
+    # floor); the bounds size the read-only burp loop's recursion limit.
+    burp_base_url: str = "http://127.0.0.1:9090"
+    burp_backend: BurpBackendName = "reburp"
+    burp_api_key: SecretStr | None = Field(None, validation_alias="BURP_API_KEY")
+    burp_source_config: dict[str, dict[str, str]] = Field(
+        default_factory=lambda: {"scanner": {"confidence_floor": "firm"}}
+    )
+    burp_max_tasks: int = 8
+    burp_max_replans: int = 1
     ollama_base_url: str = Field(
         OLLAMA_BASE_URL_DEFAULT, validation_alias="OLLAMA_BASE_URL"
     )
