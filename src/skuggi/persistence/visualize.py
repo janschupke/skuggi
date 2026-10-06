@@ -86,7 +86,7 @@ def write_visualization(  # noqa: PLR0913 -- keyword-only data sources, like col
 ) -> Path:
     """Render the engagement dashboard and write a timestamped ``.html`` file.
 
-    The file lands in ``out_dir`` (the engagement's ``reports`` dir) named for the
+    The file is written to ``out_dir`` (the engagement's ``reports`` dir) named for the
     engagement and the moment it was generated. Returns the written path.
     """
     view_model = collect_engagement(

@@ -84,7 +84,7 @@ _MIN_SECRET_LEN = 8  # shorter values are too generic to mask without false hits
 # An ``Authorization: …`` / ``X-Api-Key: …`` header line, and a ``Bearer <tok>``
 # credential, anywhere in captured text. The engagement dashboard embeds raw
 # command output and logs, so a header echoed by ``curl -v`` or a token in a
-# traceback would otherwise land verbatim in an on-disk HTML artifact.
+# traceback would otherwise be written verbatim to an on-disk HTML artifact.
 _AUTH_HEADER = re.compile(
     r"(?im)^(?P<head>\s*(?:proxy-)?authorization\s*:\s*|\s*x-api-key\s*:\s*).+$"
 )

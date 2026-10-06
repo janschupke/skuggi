@@ -4,7 +4,7 @@ The checkout-root resolution lives here too, as the one authority both the
 update path (which must refuse to run ``git`` outside a real checkout) and the
 first-run migration in :mod:`skuggi.install.init` share. It is verified rather
 than assumed because ``parents[3]`` only means "the repo root" for an editable
-install; a wheel copy lands inside the tool environment's ``site-packages``.
+install; a wheel copy is written inside the tool environment's ``site-packages``.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def checkout_root(*, require_git: bool = False) -> Path | None:
     ``skuggi`` is installed with ``uv tool install --editable``, whose ``.pth``
     points at the checkout's ``src``, so ``parents[3]`` is the repo root (this
     module lives at ``src/skuggi/install/update.py``). A non-editable install has
-    no checkout, and there ``parents[3]`` lands inside the tool environment's
+    no checkout, and there ``parents[3]`` resolves inside the tool environment's
     ``site-packages`` -- which is why the result is verified rather than assumed.
 
     ``require_git`` additionally demands a ``.git`` directory: the update path

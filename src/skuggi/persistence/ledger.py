@@ -11,7 +11,7 @@ Two logs live here, deliberately separated:
   operator prompt, agent response, command or finding, in the order they
   happened), with ``commands`` and ``findings`` holding the detail an event of
   that kind points at (``events.ref_id``). Every command the agent proposes,
-  blocks, runs -- or that the operator free-types (``passthrough``) -- lands in
+  blocks, runs -- or that the operator free-types (``passthrough``) -- is recorded in
   ``commands`` with timestamps; every finding links back to the command it came
   from (``findings.command_id``) and, transitively, to the prompt that drove it
   (``commands.turn_event_id``). Rendering the events in order *is* the

@@ -4,7 +4,7 @@ An alias maps a short name (``nmap-host``) to a base argv (``nmap -sV -sC``) and
 the tool it drives. The ``cmd`` verb searches this cheatsheet by substring and,
 on an exact name, *renders* the full invocation: the base argv plus a ``${target}``
 placeholder and -- for tools with an output convention -- an output flag pointing
-at a timestamped artefact inside the engagement's folder for that tool, e.g.
+at a timestamped artifact inside the engagement's folder for that tool, e.g.
 ``nmap -sV -sC ${target} -oA recon/nmap/$(date +%Y-%m-%d_%H%M%S)_${target}_host``.
 The **rendered raw command is always surfaced** to the operator (the transparency
 invariant) and checked against the engagement scope like any agent-proposed

@@ -53,8 +53,8 @@ _LEVEL_ENV = "SKUGGI_LOG_LEVEL"
 _DEBUG_ENV = "SKUGGI_DEBUG"
 
 # Third-party loggers whose DEBUG/INFO would flood the file. Capped at WARNING so
-# their genuine warnings and errors (a provider 4xx, a dropped connection) still
-# land -- exactly the failures hardest to diagnose otherwise.
+# their genuine warnings and errors (a provider 4xx, a dropped connection) are
+# still recorded -- exactly the failures hardest to diagnose otherwise.
 _NOISY_LIBRARIES = (
     "httpx",
     "httpcore",

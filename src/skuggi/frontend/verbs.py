@@ -81,7 +81,7 @@ class Verb:
     """One dispatchable action: its name, a one-line summary, and an arg hint.
 
     ``category`` separates the two logs the harness keeps: ``engagement`` verbs
-    (``ask``, ``cmd``, ``add``) direct the engagement and land on the session
+    (``ask``, ``cmd``, ``add``) direct the engagement and are recorded on the session
     timeline; ``control`` verbs are harness chatter and are recorded to the
     separate audit log instead (see ``AgentCore.note_interaction``). ``group`` is
     purely the help subheading. ``nouns`` is populated only for the grouping

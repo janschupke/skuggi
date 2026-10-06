@@ -442,7 +442,7 @@ def _retrieve_node(
         return {}
     hits = deps.store.search(text, k=deps.retrieve_k)
     # Redact before the snippet is stored in graph state, so a secret in an
-    # ingested document never lands in the checkpoint either.
+    # ingested document never reaches the checkpoint either.
     return {"context": clean(format_hits(hits))} if hits else {}
 
 

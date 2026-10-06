@@ -142,7 +142,7 @@ class ToolSpec(BaseModel):
     modes: tuple[Mode, ...] = ()
     # Output convention (optional). When ``output_flag`` is set, the cheatsheet
     # renderer injects ``<output_flag> <workspace-dir>/<stamp>_${target}_<label>``
-    # so every invocation of this tool lands a timestamped artefact in the right
+    # so every invocation of this tool writes a timestamped artifact in the right
     # engagement folder. ``output_dir`` is a workspace-relative folder that the
     # ``WorkspaceLayout`` must create; ``output_extra`` are flags that always
     # accompany output (e.g. ffuf's ``-of json``); ``output_kind``/``output_ext``

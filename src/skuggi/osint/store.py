@@ -1,7 +1,7 @@
 """Write an OSINT result as a confined, redacted JSON artifact.
 
 A thin OSINT-specific binding over :func:`skuggi.intel.store.write_result`: it
-targets the workspace's ``osint_dir`` so every :class:`OsintResult` lands at
+targets the workspace's ``osint_dir`` so every :class:`OsintResult` is written to
 ``osint/<subject>/<source>.json`` inside the engagement. The confinement and
 redaction discipline live in the shared writer; this only chooses the directory.
 """

@@ -149,7 +149,7 @@ created on adoption:
 <engagement root>/
   scope.json            # the engagement boundary
   env.json              # runtime command vars (target / lhost / lport / wordlist)
-  findings/             # per-finding artefacts (structured records are in the ledger)
+  findings/             # per-finding artifacts (structured records are in the ledger)
   notes/notes.md        # `add note` — timestamped operator notes
   recon/nmap/  recon/nuclei/  recon/dirs/  recon/domains/  recon/web/   # cmd output
   osint/                # OSINT loop output

@@ -168,7 +168,7 @@ class Journal:
         """Record a structured loot item; the label is redacted before storage.
 
         Returns the loot id, or ``None`` with no engagement. A secret in ``label``
-        is vaulted to a placeholder first -- loot never lands as plaintext on disk,
+        is vaulted to a placeholder first -- loot is never written as plaintext on disk,
         in a brief or in the model's context.
         """
         core = self._core
@@ -208,8 +208,8 @@ class Journal:
 
         Returns the credential id, or ``None`` when there is no engagement vault to
         hold the secret. The secret is interned as a ``«CRED:id»`` placeholder so a
-        command the worker runs rehydrates it at exec, and the plaintext never lands
-        in the ledger, a brief or the model's context.
+        command the worker runs rehydrates it at exec, and the plaintext is never
+        written in the ledger, a brief or the model's context.
         """
         core = self._core
         if core.vault is None:

@@ -129,7 +129,7 @@ class TurnRunner:
         honest boundary is that skuggi only *proposes* commands, guarded by the
         executor); this simply records what actually ran. Navigation/builtin noise
         (``settings.passthrough_skip``) goes to the audit ``cli`` channel; every
-        other command lands on the engagement timeline as ``passthrough``.
+        other command is recorded on the engagement timeline as ``passthrough``.
         """
         raw = cmdline.strip()
         if not raw:

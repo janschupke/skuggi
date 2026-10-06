@@ -7,7 +7,7 @@ inside it, plus ``findings``, ``notes``, ``recon`` (with
 ``tests`` and ``loot``. There is no ``engagements/<name>/`` wrapper; the root is
 chosen per engagement (``set engagement [<path>]``, or the current directory).
 Keeping outputs inside the workspace is what makes a session self-contained and
-traceable: the ledger, the Markdown reports and any tool output all land next to
+traceable: the ledger, the Markdown reports and any tool output are all written next to
 the scope that authorized them.
 
 ``WorkspaceLayout`` is a frozen model so the folder names can be overridden from
@@ -172,7 +172,7 @@ class Workspace:
         """The per-engagement secret vault (reversible redaction placeholders).
 
         A dotfile at the workspace root, deliberately not a ``layout`` field: it
-        is harness security plumbing, not an engagement artefact the operator
+        is harness security plumbing, not an engagement artifact the operator
         browses, and it must never be swept into a report or the dashboard.
         """
         return self.root / ".vault.db"
@@ -209,7 +209,7 @@ class Workspace:
 
     @property
     def findings_dir(self) -> Path:
-        """Per-finding artefacts (the ledger holds the structured records)."""
+        """Per-finding artifacts (the ledger holds the structured records)."""
         return self.root / self.layout.findings
 
     @property
@@ -224,7 +224,7 @@ class Workspace:
 
     @property
     def loot_dir(self) -> Path:
-        """Harvested credentials, cracked hashes and other captured artefacts."""
+        """Harvested credentials, cracked hashes and other captured artifacts."""
         return self.root / self.layout.loot
 
     @property

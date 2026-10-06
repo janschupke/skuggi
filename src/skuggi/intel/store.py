@@ -1,7 +1,7 @@
 """Write an intelligence result as a confined, redacted JSON artifact.
 
 The file-based half of both loops' structured output: every :class:`IntelResult`
-lands at ``<dir>/<subject>/<source>.json`` under a caller-chosen output directory
+is written to ``<dir>/<subject>/<source>.json`` under a caller-chosen output directory
 (the OSINT loop passes ``workspace.osint_dir``; the research loop passes the
 engagement's ``research_dir`` or a cwd fallback). The path is confined with
 ``common.paths.confine_under`` (a ``..``/symlink escape raises rather than writing
