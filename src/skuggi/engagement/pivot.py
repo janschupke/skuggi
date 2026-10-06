@@ -18,6 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from skuggi.common.netscope import in_cidr, is_ip
+from skuggi.common.text import split_csv
 from skuggi.persistence.ledger_schema import FootholdRow
 
 
@@ -28,17 +29,13 @@ class Route:
     foothold: FootholdRow | None
 
 
-def _split(csv: str) -> list[str]:
-    return [part.strip() for part in csv.split(",") if part.strip()]
-
-
 def _reaches(foothold: FootholdRow, target: str) -> bool:
     """Whether `foothold` declares it can reach `target` (exact host or in a CIDR)."""
-    if target in _split(foothold.reachable_hosts):
+    if target in split_csv(foothold.reachable_hosts):
         return True
     if not is_ip(target):
         return False  # a hostname not listed exactly is not reached by a CIDR
-    return any(in_cidr(target, cidr) for cidr in _split(foothold.reachable_networks))
+    return any(in_cidr(target, cidr) for cidr in split_csv(foothold.reachable_networks))
 
 
 def route_for(target: str, footholds: Sequence[FootholdRow]) -> Route:

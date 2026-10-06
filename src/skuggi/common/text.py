@@ -38,6 +38,16 @@ def safe_cmd_fragment(
     return value
 
 
+def split_csv(value: str) -> list[str]:
+    """Split a comma-separated string into stripped, non-empty parts.
+
+    The common operator-input / stored-field shape (``a, b ,c`` -> ``[a, b, c]``).
+    Note this is NOT for the scope guard's target parsing, which deliberately does
+    not strip (nmap octet shorthand like ``10.0.0.1,2,3`` is meaningful).
+    """
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
 def head_tail_sizes(total: int, cap: int) -> tuple[int, int] | None:
     """Head/tail slice sizes for a two-ended clip to ``cap`` units.
 

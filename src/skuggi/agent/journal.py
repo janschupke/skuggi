@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, get_args
 
 from skuggi.agent.protocol import Severity
 from skuggi.common import logs
+from skuggi.common.text import split_csv
 from skuggi.frameworks import cvss
 from skuggi.persistence import reports, visualize
 from skuggi.persistence.visualize_model import loot_to_text, notes_to_text
@@ -342,9 +343,7 @@ def _split_reachable(reachable: str) -> tuple[str, str]:
 
     networks: list[str] = []
     hosts: list[str] = []
-    for token in (part.strip() for part in reachable.split(",")):
-        if not token:
-            continue
+    for token in split_csv(reachable):
         try:
             ipaddress.ip_network(token, strict=False)
         except ValueError:

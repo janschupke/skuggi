@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Literal
 
+from skuggi.common.text import split_csv
 from skuggi.config.configs import ConfigError, InvalidScopeError
 from skuggi.engagement.engagement import EngagementConfig
 from skuggi.frontend.prompter import Prompter
@@ -88,14 +89,10 @@ class Section:
     fields: tuple[Field, ...] = dataclass_field(default_factory=tuple)
 
 
-def _csv(answer: str) -> list[str]:
-    return [item.strip() for item in answer.split(",") if item.strip()]
-
-
 def _ports(answer: str) -> list[int]:
     """Parse ``80,443,8000-8010`` (nmap ``T:``/``U:`` prefixes tolerated) to ints."""
     out: list[int] = []
-    for item in _csv(answer):
+    for item in split_csv(answer):
         token = item.split(":", 1)[1] if ":" in item else item
         lo, sep, hi = token.partition("-")
         if sep and lo.isdigit() and hi.isdigit():
@@ -108,7 +105,7 @@ def _ports(answer: str) -> list[int]:
 def _windows(answer: str) -> list[dict[str, str]]:
     """Parse ``HH:MM-HH:MM`` clock ranges (comma-separated) into scope dicts."""
     windows: list[dict[str, str]] = []
-    for chunk in _csv(answer):
+    for chunk in split_csv(answer):
         start, _, end = chunk.partition("-")
         windows.append({"start": start.strip(), "end": end.strip()})
     return windows
@@ -183,13 +180,13 @@ _SECTIONS: tuple[Section, ...] = (
                 "target_networks",
                 "target networks (CIDR, comma-separated; blank = any)",
                 "text",
-                transform=_csv,
+                transform=split_csv,
             ),
             Field(
                 "allowed_hosts",
                 "allowed hosts (comma-separated; blank = any)",
                 "text",
-                transform=_csv,
+                transform=split_csv,
             ),
             Field(
                 "allowed_ports",
@@ -206,7 +203,7 @@ _SECTIONS: tuple[Section, ...] = (
                 "allowed_tools",
                 "allowed tools (comma-sep; Tab completes; * = all; blank = none)",
                 "autocomplete",
-                transform=_csv,
+                transform=split_csv,
                 source=lambda c: c.tools,
             ),
             Field(
@@ -380,7 +377,7 @@ def _ask_osint(  # noqa: PLR0911 -- one abort-return per OSINT sub-prompt
         if answer is None:
             return None
         osint[key] = (
-            _csv(answer)
+            split_csv(answer)
             if answer.strip()
             else list(existing.get(key, ()))
             if existing
@@ -444,7 +441,7 @@ def _ask_roe(prompter: Prompter, current: object) -> tuple[bool, object] | None:
         if answer is None:
             return None
         roe[key] = (
-            _csv(answer)
+            split_csv(answer)
             if answer.strip()
             else list(existing.get(key, ()))
             if existing
