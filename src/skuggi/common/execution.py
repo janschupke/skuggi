@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import IO, Protocol, runtime_checkable
 
 from skuggi.common.logs import get_logger
+from skuggi.common.text import head_tail_sizes
 
 log = get_logger(__name__)
 
@@ -161,9 +162,9 @@ def _rlimit_preexec(limits: ResourceLimits) -> Callable[[], None] | None:
 
 
 # A scan can emit megabytes; the ledger and any prompt that echoes a result
-# both need this bounded. Shared with tools.file_read (same 256 KiB ceiling).
+# both need this bounded. The spool read keeps a head and a tail within this
+# ceiling (see ``_read_spool``), so a verbose tool's final verdict survives.
 MAX_CAPTURE_BYTES = 262_144
-_TRUNCATED = "\n...[truncated]"
 
 # Wall-clock cap on any single autonomously executed command. One source of
 # truth: both config.Settings.command_timeout_s and the graph's GraphDeps
@@ -175,15 +176,6 @@ DEFAULT_COMMAND_TIMEOUT_S = 120.0
 # negative by Popen but never this large in magnitude).
 _TIMEOUT_EXIT = -100
 _SPAWN_ERROR_EXIT = -101
-
-
-def _cap(text: str) -> str:
-    """Byte-cap captured output, marking it when it was truncated."""
-    encoded = text.encode("utf-8", errors="replace")
-    if len(encoded) <= MAX_CAPTURE_BYTES:
-        return text
-    clipped = encoded[:MAX_CAPTURE_BYTES].decode("utf-8", errors="replace")
-    return clipped + _TRUNCATED
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,9 +221,10 @@ def run(  # noqa: PLR0913 -- keyword-only knobs; a single exec entry point
     command = display_command if display_command is not None else " ".join(argv)
     # Spool output to temp files rather than pipes read into memory: a chatty or
     # hostile tool can emit gigabytes within the timeout, and `capture_output`
-    # would buffer all of it before `_cap` ever ran. Here only `MAX_CAPTURE_BYTES`
-    # (+1, to detect overflow) is ever read back into memory; the rest stays on
-    # disk and is discarded with the temp file. Disk use is bounded by runtime.
+    # would buffer all of it. Here `_read_spool` reads back only a head and a tail
+    # bounded by `MAX_CAPTURE_BYTES`, seeking past the middle on disk; the rest
+    # stays on disk and is discarded with the temp file. Disk use is bounded by
+    # the runtime.
     with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
         try:
             proc = subprocess.Popen(  # noqa: S603 -- shell=False, argv is not model-shell-parsed
@@ -261,14 +254,15 @@ def run(  # noqa: PLR0913 -- keyword-only knobs; a single exec entry point
             _kill_group(proc)
             proc.wait()
             timed_out = True
-        stdout = _cap(_read_capped(out_f))
-        stderr = _read_capped(err_f)
+        stdout = _read_spool(out_f)
+        stderr = _read_spool(err_f)
         if timed_out:
             log.warning("command timed out after %ss: %s", timeout, command)
-            stderr = _cap(stderr + f"\n[timed out after {timeout}s]")
+            # Appended AFTER the cap so the note survives even when stderr was
+            # itself at the ceiling -- the operator must always see the timeout.
+            stderr = f"{stderr}\n[timed out after {timeout}s]"
             exit_code = _TIMEOUT_EXIT
         else:
-            stderr = _cap(stderr)
             exit_code = proc.returncode
         return CommandResult(
             command=command,
@@ -295,15 +289,34 @@ def _kill_group(proc: subprocess.Popen[bytes]) -> None:
             proc.kill()
 
 
-def _read_capped(handle: IO[bytes]) -> str:
-    """Read at most ``MAX_CAPTURE_BYTES`` + 1 bytes from a spool file, decoded.
+def _read_spool(handle: IO[bytes]) -> str:
+    """Read a spooled capture file bounded to ``MAX_CAPTURE_BYTES``, keeping both ends.
 
-    The +1 lets ``_cap`` tell "exactly at the ceiling" from "over it" and mark
-    the latter truncated. Reading a bounded amount is what keeps a huge spool
-    from being pulled into memory.
+    A verbose tool (sqlmap, nuclei) often puts the salient result -- the dump, the
+    hit summary -- at the END of its output; a head-only cap would discard exactly
+    that. When the spool exceeds the ceiling this keeps a head and a tail
+    (``common.text.head_tail_sizes`` owns the ratio), seeking past the elided
+    middle on disk so it is never buffered into memory, and names the elided byte
+    count. Decoded with ``errors="replace"`` so a slice splitting a multibyte
+    sequence never raises.
     """
+    handle.seek(0, os.SEEK_END)
+    size = handle.tell()
+    sizes = head_tail_sizes(size, MAX_CAPTURE_BYTES)
+    if sizes is None:
+        handle.seek(0)
+        return handle.read(size).decode("utf-8", errors="replace")
+    head, tail = sizes
     handle.seek(0)
-    return handle.read(MAX_CAPTURE_BYTES + 1).decode("utf-8", errors="replace")
+    head_bytes = handle.read(head)
+    handle.seek(size - tail)
+    tail_bytes = handle.read(tail)
+    elided = size - head - tail
+    return (
+        f"{head_bytes.decode('utf-8', errors='replace')}"
+        f"\n...[{elided} bytes elided]...\n"
+        f"{tail_bytes.decode('utf-8', errors='replace')}"
+    )
 
 
 @runtime_checkable

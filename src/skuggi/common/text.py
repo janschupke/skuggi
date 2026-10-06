@@ -38,6 +38,36 @@ def safe_cmd_fragment(
     return value
 
 
+def head_tail_sizes(total: int, cap: int) -> tuple[int, int] | None:
+    """Head/tail slice sizes for a two-ended clip to ``cap`` units.
+
+    Returns ``(head, tail)`` summing to ``cap`` (the head keeps the larger 2/3
+    share), or ``None`` when ``total`` already fits. One source of truth for the
+    ratio so the model-brief clip (``agent.executor``) and the capture-spool clip
+    (``common.execution``) cannot drift apart.
+    """
+    if total <= cap:
+        return None
+    head = cap * 2 // 3
+    return head, cap - head
+
+
+def head_tail_clip(text: str, cap: int, *, unit: str = "chars") -> str:
+    """Clip ``text`` to ``cap`` characters keeping BOTH ends with an elision marker.
+
+    A verbose tool (nmap, nuclei, sqlmap) often puts the salient result -- the
+    open-port table, the hit summary -- at the END, past a prefix cap; keeping a
+    head and a tail surfaces both the start and the conclusion within the budget.
+    The marker names how many ``unit`` were elided.
+    """
+    sizes = head_tail_sizes(len(text), cap)
+    if sizes is None:
+        return text
+    head, tail = sizes
+    elided = len(text) - head - tail
+    return f"{text[:head]}\n...[{elided} {unit} elided]...\n{text[-tail:]}"
+
+
 REDACTED = "***REDACTED***"
 _MIN_SECRET_LEN = 8  # shorter values are too generic to mask without false hits
 

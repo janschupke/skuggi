@@ -1,30 +1,42 @@
-"""L2: real subprocess execution, plus the pure output cap.
+"""L2: real subprocess execution, plus the pure spool-read cap.
 
 The spawning tests are marked `runs_commands`, which lifts the blanket
-subprocess block. `_cap` needs no process and stays unmarked.
+subprocess block. `_read_spool` needs a temp file, not a process, and stays
+unmarked.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 import pytest
 
 from skuggi.common import execution
-from skuggi.common.execution import MAX_CAPTURE_BYTES, _cap, run
+from skuggi.common.execution import MAX_CAPTURE_BYTES, _read_spool, run
 
 
-def test_cap_truncates_oversized_output() -> None:
-    capped = _cap("x" * (MAX_CAPTURE_BYTES + 1000))
-    assert capped.endswith("[truncated]")
-    assert len(capped.encode("utf-8")) <= MAX_CAPTURE_BYTES + len("\n...[truncated]")
+def test_spool_read_keeps_head_and_tail_of_oversized_output() -> None:
+    # The salient result of a verbose tool sits at the END (audit D4); a
+    # head-only cap would discard it, so an over-ceiling spool keeps both ends.
+    with tempfile.TemporaryFile() as handle:
+        handle.write(b"HEAD" + b"x" * (MAX_CAPTURE_BYTES * 2) + b"TAIL")
+        out = _read_spool(handle)
+    assert out.startswith("HEAD")
+    assert out.endswith("TAIL")
+    assert "bytes elided" in out
+    # head + tail sum to the ceiling; only the short elision marker is overhead.
+    assert len(out.encode("utf-8")) <= MAX_CAPTURE_BYTES + 64
 
 
-def test_cap_leaves_small_output_untouched() -> None:
-    assert _cap("hello") == "hello"
+def test_spool_read_leaves_small_output_untouched() -> None:
+    with tempfile.TemporaryFile() as handle:
+        handle.write(b"hello")
+        out = _read_spool(handle)
+    assert out == "hello"
 
 
 @pytest.mark.runs_commands
@@ -92,14 +104,15 @@ def test_spawned_process_never_sees_a_secret(
 
 @pytest.mark.runs_commands
 def test_large_output_is_capped_not_buffered_whole(tmp_path: Path) -> None:
-    """Emit ~4x the cap; only a bounded, truncation-marked slice is returned."""
-    program = f"import sys; sys.stdout.write('x' * ({MAX_CAPTURE_BYTES} * 4))"
+    """Emit ~4x the cap; a bounded head+tail slice with the END preserved."""
+    body = f"'A' + 'x' * ({MAX_CAPTURE_BYTES} * 4) + 'Z'"
+    program = f"import sys; sys.stdout.write({body})"
     result = run([sys.executable, "-c", program], timeout=30, cwd=tmp_path)
     assert result.exit_code == 0
-    assert result.stdout.endswith("[truncated]")
-    assert len(result.stdout.encode("utf-8")) <= MAX_CAPTURE_BYTES + len(
-        "\n...[truncated]"
-    )
+    assert result.stdout.startswith("A")
+    assert result.stdout.endswith("Z")  # the tail survives the cap (audit D4)
+    assert "bytes elided" in result.stdout
+    assert len(result.stdout.encode("utf-8")) <= MAX_CAPTURE_BYTES + 64
 
 
 @pytest.mark.runs_commands

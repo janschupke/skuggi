@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Literal
 from skuggi.agent.protocol import CommandBrief, WorkerResponse
 from skuggi.common import execution
 from skuggi.common.logs import get_logger
+from skuggi.common.text import head_tail_clip
 from skuggi.engagement.engagement import ParsedCommand, check_command, parse_command
 from skuggi.engagement.pivot import Route, select_route, wrap_command
 from skuggi.engagement.risk import risk_tier
@@ -130,15 +131,11 @@ def _head_tail(text: str, cap: int) -> str:
     A verbose tool (nmap, nuclei, sqlmap) often puts the salient result -- the
     open-port table, the hit summary -- at the END, past a prefix cap; feeding the
     worker only the head made the autonomous loop reason on a banner and miss the
-    finding (audit D4). Keeping a head and a tail with an explicit elision marker
-    surfaces both the start and the conclusion within the same budget.
+    finding (audit D4). The shared :func:`head_tail_clip` keeps a head and a tail
+    with an elision marker; the capture spool (``common.execution``) clips the
+    same way so the two cannot drift.
     """
-    if len(text) <= cap:
-        return text
-    head = cap * 2 // 3
-    tail = cap - head
-    elided = len(text) - head - tail
-    return f"{text[:head]}\n...[{elided} chars elided]...\n{text[-tail:]}"
+    return head_tail_clip(text, cap)
 
 
 _LOOKUP_TARGETS = ("findings", "loot", "creds", "notes", "command")
