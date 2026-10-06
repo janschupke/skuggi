@@ -120,6 +120,29 @@ keeps two logs, deliberately apart:
   (everything else → audit); the front-ends record control-verb invocations via
   `AgentCore.note_interaction`.
 
+**What each loop records is deliberately different, not drift.** The four
+autonomous loops write to the ledger according to what each one *is*:
+
+- **Turn graph (pentest)** — the full record: `commands`
+  (`executed`/`proposed`/`blocked`/`passthrough`) and `findings`, both on the
+  events timeline. The only loop that runs shell commands, so the only one with
+  command rows.
+- **OSINT** — the verifier's `findings`, plus two *proposals* surfaced in the
+  draft (never auto-applied): discovered in-scope hosts not yet authorized for
+  scanning, and sources held above the OSINT autonomous ceiling (the ESCALATION
+  path — see `security/boundaries.py`). No command rows: OSINT drives collectors,
+  not a shell.
+- **Research** — report-only and engagement-independent; it records **nothing**
+  to a ledger. It is a recon-tier, public-sources-only profile whose output is
+  the research report, by construction.
+- **Forensics** — only **confirmed** findings reach the case ledger; a
+  speculative analyzer result is deliberately kept out (`forensics/nodes.py`), so
+  the case record carries grounded conclusions, not hypotheses.
+
+The shared rule across all four: scope denials and above-ceiling holds are
+classified the same way (`security/boundaries.py` — HARD_BLOCK vs ESCALATION),
+so a refusal reads identically wherever it originates.
+
 The `/review` verb reads a session's timeline and asks the LLM (one-shot, so it
 works on every provider) for private feedback — bottlenecks, missed
 opportunities, repeated or wrong commands. It is stored in the audit log, shown
