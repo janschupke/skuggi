@@ -10,6 +10,7 @@ from rich.console import Console
 
 from skuggi.common import home
 from skuggi.config.config import Settings
+from skuggi.frontend import presenters_doctor
 from skuggi.tooling import doctor
 from skuggi.tooling import probe as probe_mod
 
@@ -47,7 +48,7 @@ def test_main_reports_missing_registry() -> None:
 def _render(settings: Settings) -> str:
     console = Console(force_terminal=False, width=200)
     with console.capture() as capture:
-        console.print(doctor.install_table(settings))
+        console.print(presenters_doctor.install_table(settings))
     return capture.get()
 
 

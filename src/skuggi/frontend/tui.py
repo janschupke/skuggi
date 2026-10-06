@@ -44,6 +44,7 @@ from skuggi.frontend import (
     verbs,
 )
 from skuggi.frontend import help as help_mod
+from skuggi.frontend.presenters_doctor import render_doctor, tool_tables
 from skuggi.frontend.repl_flows import ReplFlows
 from skuggi.install import reconcile
 from skuggi.persistence.ledger import Ledger
@@ -55,8 +56,6 @@ from skuggi.tooling.doctor import (
     ToolFilter,
     filter_tool_statuses,
     parse_doctor_flags,
-    render_doctor,
-    tool_tables,
 )
 from skuggi.tooling.registry import ToolRegistry
 

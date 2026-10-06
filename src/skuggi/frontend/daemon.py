@@ -49,6 +49,7 @@ from skuggi.frontend import (
 from skuggi.frontend import (
     help as help_mod,
 )
+from skuggi.frontend.presenters_doctor import doctor_ansi, table_ansi, tool_tables
 from skuggi.install import reconcile
 from skuggi.tooling.commands import CommandAlias
 from skuggi.tooling.commands import render as render_alias
@@ -56,11 +57,8 @@ from skuggi.tooling.doctor import (
     PROBING_MSG,
     TOOL_FILTERS,
     ToolFilter,
-    doctor_ansi,
     filter_tool_statuses,
     parse_doctor_flags,
-    table_ansi,
-    tool_tables,
 )
 
 # The help listing's intro line, per surface. The command grammar differs

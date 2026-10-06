@@ -16,7 +16,7 @@ from rich.console import Console
 from skuggi.common import palette
 from skuggi.common.execution import CommandResult
 from skuggi.common.modes import Mode
-from skuggi.tooling.doctor import (
+from skuggi.frontend.presenters_doctor import (
     doctor_hints,
     doctor_table,
     net_tool_table,

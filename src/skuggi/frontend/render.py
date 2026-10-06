@@ -175,9 +175,9 @@ def to_ansi(line: Line) -> str:
 
     The daemon runs on a non-terminal (the socket) while the client writes the
     result to the operator's real terminal, so colour is forced on here --
-    mirroring :func:`skuggi.tooling.doctor.table_ansi`. Painting goes through
-    :func:`to_markup` so the chat loop and the REPL share the one palette and
-    cannot drift; a ``plain`` line stays bare text (no escape codes).
+    mirroring :func:`skuggi.frontend.presenters_doctor.table_ansi`. Painting
+    goes through :func:`to_markup` so the chat loop and the REPL share the one
+    palette and cannot drift; a ``plain`` line stays bare text (no escapes).
     """
     if line.spans is None and _STYLE_TO_RICH[line.style] is None:
         return line.text
