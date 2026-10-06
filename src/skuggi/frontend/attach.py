@@ -450,6 +450,9 @@ def chat_turn(
     """
     if verbs.is_exit(verbs.split_verb(line)[0]):
         emit({"chunk": "left chat context\n"})
+        # Terminate the reply (non-exit) so the loop drops back one level to the
+        # normal prompt; without this the client hangs waiting for `end`.
+        emit({"end": True, "exit": False})
         return False, None
     for resp in agent(line):
         emit(resp)

@@ -271,7 +271,8 @@ def test_chat_context_routes_every_line_to_the_agent(daemon: Daemon) -> None:
     # `show findings` would normally be a control verb; inside the chat context it
     # is just a prompt. `exit` leaves the context (NOT the session), so the final
     # `exit` is what closes it.
-    lines = iter(["chat", "show findings", "exit", "exit", None])
+    inputs = ["chat", "show findings", "exit", "exit"]
+    lines = iter([*inputs, None])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(lines, None), emitted.append)
     text = "".join(str(f.get("chunk", "")) for f in emitted)
@@ -279,6 +280,11 @@ def test_chat_context_routes_every_line_to_the_agent(daemon: Daemon) -> None:
     assert "the answer" in text  # the "show findings" line reached the agent
     assert "no findings" not in text  # it was NOT dispatched as the control verb
     assert "left chat context" in text  # the first `exit` only left the context
+
+    # Per-line reply contract: every operator line gets exactly one terminating
+    # `end` frame. The enter and exit transitions used to emit none, so the thin
+    # client deadlocked waiting for `end` (no prompt, no exit).
+    assert len([f for f in emitted if "end" in f]) == len(inputs)
 
     # the prompt frames carry the chat context marker while inside it
     def _context(frame: dict[str, object]) -> object:
@@ -291,13 +297,16 @@ def test_chat_context_routes_every_line_to_the_agent(daemon: Daemon) -> None:
 def test_chat_context_exit_keeps_the_session_alive(daemon: Daemon) -> None:
     # Leaving the chat context returns to the loop; the session only ends on the
     # outer `exit`.
-    lines = iter(["chat", "exit", "/show status", "exit", None])
+    inputs = ["chat", "exit", "/show status", "exit"]
+    lines = iter([*inputs, None])
     emitted: list[dict[str, object]] = []
     daemon.run_attached(lambda: next(lines, None), emitted.append)
     text = "".join(str(f.get("chunk", "")) for f in emitted)
     assert "left chat context" in text
     # a control verb runs again after leaving the context (proof the loop resumed)
     assert emitted[-1] == {"end": True, "exit": True}
+    # One terminating `end` per operator line: enter + leave both close cleanly.
+    assert len([f for f in emitted if "end" in f]) == len(inputs)
 
 
 def test_chat_loop_exit_message_says_the_agent_stays_warm(daemon: Daemon) -> None:

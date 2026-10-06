@@ -215,6 +215,9 @@ class Daemon:
                         "agent; type exit to leave\n"
                     }
                 )
+                # Close this line's reply so the client renders the next
+                # (chat-tagged) prompt instead of hanging for an `end` frame.
+                emit({"end": True, "exit": False})
                 continue
             if attach.intercept(self.core, self._lock, line, read_line, emit):
                 continue
