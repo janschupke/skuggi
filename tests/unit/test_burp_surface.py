@@ -6,6 +6,7 @@ client, so the status/issues branches render without a front-end or a live Burp.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import cast
 
 from skuggi.agent.core import AgentCore
@@ -82,3 +83,30 @@ def test_show_burp_issues_community_degrades() -> None:
     features = BurpFeatures(reachable=True, edition="community")
     styled = control.show_burp(_core(_FakeClient(features)), "issues", "repl")
     assert any("scanner unavailable" in line.text for line in styled)
+
+
+class _OpsCore:
+    """A core stub for control.burp_command's dispatch + disabled branches."""
+
+    def __init__(self, engagement: object, ledger: object = None) -> None:
+        self.engagement = engagement
+        self.ledger = ledger
+        self.session_id = "s1"
+        self.thread_id = "t"
+
+    def burp_client(self) -> BurpClient:
+        return cast("BurpClient", _FakeClient(BurpFeatures(reachable=True)))
+
+
+def test_burp_command_disabled_warns() -> None:
+    core = cast("AgentCore", _OpsCore(engagement=None))
+    styled = control.burp_command(core, "scans", "repl")
+    assert any("not enabled" in line.text for line in styled)
+
+
+def test_burp_command_usage_on_unknown_sub() -> None:
+
+    eng = SimpleNamespace(burp=object(), autonomous=True)
+    core = cast("AgentCore", _OpsCore(engagement=eng))
+    styled = control.burp_command(core, "wat", "repl")
+    assert any("usage: burp" in line.text for line in styled)

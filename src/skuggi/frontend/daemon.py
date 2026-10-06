@@ -364,6 +364,7 @@ class Daemon:
             "set": self._set,
             "remove": self._remove,
             "findings": self._findings,
+            "burp": self._styled(control.burp_command),
             "report": self._styled(control.report),
             "visualize": self._styled(control.visualize),
             "replay": self._replay,

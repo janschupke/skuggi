@@ -29,7 +29,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from skuggi.agent import readiness
+from skuggi.agent import burp_ops, readiness
 from skuggi.burp import operator as burp_operator
 from skuggi.config.configs import ConfigError
 from skuggi.frontend import (
@@ -85,6 +85,32 @@ def show_burp(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Sty
             burp_operator.fetch_issue_lines(client), heading="burp scanner issues:"
         )
     return presenters.present_burp(burp_operator.probe_status(client))
+
+
+def burp_command(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.Styled:
+    """Drive Burp: ``scan <url>`` / ``pull [host]`` / ``scans`` (gated + recorded)."""
+    engagement = core.engagement
+    if engagement is None or engagement.burp is None:
+        return [
+            render.warning("burp: the connector is not enabled for this engagement")
+        ]
+    sub, _, arg = rest.strip().partition(" ")
+    sub, arg = sub.lower(), arg.strip()
+    client = core.burp_client()
+    common = {
+        "session_id": core.session_id,
+        "thread_id": core.thread_id,
+        "autonomous": engagement.autonomous,
+    }
+    if sub == "scan" and arg:
+        lines = burp_ops.scan(client, engagement, core.ledger, url=arg, **common)  # type: ignore[arg-type]
+    elif sub == "pull":
+        lines = burp_ops.pull(client, engagement, core.ledger, host=arg, **common)  # type: ignore[arg-type]
+    elif sub == "scans":
+        lines = burp_ops.scans(core.ledger, session_id=core.session_id)
+    else:
+        return [render.warning("usage: burp <scan <url> | pull [host] | scans>")]
+    return [render.plain(line) for line in lines]
 
 
 def show_integrity(

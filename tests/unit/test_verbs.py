@@ -85,7 +85,7 @@ def test_set_engagement_options_match_the_param_registry() -> None:
 
 def test_only_agent_path_verbs_are_engagement() -> None:
     # Engagement-directed verbs are exempt from the control audit log.
-    assert {"chat", "cmd", "add", "osint", "forensics"} == verbs.ENGAGEMENT
+    assert {"chat", "cmd", "add", "burp", "osint", "forensics"} == verbs.ENGAGEMENT
 
 
 # --- help listing -----------------------------------------------------------

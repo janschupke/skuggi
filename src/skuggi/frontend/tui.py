@@ -138,6 +138,7 @@ class Tui:
             "add": self._cmd_add,
             "remove": self._cmd_remove,
             "cmd": self._cmd_cmd,
+            "burp": self._styled(control.burp_command),
             "osint": self._cmd_osint,
             "research": self._cmd_research,
             "forensics": self._cmd_forensics,
