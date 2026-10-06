@@ -21,7 +21,7 @@ from skuggi.agent.executor import record_finding_drafts
 from skuggi.burp.actions import run_burp_action
 from skuggi.burp.client import BurpError
 from skuggi.burp.findings import issue_dedup_key, issue_to_draft
-from skuggi.burp.models import ScanIssue
+from skuggi.burp.models import HttpExchange, ScanIssue, ScopeRules
 
 if TYPE_CHECKING:
     from skuggi.burp.client import BurpClient
@@ -74,6 +74,96 @@ def _existing_keys(ledger: Ledger, session_id: str) -> set[tuple[str, str, str, 
         (f.title, f.affected_host, f.affected_url, f.affected_param)
         for f in ledger.findings_for(session_id)
     }
+
+
+def repeat(  # noqa: PLR0913 -- explicit deps for offline testability
+    client: BurpClient,
+    engagement: EngagementConfig,
+    ledger: Ledger,
+    *,
+    session_id: str,
+    thread_id: str,
+    autonomous: bool,
+    method: str,
+    url: str,
+) -> list[str]:
+    """Send one request through Burp (Repeater-style, gated as a traffic action)."""
+    parsed = urlparse(url if "//" in url else f"//{url}")
+    host = parsed.hostname or url
+    path = parsed.path or "/"
+    verb = method.upper()
+
+    def _execute() -> tuple[str, str]:
+        exchange = HttpExchange(
+            host=host,
+            port=parsed.port or (443 if parsed.scheme == "https" else 80),
+            secure=parsed.scheme == "https",
+            method=verb,
+            path=path,
+            request=f"{verb} {path} HTTP/1.1\r\nHost: {host}\r\n\r\n",
+        )
+        result = client.send_request(exchange)
+        code = result.exchange.status_code
+        return (f"{verb} {url} -> {code if code is not None else '?'}", "")
+
+    outcome = run_burp_action(
+        engagement=engagement,
+        ledger=ledger,
+        session_id=session_id,
+        thread_id=thread_id,
+        action="repeater",
+        target_host=host,
+        params=f"repeater {verb} {url}",
+        autonomous=autonomous,
+        execute=_execute,
+    )
+    return [f"burp: {outcome.summary}"]
+
+
+def sync(  # noqa: PLR0913 -- explicit deps for offline testability
+    client: BurpClient,
+    engagement: EngagementConfig,
+    ledger: Ledger,
+    *,
+    session_id: str,
+    thread_id: str,
+    autonomous: bool,
+) -> list[str]:
+    """Push the engagement's scope into Burp (defense-in-depth), gated + recorded.
+
+    Burp will then refuse out-of-scope hosts itself, so a misconfigured spider or
+    an operator click cannot wander outside the authorized networks. The RoE
+    exclusions become Burp exclusions.
+    """
+    roe = engagement.rules_of_engagement
+    include = tuple(str(n) for n in engagement.target_networks) + tuple(
+        engagement.allowed_hosts
+    )
+    exclude: tuple[str, ...] = ()
+    if roe is not None:
+        exclude = tuple(str(n) for n in roe.excluded_networks) + tuple(
+            roe.excluded_hosts
+        )
+
+    def _execute() -> tuple[str, str]:
+        client.set_scope(ScopeRules(include=include, exclude=exclude))
+        return (
+            f"pushed scope: {len(include)} include / {len(exclude)} exclude rules",
+            "",
+        )
+
+    outcome = run_burp_action(
+        engagement=engagement,
+        ledger=ledger,
+        session_id=session_id,
+        thread_id=thread_id,
+        action="set_scope",
+        target_host="",
+        params="set_scope (engagement -> burp)",
+        autonomous=autonomous,
+        execute=_execute,
+    )
+    return [f"burp: {outcome.summary}"]
 
 
 def _new_issues(

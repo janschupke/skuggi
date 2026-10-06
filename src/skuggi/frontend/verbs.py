@@ -259,7 +259,7 @@ VERBS: tuple[Verb, ...] = (
     Verb(
         "burp",
         "drive Burp Suite: scan a URL, pull issues into findings, list scans",
-        "scan <url>|pull [host]|scans",
+        "scan <url>|pull [host]|scans|sync|repeat <method> <url>",
         category="engagement",
         group="agent",
         modes=_OFFENSIVE,

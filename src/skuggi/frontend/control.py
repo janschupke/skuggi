@@ -108,8 +108,24 @@ def burp_command(core: AgentCore, rest: str, _surface: verbs.Surface) -> render.
         lines = burp_ops.pull(client, engagement, core.ledger, host=arg, **common)  # type: ignore[arg-type]
     elif sub == "scans":
         lines = burp_ops.scans(client, engagement, core.ledger, **common)  # type: ignore[arg-type]
+    elif sub == "sync":
+        lines = burp_ops.sync(client, engagement, core.ledger, **common)  # type: ignore[arg-type]
+    elif sub == "repeat" and len(arg.split()) >= 2:  # noqa: PLR2004 -- <method> <url>
+        method, _, target = arg.partition(" ")
+        lines = burp_ops.repeat(
+            client,
+            engagement,
+            core.ledger,
+            method=method,
+            url=target.strip(),
+            **common,  # type: ignore[arg-type]
+        )
     else:
-        return [render.warning("usage: burp <scan <url> | pull [host] | scans>")]
+        return [
+            render.warning(
+                "usage: burp <scan <url>|pull [host]|scans|sync|repeat <method> <url>>"
+            )
+        ]
     return [render.plain(line) for line in lines]
 
 

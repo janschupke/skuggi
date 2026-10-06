@@ -12,7 +12,7 @@ from pathlib import Path
 
 from skuggi.agent import burp_ops
 from skuggi.burp.client import BurpClient
-from skuggi.burp.models import ScanIssue, TaskState, TaskStatus
+from skuggi.burp.models import RepeaterResult, ScanIssue, TaskState, TaskStatus
 from skuggi.engagement.scope import BurpScope, EngagementConfig
 from skuggi.persistence.ledger import Ledger
 from skuggi.tooling.registry import RiskTier
@@ -185,3 +185,86 @@ def test_scans_reconciles_finished_scan_into_findings(tmp_path: Path) -> None:
 def test_scans_empty(tmp_path: Path) -> None:
     led = _ledger(tmp_path / "l.db")
     assert _scans(led, _FakeClient()) == ["burp: no actions recorded this session"]
+
+
+class _SendClient:
+    """A client capturing the exchange it was asked to send / the scope pushed."""
+
+    def __init__(self) -> None:
+        self.sent: list[object] = []
+        self.scope: object = None
+
+    def send_request(self, exchange: object) -> RepeaterResult:
+        self.sent.append(exchange)
+        return RepeaterResult(exchange=exchange, note="ok")  # type: ignore[arg-type]
+
+    def set_scope(self, rules: object) -> None:
+        self.scope = rules
+
+
+def _eng_with(**over: object) -> EngagementConfig:
+    raw: dict[str, object] = {
+        "name": "e",
+        "timezone": "UTC",
+        "target_networks": ["10.0.0.0/24"],
+        "autonomous": True,
+        "burp": BurpScope(
+            allowed_actions=frozenset({"repeater", "set_scope"}),
+            passive_only=False,
+            autonomous_ceiling=RiskTier.active,
+        ),
+    }
+    raw.update(over)
+    return EngagementConfig(**raw)  # type: ignore[arg-type]
+
+
+def test_repeat_sends_in_scope_request(tmp_path: Path) -> None:
+    led = _ledger(tmp_path / "l.db")
+    client = _SendClient()
+    lines = burp_ops.repeat(
+        client,  # type: ignore[arg-type]
+        _eng_with(),
+        led,
+        session_id="s1",
+        thread_id="t",
+        autonomous=True,
+        method="get",
+        url="https://10.0.0.5/admin",
+    )
+    assert client.sent  # the request reached the client
+    assert "GET https://10.0.0.5/admin ->" in lines[0]
+    assert led.burp_actions_for("s1")[0].action == "repeater"
+
+
+def test_repeat_out_of_scope_blocked(tmp_path: Path) -> None:
+    led = _ledger(tmp_path / "l.db")
+    client = _SendClient()
+    lines = burp_ops.repeat(
+        client,  # type: ignore[arg-type]
+        _eng_with(),
+        led,
+        session_id="s1",
+        thread_id="t",
+        autonomous=True,
+        method="get",
+        url="https://8.8.8.8/",
+    )
+    assert not client.sent
+    assert "hard block" in lines[0]
+
+
+def test_sync_pushes_scope(tmp_path: Path) -> None:
+    led = _ledger(tmp_path / "l.db")
+    client = _SendClient()
+    roe = {"excluded_hosts": ["10.0.0.9"]}
+    lines = burp_ops.sync(
+        client,  # type: ignore[arg-type]
+        _eng_with(rules_of_engagement=roe),
+        led,
+        session_id="s1",
+        thread_id="t",
+        autonomous=True,
+    )
+    assert client.scope is not None
+    assert "include" in lines[0]
+    assert led.burp_actions_for("s1")[0].action == "set_scope"
