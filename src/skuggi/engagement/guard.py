@@ -504,6 +504,27 @@ def _target_excluded(target: str, engagement: EngagementConfig) -> bool:
     return str(net.network_address) in roe.excluded_hosts
 
 
+def host_in_scope(host: str, engagement: EngagementConfig) -> GuardVerdict:
+    """The reusable host/IP scope decision (RoE exclusion deny-wins, then allow).
+
+    The command guard applies this to every target it parses; it is exposed so
+    another engagement-scoped action that sends traffic to a host -- a Burp
+    repeater/scan/intruder request -- clears the SAME network/host boundary
+    without going through full command parsing. Deny-by-default: an empty,
+    excluded or out-of-scope host is refused (a HARD_BLOCK).
+    """
+    target = host.strip()
+    if not target:
+        return GuardVerdict(False, "no target host given")
+    if _target_excluded(target, engagement):
+        return GuardVerdict(
+            False, f"host {target!r} is on the out-of-scope exclusion list"
+        )
+    if not _target_in_scope(target, engagement):
+        return GuardVerdict(False, f"host {target!r} is outside the authorized scope")
+    return GuardVerdict(True, "in scope")
+
+
 def check_command(  # noqa: PLR0913 -- a guard reads over many engagement inputs
     cmd: ParsedCommand,
     engagement: EngagementConfig,

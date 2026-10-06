@@ -24,6 +24,7 @@ from pydantic import (
 )
 
 from skuggi.agent.protocol import Methodology, Stance, Taxonomy
+from skuggi.burp.models import BurpAction
 from skuggi.tooling.registry import RiskTier, RiskTierField
 
 # The OSINT reconnaissance sources the agentic OSINT loop can draw on. Each maps
@@ -35,6 +36,9 @@ OsintSource = Literal[
     "crtsh", "dns", "github", "linkedin", "ats", "shodan", "websearch", "social"
 ]
 OSINT_SOURCES: tuple[OsintSource, ...] = get_args(OsintSource)
+# The Burp connector actions the agent can be authorized to drive (the scope
+# allow-list vocabulary), derived from the one BurpAction definition.
+BURP_ACTIONS: tuple[BurpAction, ...] = get_args(BurpAction)
 
 
 class TimeWindow(BaseModel):
@@ -130,6 +134,26 @@ class OsintScope(BaseModel):
         )
 
 
+class BurpScope(BaseModel):
+    """The authorized boundary for the Burp Suite connector's agent-driven actions.
+
+    Present on an engagement means the connector is enabled; absent
+    (``EngagementConfig.burp is None``) means the ``burp`` loop/verb refuses to
+    run. ``allowed_actions`` is a deny-by-default allow-list of what the agent may
+    drive (reads like ``scan_issues`` and writes like ``repeater``); traffic-sending
+    actions additionally clear the network/host scope (the command guard's boundary,
+    via ``skuggi.engagement.burp_guard``). ``passive_only`` forbids active-traffic
+    actions regardless of the ceiling; ``autonomous_ceiling`` is the auto-run-vs-
+    propose line (both must pass), mirroring :class:`OsintScope`.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    allowed_actions: frozenset[BurpAction] = frozenset()
+    passive_only: bool = True
+    autonomous_ceiling: RiskTierField = RiskTier.active
+
+
 class RulesOfEngagement(BaseModel):
     """Authorization metadata and operational controls for an engagement (E13/E14).
 
@@ -217,6 +241,10 @@ class EngagementConfig(BaseModel):
     # ``None`` means the agentic OSINT loop is disabled for this engagement. Never
     # affects the command guard -- it is its own dimension (see OsintScope).
     osint: OsintScope | None = None
+    # The Burp connector boundary. Advisory-absent like ``osint``: ``None`` disables
+    # the connector for this engagement. Its own dimension; the command guard is
+    # unaffected (see BurpScope / skuggi.engagement.burp_guard).
+    burp: BurpScope | None = None
     # Rules of engagement: authorization metadata + operational controls
     # (E13/E14). Only the exclusion deny-list is enforced by the guard; the rest
     # is advisory metadata for the report header. None means none recorded.

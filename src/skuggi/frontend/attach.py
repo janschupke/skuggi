@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from skuggi.agent import protocol
 from skuggi.common import palette
 from skuggi.common.logs import get_logger
-from skuggi.engagement.scope import OSINT_SOURCES
+from skuggi.engagement.scope import BURP_ACTIONS, OSINT_SOURCES
 from skuggi.frontend import (
     cmdflow,
     configflow,
@@ -61,6 +61,7 @@ def engagement_catalog(core: AgentCore) -> wizard.Catalog:
         taxonomies=protocol.TAXONOMIES,
         stances=protocol.STANCES,
         osint_sources=OSINT_SOURCES,
+        burp_actions=BURP_ACTIONS,
     )
 
 

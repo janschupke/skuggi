@@ -43,6 +43,7 @@ Widget = Literal[
     "confirm",
     "threat_model",
     "osint",
+    "burp",
     "roe",
 ]
 
@@ -66,6 +67,7 @@ class Catalog:
     taxonomies: tuple[str, ...]
     stances: tuple[str, ...]
     osint_sources: tuple[str, ...]
+    burp_actions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -257,6 +259,10 @@ _SECTIONS: tuple[Section, ...] = (
         "Rules of engagement",
         (Field("rules_of_engagement", "rules of engagement", "roe"),),
     ),
+    Section(
+        "Burp",
+        (Field("burp", "Burp connector scope", "burp"),),
+    ),
 )
 
 # Every engagement field the wizard owns (for the preserve-on-retry targeting and
@@ -315,6 +321,8 @@ def _ask_field(  # noqa: PLR0911, PLR0912 -- a widget dispatch is one return/bra
         return _ask_threat_model(prompter, current)
     if field.widget == "osint":
         return _ask_osint(prompter, catalog, current)
+    if field.widget == "burp":
+        return _ask_burp(prompter, catalog, current)
     if field.widget == "roe":
         return _ask_roe(prompter, current)
     # confirm
@@ -400,6 +408,46 @@ def _ask_osint(  # noqa: PLR0911 -- one abort-return per OSINT sub-prompt
         return None
     osint["autonomous_ceiling"] = ceiling
     return (True, osint)
+
+
+def _ask_burp(
+    prompter: Prompter, catalog: Catalog, current: object
+) -> tuple[bool, object] | None:
+    """Guided Burp scope: enable, the action allow-list, passive-only, the ceiling.
+
+    Mirrors ``_ask_osint`` -- one composite field returning a nested dict (or
+    ``None`` when the connector is left disabled), carried under the single
+    ``burp`` key and validated by ``EngagementConfig`` in one place.
+    """
+    existing = current if isinstance(current, dict) else None
+    enable = prompter.confirm("enable the Burp connector?", existing is not None)
+    if enable is None:
+        return None
+    if not enable:
+        return (True, None)
+    actions = list(catalog.burp_actions)
+    preset = [str(a) for a in existing.get("allowed_actions", ())] if existing else []
+    picks = prompter.multiselect("Burp actions the agent may drive", actions, preset)
+    if picks is None:
+        return None
+    burp: dict[str, object] = {"allowed_actions": picks}
+    passive_default = existing.get("passive_only", True) if existing else True
+    passive = prompter.confirm("passive Burp actions only?", bool(passive_default))
+    if passive is None:
+        return None
+    burp["passive_only"] = passive
+    ceiling_default = (
+        str(existing.get("autonomous_ceiling", "active")) if existing else "active"
+    )
+    ceiling = prompter.choose(
+        "highest Burp risk tier to run without asking",
+        list(_RISK_TIERS),
+        ceiling_default,
+    )
+    if ceiling is None:
+        return None
+    burp["autonomous_ceiling"] = ceiling
+    return (True, burp)
 
 
 def _ask_roe(prompter: Prompter, current: object) -> tuple[bool, object] | None:

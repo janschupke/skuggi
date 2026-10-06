@@ -19,6 +19,7 @@ _CATALOG = Catalog(
     taxonomies=("wstg", "attack"),
     stances=("passive", "cautious", "balanced", "aggressive"),
     osint_sources=("crtsh", "dns", "github", "websearch"),
+    burp_actions=("scan_issues", "repeater", "active_scan", "intruder"),
 )
 
 _VALID = EngagementConfig(
@@ -99,8 +100,9 @@ def _full_script(**over: object) -> _Script:
         # methodology, stance, autonomous_ceiling, then the threat-model C/I/A dropdowns
         chooses=["ptes", "cautious", "active", "high", "medium", "low"],
         multis=[["recon", "scan"], ["wstg"]],  # allowed_methods, taxonomies
-        # autonomous, enable-threat-model, enable-OSINT, enable-RoE (last two off)
-        confirms=[True, True, False, False],
+        # autonomous, enable-threat-model, enable-OSINT, enable-RoE, enable-Burp
+        # (last three off)
+        confirms=[True, True, False, False, False],
     )
     for key, value in over.items():
         setattr(base, key, value)
@@ -130,8 +132,8 @@ def test_collect_scope_shapes_answers_into_valid_scope() -> None:
 
 def test_threat_model_declined_is_none() -> None:
     script = _full_script(
-        confirms=[True, False, False, False]
-    )  # autonomous, tm, osint, roe
+        confirms=[True, False, False, False, False]
+    )  # autonomous, tm, osint, roe, burp
     raw = collect_scope(script.prompter(), _CATALOG)
     assert raw is not None
     assert raw.get("threat_model") is None
@@ -161,14 +163,15 @@ def test_step_bar_ticks_once_per_section() -> None:
     script = _full_script()
     collect_scope(script.prompter(), _CATALOG)
     assert script.steps == [
-        (1, 8, "Identity"),
-        (2, 8, "Authorization"),
-        (3, 8, "Schedule"),
-        (4, 8, "Targets"),
-        (5, 8, "Capabilities"),
-        (6, 8, "Approach"),
-        (7, 8, "OSINT"),
-        (8, 8, "Rules of engagement"),
+        (1, 9, "Identity"),
+        (2, 9, "Authorization"),
+        (3, 9, "Schedule"),
+        (4, 9, "Targets"),
+        (5, 9, "Capabilities"),
+        (6, 9, "Approach"),
+        (7, 9, "OSINT"),
+        (8, 9, "Rules of engagement"),
+        (9, 9, "Burp"),
     ]
 
 
@@ -183,7 +186,13 @@ def test_collect_scope_edit_keeps_existing_on_blank() -> None:
         completes=["", ""],
         chooses=["phases", "cautious", "active"],  # methodology, stance, ceiling
         multis=[[], []],
-        confirms=[False, False, False, False],  # autonomous, tm, osint, roe (declined)
+        confirms=[
+            False,
+            False,
+            False,
+            False,
+            False,
+        ],  # autonomous,tm,osint,roe,burp off
     )
     raw = collect_scope(script.prompter(), _CATALOG, existing=_VALID)
     assert raw is not None
@@ -221,7 +230,7 @@ def test_run_wizard_preserves_answers_and_reasks_only_failed_field() -> None:
     assert len(reask_labels) == 2  # once per pass; the retry asked just this one
     assert calls[1]["authorized_end"] == "2027-01-01T00:00:00+00:00"
     # The retry's step bar showed only the Authorization section.
-    assert script.steps[-1] == (2, 8, "Authorization")
+    assert script.steps[-1] == (2, 9, "Authorization")
 
 
 def test_run_wizard_cancelled_on_abort() -> None:
@@ -243,7 +252,7 @@ def test_osint_enabled_collects_a_nested_scope() -> None:
     # Append the OSINT sub-prompts after the base pass: sources (multi),
     # four subject asks, passive-only (confirm), ceiling (choose).
     script = _full_script(
-        confirms=[True, True, True, True, False],  # autonomous, tm, osint, passive, roe
+        confirms=[True, True, True, True, False, False],  # +roe,burp off
     )
     script.multis.append(["crtsh", "github"])  # OSINT sources
     script.asks += ["Acme Corp", "acme.com", "", "acme"]  # orgs/domains/people/github
@@ -266,3 +275,34 @@ def test_osint_declined_is_none() -> None:
     raw = collect_scope(_full_script().prompter(), _CATALOG)
     assert raw is not None
     assert raw.get("osint") is None
+
+
+def test_burp_enabled_collects_a_nested_scope() -> None:
+    # Enable Burp (the last section): actions (multi), passive-only (confirm),
+    # ceiling (choose) are appended after the base pass.
+    script = _full_script(
+        confirms=[
+            True,
+            True,
+            False,
+            False,
+            True,
+            False,
+        ],  # ...roe off, burp on, passive
+    )
+    script.multis.append(["scan_issues", "repeater"])  # allowed actions
+    script.chooses.append("active")  # burp ceiling
+    raw = collect_scope(script.prompter(), _CATALOG)
+    assert raw is not None
+    assert raw["burp"] == {
+        "allowed_actions": ["scan_issues", "repeater"],
+        "passive_only": False,
+        "autonomous_ceiling": "active",
+    }
+    EngagementConfig.model_validate(raw)  # the nested dict validates
+
+
+def test_burp_declined_is_none() -> None:
+    raw = collect_scope(_full_script().prompter(), _CATALOG)
+    assert raw is not None
+    assert raw.get("burp") is None
