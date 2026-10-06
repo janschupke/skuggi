@@ -43,7 +43,11 @@ def make_apify_run(token: str) -> ApifyRun | None:
             run_info = client.actor(actor_id).call(run_input=dict(run_input))
             if not run_info:
                 return None
-            dataset_id = str(run_info.get("defaultDatasetId", ""))
+            # apify-client 3.x returns a pydantic ``Run`` model (no ``.get``);
+            # the dataset id is the ``default_dataset_id`` field (REST alias
+            # ``defaultDatasetId``). ``.get(...)`` was both a mypy error under
+            # ``--all-extras`` and a runtime AttributeError.
+            dataset_id = str(getattr(run_info, "default_dataset_id", "") or "")
             if not dataset_id:
                 return None
             return list(client.dataset(dataset_id).iterate_items())

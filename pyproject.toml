@@ -66,7 +66,10 @@ pdf = [
 # A separate extra from `pdf` (which RENDERS reports): these only PARSE text out,
 # with no subprocess and no macro execution. See skuggi.persistence.documents.
 documents = [
-    "pypdf>=5",
+    # Same next-major cap policy as the core deps: the current major in use is
+    # 6, so cap below 7 -- a breaking pypdf 7.x is a resolver error, not a silent
+    # parse break, without downgrading the working 6.x.
+    "pypdf>=5,<7",
     "python-docx>=1.1",
     "openpyxl>=3.1",
 ]
@@ -96,12 +99,18 @@ forensics = [
 # downloads a Chromium -- so it is opt-in; the collectors gate on availability and
 # the HTTP-only loop runs without it. After install: `playwright install chromium`.
 osint-browser = [
-    "playwright>=1.48",
+    "playwright>=1.48,<2",
 ]
 # The optional Apify scraper backend for the browser-driven sources (an alternative
 # to a local Chromium when an APIFY_TOKEN + per-source actor are configured).
+# Floored at 3 and capped below 4: 3.x returns a pydantic ``Run`` model (the
+# collector reads ``run_info.default_dataset_id``); the pre-3.x dict API would
+# make the Apify path silently no-op. A breaking 4.x is then a resolver error,
+# not a silent break -- the same policy the core deps use. (WeasyPrint in `pdf`
+# is intentionally uncapped: it ships a single incrementing version, not semver,
+# so a next-major cap does not apply; the --all-extras gate is its backstop.)
 osint-apify = [
-    "apify-client>=1.7",
+    "apify-client>=3,<4",
 ]
 
 [project.scripts]

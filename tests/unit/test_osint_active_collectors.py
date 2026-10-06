@@ -8,7 +8,11 @@ Covers the backend dispatch, the availability gating, and the parse of each path
 from __future__ import annotations
 
 import json
+import sys
+import types
 from collections.abc import Mapping
+
+import pytest
 
 from skuggi.intel.collectors.base import CollectContext, Driver
 from skuggi.osint.collectors import apify as apify_mod
@@ -172,6 +176,75 @@ def test_playwright_factory_is_none_without_the_extra() -> None:
 
 def test_make_apify_run_is_none_without_a_token() -> None:
     assert apify_mod.make_apify_run("") is None
+
+
+class _FakeRun:
+    """A stand-in for apify-client 3.x's pydantic ``Run`` -- attribute, no ``.get``."""
+
+    def __init__(self, default_dataset_id: str) -> None:
+        self.default_dataset_id = default_dataset_id
+
+
+class _FakeApifyClient:
+    def __init__(
+        self, token: str, dataset_id: str, rows: list[dict[str, object]]
+    ) -> None:
+        self._dataset_id = dataset_id
+        self._rows = rows
+
+    def actor(self, _actor_id: str) -> object:
+        run = _FakeRun(self._dataset_id)
+
+        class _Actor:
+            def call(self, *, run_input: Mapping[str, object]) -> _FakeRun:
+                return run
+
+        return _Actor()
+
+    def dataset(self, dataset_id: str) -> object:
+        rows = self._rows if dataset_id == self._dataset_id else []
+
+        class _Dataset:
+            def iterate_items(self) -> list[dict[str, object]]:
+                return rows
+
+        return _Dataset()
+
+
+def _install_fake_apify(
+    monkeypatch: pytest.MonkeyPatch, dataset_id: str, rows: list[dict[str, object]]
+) -> None:
+    module = types.ModuleType("apify_client")
+
+    def _client(token: str) -> _FakeApifyClient:
+        return _FakeApifyClient(token, dataset_id, rows)
+
+    module.ApifyClient = _client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "apify_client", module)
+    monkeypatch.setattr(apify_mod, "apify_installed", lambda: True)
+
+
+def test_make_apify_run_reads_dataset_id_from_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression: apify-client 3.x returns a pydantic Run model, so reading the
+    # dataset id with ``.get("defaultDatasetId")`` was an AttributeError (swallowed
+    # to a silent no-op). The runner must read ``run_info.default_dataset_id``.
+    rows: list[dict[str, object]] = [{"title": "Engineer"}]
+    _install_fake_apify(monkeypatch, "ds-1", rows)
+    run = apify_mod.make_apify_run("tok")
+    assert run is not None
+    assert run("actor/x", {"q": "acme"}) == rows
+
+
+def test_make_apify_run_returns_none_on_empty_dataset_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    empty_rows: list[dict[str, object]] = [{"title": "x"}]
+    _install_fake_apify(monkeypatch, "", empty_rows)
+    run = apify_mod.make_apify_run("tok")
+    assert run is not None
+    assert run("actor/x", {}) is None
 
 
 def test_registry_covers_every_source() -> None:
