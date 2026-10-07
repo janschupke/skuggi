@@ -1,9 +1,19 @@
 # skuggi practice range
 
-Ten independent, self-contained pentest engagement exercises on a difficulty ladder. Each
-lab is a realistic-but-simplified scenario with **real reportable surface and planted loot**
-(hashes, credentials, contracts, customer data) — not a single-flag path. Drive them with
+Self-contained pentest engagement exercises with **real reportable surface and planted loot**
+(hashes, credentials, contracts, customer data) — not single-flag paths. Drive them with
 skuggi like a real engagement; manage them with `labctl`.
+
+Two sets, grouped by category in `make lab-list`:
+
+- **base** — the ten flat `labs/NN-*` labs on a trivial→hard ladder of mixed scenarios
+  (below).
+- **webapp** — twelve framework-focused labs under [`webapp/`](webapp/README.md)
+  (plain PHP, WordPress, Tomcat, Node, Django, Laravel, Symfony, Rails, .NET, Drupal, Moodle,
+  and a lateral-movement capstone), at easy/medium difficulty, aimed at framework ×
+  attack-vector coverage.
+
+The rest of this page documents the **base** set.
 
 > ⚠️ Every lab is **intentionally insecure**. Run only on a machine you control, for
 > authorized practice. All ports bind to `127.0.0.1` only. Nothing calls a third-party or

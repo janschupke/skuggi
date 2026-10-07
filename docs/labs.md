@@ -1,9 +1,17 @@
 # The skuggi practice range
 
-Ten independent engagement exercises on a difficulty ladder, under [`labs/`](../labs). Each
-is a realistic-but-simplified scenario with real reportable surface and **planted loot** —
-not a single-flag path. You drive them with skuggi exactly like a real engagement; you
-manage them with `labctl` (via the `make lab-*` targets).
+Engagement exercises under [`labs/`](../labs), each a realistic-but-simplified scenario with
+real reportable surface and **planted loot** — not a single-flag path. You drive them with
+skuggi exactly like a real engagement; you manage them with `labctl` (via the `make lab-*`
+targets). `make lab-list` groups them by **category**:
+
+- **base** — the ten flat `labs/NN-*` labs on the trivial→hard ladder below.
+- **webapp** — twelve framework-focused labs under `labs/webapp/` (easy/medium), aimed at
+  broad framework × attack-vector coverage; see [`../labs/webapp/README.md`](../labs/webapp/README.md)
+  for that set's ladder and conventions.
+
+The category is derived from layout (a flat `labs/<id>` is `base`; a `labs/<group>/<id>` takes
+the group name), so dropping a new lab under `labs/webapp/` needs no registry edit.
 
 This range is separate from the frozen e2e fixture in `tests/e2e/fixtures/lab/`
 ([e2e-fixture.md](e2e-fixture.md)), which CI drives and which never changes as these labs evolve.
@@ -14,7 +22,7 @@ This range is separate from the frozen e2e fixture in `tests/e2e/fixtures/lab/`
 > build time; the one exception at runtime is lab 01's **optional** WireGuard overlay, which
 > fetches a third-party image — see [macOS reachability](#macos-reachability).)
 
-## The ladder
+## The base ladder
 
 | # | Lab | Tier | Stack / area | Non-obvious hook |
 |---|-----|------|--------------|------------------|

@@ -42,3 +42,12 @@ volume is the most reliable reset, and every lab currently uses it. `labctl rest
 your `./engagements/<id>` either way. `"reseed"` (exec a seed script in the container —
 faster, no teardown) is also supported by `labctl` for a target whose mutable state a script
 can reset in place; it is available if a future lab wants it, but none relies on it today.
+
+## Sets
+
+The flat `labs/NN-*` dirs are the **base** set. A second, framework-coverage **webapp** set
+lives one level deep under `labs/webapp/NN-*` with its own port band (`85/86/87NN`), subnet
+block (`10.20/10.21.NN.0/24`) and compose prefix (`skuggi-webapp-NN`); see
+[`../webapp/README.md`](../webapp/README.md). `labctl` discovers both and groups `make
+lab-list` by category; the category is derived from layout (flat = `base`, else the
+subdirectory name).
