@@ -98,8 +98,12 @@ class LabManifest(BaseModel):
     restore: Restore = Field(default_factory=Restore)
     loot: tuple[Loot, ...] = ()
 
-    # Set by the loader; never present in the JSON on disk.
+    # Both set by the loader; never present in the JSON on disk. ``category`` is
+    # derived from layout -- "base" for a flat ``labs/<id>`` lab, otherwise the
+    # name of the one grouping subdirectory it lives under (e.g. "webapp" for
+    # ``labs/webapp/<id>``).
     root: Path = Field(default=Path(), exclude=True)
+    category: str = Field(default="base", exclude=True)
 
     @property
     def compose_file(self) -> Path:
@@ -112,30 +116,50 @@ class LabManifest(BaseModel):
         return self.root / "scope.json"
 
 
-def _lab_dirs(labs_dir: Path) -> list[Path]:
-    """Every numbered lab directory under ``labs_dir``, sorted by id."""
-    return sorted(
-        p
-        for p in labs_dir.iterdir()
-        if p.is_dir() and not p.name.startswith(("_", ".")) and p.name[0].isdigit()
-    )
+def _is_lab_dir(p: Path) -> bool:
+    """Whether ``p`` is a numbered lab directory (not ``_lib``/``_common``/dotdir)."""
+    return p.is_dir() and not p.name.startswith(("_", ".")) and p.name[0].isdigit()
 
 
-def load_manifest(lab_dir: Path) -> LabManifest:
-    """Load and validate one lab's manifest, binding its ``root``."""
+def _lab_dirs(labs_dir: Path) -> list[tuple[str, Path]]:
+    """Every lab under ``labs_dir`` as ``(category, dir)``, sorted by category then id.
+
+    Discovery is one level deep. A numbered directory directly under ``labs_dir``
+    is a ``base`` lab; a numbered directory one level inside a non-underscore
+    grouping subdirectory (e.g. ``labs/webapp/01-...``) belongs to the category
+    named by that subdirectory. Underscore/dot entries (``_lib``, ``_common``)
+    are skipped at both levels.
+    """
+    found: list[tuple[str, Path]] = []
+    for p in sorted(labs_dir.iterdir()):
+        if p.name.startswith(("_", ".")) or not p.is_dir():
+            continue
+        if p.name[0].isdigit():
+            found.append(("base", p))
+        else:
+            found.extend((p.name, q) for q in sorted(p.iterdir()) if _is_lab_dir(q))
+    return sorted(found, key=lambda cd: (cd[0] != "base", cd[0], cd[1].name))
+
+
+def load_manifest(lab_dir: Path, category: str = "base") -> LabManifest:
+    """Load and validate one lab's manifest, binding its ``root`` and ``category``."""
     raw = json.loads((lab_dir / "manifest.json").read_text(encoding="utf-8"))
-    return LabManifest.model_validate({**raw, "root": lab_dir})
+    return LabManifest.model_validate({**raw, "root": lab_dir, "category": category})
 
 
 def discover_labs(labs_dir: Path) -> list[LabManifest]:
-    """Every lab under ``labs_dir``, validated, sorted by id."""
-    return [load_manifest(d) for d in _lab_dirs(labs_dir)]
+    """Every lab under ``labs_dir``, validated, sorted by category then id."""
+    return [load_manifest(d, category) for category, d in _lab_dirs(labs_dir)]
 
 
 def resolve_lab(labs_dir: Path, lab_id: str) -> LabManifest:
-    """Load one lab by id, raising ``KeyError`` if it does not exist."""
-    lab_dir = labs_dir / lab_id
-    if not (lab_dir / "manifest.json").is_file():
-        msg = f"unknown lab: {lab_id!r} (no {lab_dir / 'manifest.json'})"
-        raise KeyError(msg)
-    return load_manifest(lab_dir)
+    """Load one lab by id from any category, raising ``KeyError`` if unknown.
+
+    Searches the flat ``base`` root and every grouping subdirectory so a webapp
+    lab (``labs/webapp/<id>``) resolves by its bare id, just like a base lab.
+    """
+    for category, d in _lab_dirs(labs_dir):
+        if d.name == lab_id:
+            return load_manifest(d, category)
+    msg = f"unknown lab: {lab_id!r} (no manifest.json under {labs_dir})"
+    raise KeyError(msg)

@@ -9,6 +9,7 @@ offline, with docker mocked.
 from __future__ import annotations
 
 import argparse
+import itertools
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -56,12 +57,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _cmd_list(labs_dir: Path) -> int:
     labs = discover_labs(labs_dir)
-    labs.sort(key=lambda m: (_TIER_ORDER.get(m.tier, 9), m.id))
-    print(f"{'LAB':<26} {'TIER':<8} {'PORTS':<22} STATE")
-    for m in labs:
-        ports = ",".join(str(p.published) for p in m.ports) or "-"
-        state = "up" if compose.is_up(m.compose_file) else "down"
-        print(f"{m.id:<26} {m.tier:<8} {ports:<22} {state}")
+    # Group by category (base first, then others alphabetically); within a
+    # category sort by tier then id. groupby needs the key contiguous, which the
+    # sort guarantees.
+    labs.sort(
+        key=lambda m: (
+            m.category != "base",
+            m.category,
+            _TIER_ORDER.get(m.tier, 9),
+            m.id,
+        )
+    )
+    for category, group in itertools.groupby(labs, key=lambda m: m.category):
+        print(f"\n== {category} ==")
+        print(f"{'LAB':<30} {'TIER':<8} {'PORTS':<22} STATE")
+        for m in group:
+            ports = ",".join(str(p.published) for p in m.ports) or "-"
+            state = "up" if compose.is_up(m.compose_file) else "down"
+            print(f"{m.id:<30} {m.tier:<8} {ports:<22} {state}")
     return 0
 
 

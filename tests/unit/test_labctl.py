@@ -55,6 +55,23 @@ def test_unknown_lab_is_a_clean_error(capsys: pytest.CaptureFixture[str]) -> Non
     assert "unknown lab" in capsys.readouterr().out
 
 
+def test_resolve_lab_finds_a_nested_webapp_lab() -> None:
+    # resolve_lab searches category subdirs, so a bare webapp id resolves.
+    m = resolve_lab(LABS_DIR, "01-easy-php-plain")
+    assert m.id == "01-easy-php-plain"
+    assert m.category == "webapp"
+
+
+def test_list_groups_by_category(
+    no_docker: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["list"]) == 0
+    out = capsys.readouterr().out
+    assert "== base ==" in out
+    assert "== webapp ==" in out
+    assert "01-easy-php-plain" in out
+
+
 def test_up_builds_and_waits(no_docker: list[tuple[str, object]]) -> None:
     assert cli.main(["up", LAB]) == 0
     assert no_docker == [("up", {})]

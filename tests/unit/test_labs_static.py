@@ -27,6 +27,19 @@ def test_lab_ids_are_unique() -> None:
     assert len(LAB_IDS) == len(set(LAB_IDS))
 
 
+def test_webapp_set_is_discovered() -> None:
+    # The nested labs/webapp/ set is found by the one-level-deep discovery.
+    webapp = {m.id for m in LABS if m.category == "webapp"}
+    assert "01-easy-php-plain" in webapp
+
+
+def test_category_is_derived_from_layout() -> None:
+    # Flat labs/<id> are "base"; labs/<group>/<id> take the group name.
+    by_id = {m.id: m for m in LABS}
+    assert by_id["01-trivial-goat-cms"].category == "base"
+    assert by_id["01-easy-php-plain"].category == "webapp"
+
+
 @pytest.mark.parametrize("manifest", LABS, ids=LAB_IDS)
 def test_lab_is_well_formed(manifest: LabManifest) -> None:
     # id matches the directory name.
