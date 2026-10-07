@@ -19,7 +19,7 @@ repos:
       # tests/ is not gitignored. The numbered practice labs plant DELIBERATELY
       # fake keys/secrets as loot, so they are excluded from this one hook.
       - id: detect-private-key
-        exclude: ^labs/[0-9]
+        exclude: ^labs/(webapp/)?[0-9]
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: trailing-whitespace
