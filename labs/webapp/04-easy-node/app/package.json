@@ -1,0 +1,10 @@
+{
+  "name": "swiftcart",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SwiftCart order portal (deliberately vulnerable practice lab)",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

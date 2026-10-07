@@ -1,0 +1,9 @@
+NetLedger — Quarterly Statement (2024 Q3)
+=========================================
+Account: Northwind Trading Co
+Opening balance:   12,400.00
+Invoices issued:    8,950.00
+Payments received:  9,100.00
+Closing balance:   12,250.00
+
+This is a routine billing report served by /api/reports/download.

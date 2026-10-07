@@ -1,0 +1,37 @@
+{
+  "id": "07-medium-symfony",
+  "tier": "medium",
+  "title": "CiviDoc",
+  "summary": "A genuine Symfony 6.4 app on PHP/Apache + PostgreSQL for a document-management SaaS: a legacy repository builds a raw login query by string concatenation (SQLi auth bypass), a document-download controller joins a user-supplied filename to its base dir with no normalisation (path-traversal exfiltration), and the JSON invoice/document API never scopes by tenant (IDOR via route and query param).",
+  "networks": ["10.20.7.0/24"],
+  "ports": [
+    { "service": "app", "container": 80, "published": 8507, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8507/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "landing-fingerprint",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8507/",
+      "fingerprint": "CiviDoc",
+      "description": "the Symfony app is up and serving the CiviDoc landing page"
+    },
+    {
+      "id": "tenant-billing-pii",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": ["psql", "postgresql://cividoc:cividoc-pg-prod-2024@localhost:5432/cividoc", "-tAc", "SELECT billing_email FROM tenant ORDER BY id"],
+      "fingerprint": "g.halvorsen@nordvik-maritime.example",
+      "description": "per-tenant billing PII; the enterprise tenant's billing email (also exposed by the login SQLi and the invoice IDOR)"
+    },
+    {
+      "id": "app-secrets-env",
+      "kind": "file_in_container",
+      "service": "app",
+      "path": "/var/secrets/cividoc.env",
+      "fingerprint": "cividoc-pg-prod-2024",
+      "description": "the PostgreSQL password inside DATABASE_URL in a secrets file the download path-traversal exfiltrates"
+    }
+  ]
+}

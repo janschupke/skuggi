@@ -1,0 +1,6 @@
+SwiftCart receipt #1003
+Customer: Priya Raman <p.raman@meridian-freight.example>
+Items:
+  1 x Ergo Mesh Chair               $249.50
+Total: $249.50  (card ending 9021)
+Thank you for shopping with SwiftCart.

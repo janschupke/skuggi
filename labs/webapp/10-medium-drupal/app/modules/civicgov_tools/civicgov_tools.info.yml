@@ -1,0 +1,5 @@
+name: CivicGov Tools
+type: module
+description: 'Internal citizen-record lookup and maintenance utilities for the CivicGov municipal portal.'
+package: CivicGov
+core_version_requirement: ^10 || ^11

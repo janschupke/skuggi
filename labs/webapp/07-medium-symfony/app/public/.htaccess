@@ -1,0 +1,7 @@
+# Standard Symfony front-controller rewrite. The vhost also sets
+# `FallbackResource /index.php`, so routing works even without mod_rewrite.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>

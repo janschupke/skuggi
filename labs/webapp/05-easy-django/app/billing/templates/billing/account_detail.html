@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ customer.name }} — FernData account</title>
+</head>
+<body>
+  <p><a href="/">&larr; all accounts</a></p>
+  <h1>{{ customer.name }}</h1>
+  <table>
+    <tr><th>Billing email</th><td>{{ customer.email }}</td></tr>
+    <tr><th>Phone</th><td>{{ customer.phone }}</td></tr>
+    <tr><th>Card (last 4)</th><td>&bull;&bull;&bull;&bull; {{ customer.card_last4 }}</td></tr>
+    <tr><th>MRR</th><td>${{ customer.mrr }}/mo</td></tr>
+  </table>
+  <h2>Account note</h2>
+  <!-- VULN (H, stored XSS): operator note rendered as raw HTML via |safe. -->
+  <div class="note">{{ customer.bio|safe }}</div>
+</body>
+</html>

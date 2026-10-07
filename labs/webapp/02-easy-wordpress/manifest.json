@@ -1,0 +1,70 @@
+{
+  "id": "02-easy-wordpress",
+  "tier": "easy",
+  "title": "Brightwave Media",
+  "summary": "A WordPress 6 / MariaDB company blog: the admin account has a wordlist-weak password that wp-login.php accepts, the authenticated Theme/Plugin editor turns into a PHP webshell, and the wp_users table leaks phpass hashes that crack offline to the same weak password.",
+  "networks": [
+    "10.20.2.0/24"
+  ],
+  "ports": [
+    {
+      "service": "app",
+      "container": 80,
+      "published": 8502,
+      "proto": "http"
+    }
+  ],
+  "health": {
+    "kind": "http",
+    "url": "http://127.0.0.1:8502/wp-login.php"
+  },
+  "restore": {
+    "strategy": "recreate"
+  },
+  "loot": [
+    {
+      "id": "admin-email",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": [
+        "mariadb",
+        "-uroot",
+        "-proot-brightwave-2024",
+        "wordpress",
+        "-N",
+        "-e",
+        "SELECT user_email FROM wp_users"
+      ],
+      "fingerprint": "admin@brightwave.lab",
+      "description": "the WordPress admin account email in wp_users (proves the users table seeded)"
+    },
+    {
+      "id": "phpass-hashes",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": [
+        "mariadb",
+        "-uroot",
+        "-proot-brightwave-2024",
+        "wordpress",
+        "-N",
+        "-e",
+        "SELECT user_pass FROM wp_users"
+      ],
+      "fingerprint": "$P$",
+      "description": "phpass portable hashes in wp_users (random salt, so fingerprint the $P$ prefix; crack with john --format=phpass)"
+    },
+    {
+      "id": "app-db-password-env",
+      "kind": "container_exec",
+      "service": "app",
+      "fingerprint": "wp-db-brightwave-2024",
+      "description": "the WordPress DB password, recoverable from the app container's environment (e.g. after RCE)",
+      "cmd": [
+        "sh",
+        "-c",
+        "printenv WORDPRESS_DB_PASSWORD"
+      ]
+    }
+  ]
+}

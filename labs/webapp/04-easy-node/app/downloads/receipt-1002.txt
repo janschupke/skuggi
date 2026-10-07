@@ -1,0 +1,6 @@
+SwiftCart receipt #1002
+Customer: Amara Okonkwo <a.okonkwo@brightwater-logistics.example>
+Items:
+  1 x SwiftBook Pro 14"             $1299.00
+Total: $1299.00  (card ending 4417)
+Thank you for shopping with SwiftCart.

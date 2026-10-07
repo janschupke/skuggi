@@ -1,0 +1,16 @@
+# Reads DATABASE_URL (set in docker-compose) when present; falls back to the
+# discrete settings below for local tinkering.
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  pool: 5
+  host: <%= ENV.fetch("DB_HOST", "db") %>
+  username: <%= ENV.fetch("DB_USER", "trackrails") %>
+  password: <%= ENV.fetch("DB_PASS", "trackrails-db-pw-2026") %>
+  database: <%= ENV.fetch("DB_NAME", "trackrails") %>
+
+development:
+  <<: *default
+
+production:
+  <<: *default

@@ -1,0 +1,37 @@
+{
+  "id": "06-medium-laravel",
+  "tier": "medium",
+  "title": "LumenPay",
+  "summary": "A genuine Laravel 11 billing SaaS on php:8.2-apache + MySQL: a merchant onboarding document upload validates only the client-declared MIME type and keeps the original extension under the public web root, so an uploaded PHP file becomes an executable webshell (RCE -> reverse shell), and a left-behind deploy sudoers drop-in lets www-data escalate to root and read the production payment-gateway signing key.",
+  "networks": ["10.20.6.0/24"],
+  "ports": [
+    { "service": "app", "container": 80, "published": 8506, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8506/up" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "laravel-env-dbpass",
+      "kind": "file_in_container",
+      "service": "app",
+      "path": "/var/www/html/.env",
+      "fingerprint": "lumenpay-db-pw-2024",
+      "description": "the Laravel .env in the web root, leaking the MySQL app-account password (and APP_KEY)"
+    },
+    {
+      "id": "lumenpay-landing-up",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8506/",
+      "fingerprint": "LumenPay",
+      "description": "the LumenPay landing page, proving the Laravel app is serving from public/"
+    },
+    {
+      "id": "payment-gateway-key",
+      "kind": "file_in_container",
+      "service": "app",
+      "path": "/opt/lumenpay/secrets/payment_gateway.key",
+      "fingerprint": "sk_live_lumenpay_8f3c1a9e4b7d20516273c4a9",
+      "description": "the root-only production payment-gateway signing key, reachable only after the sudoers privesc (post-exploitation loot)"
+    }
+  ]
+}

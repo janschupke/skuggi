@@ -1,0 +1,37 @@
+{
+  "id": "01-easy-php-plain",
+  "tier": "easy",
+  "title": "QuickDesk",
+  "summary": "A plain PHP/Apache helpdesk on MariaDB: SQL-injection auth bypass on the agent login, a nightly SQL dump left in the web root, and unsalted MD5 password hashes a report can crack and reuse.",
+  "networks": ["10.20.1.0/24"],
+  "ports": [
+    { "service": "app", "container": 80, "published": 8501, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8501/health.php" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "exposed-db-backup",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8501/backup/quickdesk.sql.bak",
+      "fingerprint": "4ca7c5c27c2314eecc71f67501abb724",
+      "description": "a nightly SQL dump served from the web root, leaking the unsalted MD5 password hashes"
+    },
+    {
+      "id": "admin-weak-hash",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": ["mariadb", "-uroot", "-proot-quickdesk-2024", "quickdesk", "-N", "-e", "SELECT password FROM users WHERE username='admin'"],
+      "fingerprint": "4ca7c5c27c2314eecc71f67501abb724",
+      "description": "admin's unsalted MD5 hash (cracks to letmein123)"
+    },
+    {
+      "id": "customer-pii",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": ["mariadb", "-uroot", "-proot-quickdesk-2024", "quickdesk", "-N", "-e", "SELECT email FROM customers"],
+      "fingerprint": "e.okonkwo@brightwater-logistics.example",
+      "description": "customer billing PII (name, email, phone, card last-4, MRR)"
+    }
+  ]
+}

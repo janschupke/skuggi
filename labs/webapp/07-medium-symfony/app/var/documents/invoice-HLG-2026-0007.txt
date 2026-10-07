@@ -1,0 +1,5 @@
+INVOICE  HLG-2026-0007
+Tenant:   Harbor Ledger Group
+Billing:  a.stein@harbor-ledger.example
+Amount:   EUR 2,480.00
+Status:   PAID (2026-01-14)

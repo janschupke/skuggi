@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Orionline deploy host - Tomcat users.
+  NOTE (intentionally insecure): weak, guessable Manager credentials with full
+  manager-gui + manager-script rights. Do NOT model a real deployment on this.
+-->
+<tomcat-users xmlns="http://tomcat.apache.org/xml"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="http://tomcat.apache.org/xml tomcat-users.xsd"
+              version="1.0">
+
+  <role rolename="manager-gui"/>
+  <role rolename="manager-script"/>
+  <role rolename="manager-jmx"/>
+  <role rolename="manager-status"/>
+  <role rolename="admin-gui"/>
+
+  <!-- Deploy service account. Password is a stale weak secret. -->
+  <user username="tomcat" password="s3cret" roles="manager-gui,manager-script,manager-jmx,manager-status"/>
+
+  <!-- Left over from initial setup. -->
+  <user username="admin" password="admin" roles="manager-gui,admin-gui"/>
+
+</tomcat-users>

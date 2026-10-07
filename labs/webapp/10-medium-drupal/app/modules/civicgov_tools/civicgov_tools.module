@@ -1,0 +1,18 @@
+<?php
+
+/**
+ * @file
+ * CivicGov Tools — internal caseworker utilities for the municipal portal.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+
+/**
+ * Implements hook_help().
+ */
+function civicgov_tools_help($route_name, RouteMatchInterface $route_match) {
+  if ($route_name === 'help.page.civicgov_tools') {
+    return '<p>' . t('Citizen-record lookup and maintenance diagnostics for CivicGov staff.') . '</p>';
+  }
+  return NULL;
+}

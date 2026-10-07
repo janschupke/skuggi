@@ -1,0 +1,7 @@
+<h1>Sign in</h1>
+<%= form_with url: login_path, method: :post, local: true do %>
+  <p><label>Email <input type="email" name="email"></label></p>
+  <p><label>Password <input type="password" name="password"></label></p>
+  <p><button type="submit">Sign in</button></p>
+<% end %>
+<p>No account? <a href="<%= signup_path %>">Sign up</a>.</p>

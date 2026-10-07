@@ -1,0 +1,8 @@
+doctrine:
+    dbal:
+        url: '%env(resolve:DATABASE_URL)%'
+        driver: 'pdo_pgsql'
+        server_version: '16'
+        charset: utf8
+        # DBAL only — no ORM. The legacy repositories build SQL by hand, which
+        # is exactly the (intentional) problem in LegacyUserRepository.

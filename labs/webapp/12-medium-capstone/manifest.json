@@ -1,0 +1,46 @@
+{
+  "id": "12-medium-capstone",
+  "tier": "medium",
+  "title": "VaultLine Capstone",
+  "summary": "The webapp set's lateral-movement finale: an insufficient-validation file upload on the VaultLine edge portal yields a PHP webshell and RCE, which leaks a deploy-agent password REUSED as the SSH password of svc on a segmented internal goal host; a sudo-find privesc there reaches the crown jewels. Chains vectors C (upload->RCE), J (webshell->RCE), I (cred-reuse->SSH lateral) and K (privesc).",
+  "networks": ["10.20.12.0/24", "10.21.12.0/24"],
+  "ports": [
+    { "service": "edge", "container": 80, "published": 8512, "proto": "http" },
+    { "service": "goal", "container": 22, "published": 8712, "proto": "tcp" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8512/health.php" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "reused-deploy-credential",
+      "kind": "file_in_container",
+      "service": "edge",
+      "path": "/opt/vaultline/deploy.conf",
+      "fingerprint": "V4ultL1ne-deploy-7e2a9c",
+      "description": "the VaultLine deploy-agent password on the edge host, reused verbatim as svc's SSH password on vault.vaultline.lab"
+    },
+    {
+      "id": "goal-ssh-banner",
+      "kind": "tcp_banner",
+      "host": "127.0.0.1",
+      "port": 8712,
+      "fingerprint": "SSH-2.0",
+      "description": "the internal goal host's SSH banner, reachable on loopback for credential-reuse verification"
+    },
+    {
+      "id": "crown-jewels",
+      "kind": "file_in_container",
+      "service": "goal",
+      "path": "/root/crown_jewels.txt",
+      "fingerprint": "VAULTLINE-CROWN{master-vault-exfil-ok}",
+      "description": "root-only crown-jewel file on the goal host (KeePass master passphrase, root API + signing keys)"
+    },
+    {
+      "id": "edge-app-identity",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8512/",
+      "fingerprint": "VaultLine",
+      "description": "the edge portal identifies itself as VaultLine (foothold surface)"
+    }
+  ]
+}

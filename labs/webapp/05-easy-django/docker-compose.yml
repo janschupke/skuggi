@@ -1,0 +1,65 @@
+# FernData (easy) — Django 5 customer-billing portal on Postgres.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-webapp-05
+
+networks:
+  ferndata-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.5.0/24
+          gateway: 10.20.5.1
+
+volumes:
+  pgdata:
+
+services:
+  db:
+    image: postgres:16
+    container_name: skuggi-webapp-05-db
+    hostname: db.ferndata.lab
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fernportal
+      POSTGRES_USER: fern
+      POSTGRES_PASSWORD: fern-db-pw-2024
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      ferndata-net:
+        ipv4_address: 10.20.5.10
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fern -d fernportal"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  app:
+    build: ./app
+    image: skuggi-webapp-05-app
+    container_name: skuggi-webapp-05-app
+    hostname: app.ferndata.lab
+    restart: unless-stopped
+    environment:
+      DJANGO_SECRET_KEY: ferndata-portal-insecure-key-5a2f
+      DB_HOST: db
+      DB_NAME: fernportal
+      DB_USER: fern
+      DB_PASS: fern-db-pw-2024
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8505:8000"
+    networks:
+      ferndata-net:
+        ipv4_address: 10.20.5.20
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 25s

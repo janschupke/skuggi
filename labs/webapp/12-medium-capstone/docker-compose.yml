@@ -1,0 +1,70 @@
+# VaultLine Capstone (medium) — the set's lateral-movement finale.
+# An edge web portal (insufficient-validation upload -> PHP webshell -> RCE)
+# leaks a deploy password that is REUSED as the SSH password of svc on the
+# internal goal host; privesc there (sudo find) reaches the crown jewels.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-webapp-12
+
+networks:
+  edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.12.0/24
+          gateway: 10.20.12.1
+  # Internal segment carrying the goal host; the edge host bridges both nets,
+  # which is how a compromised edge reaches the goal over 10.21.12.0/24. The
+  # goal's SSH is loopback-published (8712) so the cred-reuse step and the
+  # tcp_banner oracle are reachable — which is why this net is NOT internal:true
+  # (Docker will not DNAT a published port into an internal-only network, so an
+  # internal:true goal would be unreachable on 127.0.0.1:8712).
+  internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.21.12.0/24
+          gateway: 10.21.12.1
+
+services:
+  edge:
+    build: ./edge
+    image: skuggi-webapp-12-edge
+    container_name: skuggi-webapp-12-edge
+    hostname: edge.vaultline.lab
+    restart: unless-stopped
+    depends_on:
+      - goal
+    ports:
+      - "127.0.0.1:8512:80"
+    networks:
+      edge:
+        ipv4_address: 10.20.12.20
+      internal:
+        ipv4_address: 10.21.12.20
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/health.php"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  goal:
+    build: ./goal
+    image: skuggi-webapp-12-goal
+    container_name: skuggi-webapp-12-goal
+    hostname: vault.vaultline.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8712:22"
+    networks:
+      internal:
+        ipv4_address: 10.21.12.30
+        aliases: [vault.internal]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "22"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s

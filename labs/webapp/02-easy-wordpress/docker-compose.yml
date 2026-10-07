@@ -1,0 +1,124 @@
+# Brightwave Media (easy) — WordPress 6 (php-apache) on MariaDB.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# Pinned to WordPress 6.5 on purpose: 6.8+ hashes new passwords with bcrypt
+# ($wp$...), which would defeat the planted "$P$" phpass fingerprint and the
+# `john --format=phpass` crack this lab teaches. 6.5 is squarely phpass-era.
+name: skuggi-webapp-02
+
+networks:
+  brightwave-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.2.0/24
+          gateway: 10.20.2.1
+
+volumes:
+  dbdata:
+  wphtml:
+
+services:
+  db:
+    image: mariadb:11
+    container_name: skuggi-webapp-02-db
+    hostname: db.brightwave.lab
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root-brightwave-2024
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wp-db-brightwave-2024
+    volumes:
+      - dbdata:/var/lib/mysql
+    networks:
+      brightwave-net:
+        ipv4_address: 10.20.2.10
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  app:
+    image: wordpress:6.5-php8.2-apache
+    container_name: skuggi-webapp-02-app
+    hostname: app.brightwave.lab
+    restart: unless-stopped
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wp-db-brightwave-2024
+    volumes:
+      - wphtml:/var/www/html
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8502:80"
+    networks:
+      brightwave-net:
+        ipv4_address: 10.20.2.20
+    healthcheck:
+      # The wordpress image ships no curl; probe apache with php instead.
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 80) ? 0 : 1);"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  # One-shot installer. Shares the app's web root volume, waits for the core
+  # files + wp-config.php to appear and the DB to be healthy, then runs the
+  # install and seeds users + a post. Exits 0; `up --wait` blocks on that exit.
+  init:
+    image: wordpress:cli-php8.2
+    container_name: skuggi-webapp-02-init
+    restart: "no"
+    # wp-cli reads wp-config.php's getenv_docker() calls against THIS container's
+    # env, so it needs the same DB settings as the app or it falls back to the
+    # image default host "mysql" and fails to connect.
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wp-db-brightwave-2024
+    volumes:
+      - wphtml:/var/www/html
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
+    networks:
+      brightwave-net:
+        ipv4_address: 10.20.2.30
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        echo "init: waiting for WordPress core files + wp-config.php ...";
+        until [ -f /var/www/html/wp-config.php ] && wp core version --path=/var/www/html >/dev/null 2>&1; do
+          sleep 3;
+        done
+        if wp core is-installed --path=/var/www/html >/dev/null 2>&1; then
+          echo "init: already installed, nothing to do"; exit 0;
+        fi
+        echo "init: installing WordPress ...";
+        set -e;
+        wp core install --path=/var/www/html \
+          --url="http://127.0.0.1:8502" \
+          --title="Brightwave Media" \
+          --admin_user="admin" \
+          --admin_password="sunshine2023" \
+          --admin_email="admin@brightwave.lab" \
+          --skip-email;
+        wp user create editor editor@brightwave.lab --path=/var/www/html \
+          --role=editor --user_pass="chocolate" --display_name="Site Editor";
+        wp option update blogdescription "Brightwave Media — company blog" --path=/var/www/html;
+        wp post create --path=/var/www/html --post_type=post --post_status=publish \
+          --post_title="Welcome to Brightwave Media" \
+          --post_content="Our new company blog is live. More to come as we migrate the old site.";
+        echo "init: WordPress installed and seeded";

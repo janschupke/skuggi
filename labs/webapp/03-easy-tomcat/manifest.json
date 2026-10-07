@@ -1,0 +1,37 @@
+{
+  "id": "03-easy-tomcat",
+  "tier": "easy",
+  "title": "Orionline Deploy",
+  "summary": "An Apache Tomcat 9 server with the Manager app enabled and reachable from the network, its RemoteAddrValve lock removed and guarded only by weak credentials: brute the Manager login, deploy a JSP webshell WAR for RCE and a reverse shell, then ride a world-writable sudo deploy script to root.",
+  "networks": ["10.20.3.0/24"],
+  "ports": [
+    { "service": "app", "container": 8080, "published": 8503, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8503/" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "manager-weak-cred",
+      "kind": "file_in_container",
+      "service": "app",
+      "path": "/usr/local/tomcat/conf/tomcat-users.xml",
+      "fingerprint": "s3cret",
+      "description": "the weak Tomcat Manager password (user tomcat, roles manager-gui + manager-script)"
+    },
+    {
+      "id": "tomcat-fingerprint",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8503/",
+      "fingerprint": "Apache Tomcat",
+      "description": "Tomcat's default ROOT landing page, proving the service is up and fingerprintable"
+    },
+    {
+      "id": "db-credentials",
+      "kind": "file_in_container",
+      "service": "app",
+      "path": "/opt/orionline/config/credentials.properties",
+      "fingerprint": "orionline-db-prod-9f3a2c",
+      "description": "a planted production DB password + API token the low-priv service account can read after RCE"
+    }
+  ]
+}

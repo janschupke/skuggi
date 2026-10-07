@@ -1,0 +1,53 @@
+{
+  "id": "10-medium-drupal",
+  "tier": "medium",
+  "title": "CivicGov",
+  "summary": "A Drupal 10 municipal portal with a planted custom module (civicgov_tools): an anonymous citizen-lookup route that concatenates ?id straight into SQL (SQLi) and dumps seeded citizen PII, plus a token-guarded maintenance route that shell_execs ?cmd (RCE) onto an app host where www-data has NOPASSWD sudo find for a trivial root privesc.",
+  "networks": [
+    "10.20.10.0/24"
+  ],
+  "ports": [
+    {
+      "service": "app",
+      "container": 80,
+      "published": 8510,
+      "proto": "http"
+    }
+  ],
+  "health": {
+    "kind": "http",
+    "url": "http://127.0.0.1:8510/"
+  },
+  "restore": {
+    "strategy": "recreate"
+  },
+  "loot": [
+    {
+      "id": "citizen-pii",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": [
+        "sh",
+        "-c",
+        "PGPASSWORD=civicgov-db-2024 psql -U civicgov -d civicgov -h 127.0.0.1 -tAc 'SELECT email FROM civicgov_citizens ORDER BY id'"
+      ],
+      "fingerprint": "m.ohalloran@mailbox.example",
+      "description": "seeded citizen benefit-record PII (name, national id, email, address, benefit status) in the civicgov_citizens table, dumpable via the module SQLi or directly in the DB"
+    },
+    {
+      "id": "planted-sqli-module",
+      "kind": "file_in_container",
+      "service": "app",
+      "path": "/opt/drupal/web/modules/custom/civicgov_tools/src/Controller/CitizenLookupController.php",
+      "fingerprint": "civicgov_citizens WHERE id =",
+      "description": "the planted vulnerable custom-module source: the lookup route concatenates ?id into the SQL string instead of using Drupal's placeholder API"
+    },
+    {
+      "id": "site-up",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8510/user/login",
+      "fingerprint": "CivicGov Municipal Portal",
+      "description": "the installed Drupal front page, proving the CivicGov portal booted and seeded"
+    }
+  ]
+}

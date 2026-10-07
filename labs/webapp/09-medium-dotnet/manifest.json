@@ -1,0 +1,37 @@
+{
+  "id": "09-medium-dotnet",
+  "tier": "medium",
+  "title": "NetLedger",
+  "summary": "An ASP.NET Core 8 accounting API on Postgres (Npgsql): a SQL-injection auth bypass on the accountant login, a path-traversal report download that exfiltrates the app's secrets file, and an unlinked admin-diagnostics endpoint whose ping feature is command-injectable into RCE.",
+  "networks": ["10.20.9.0/24"],
+  "ports": [
+    { "service": "app", "container": 8080, "published": 8509, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8509/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "customer-pii",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": ["psql", "-U", "netledger", "-d", "netledger", "-t", "-A", "-c", "SELECT email FROM customers ORDER BY id"],
+      "fingerprint": "a.delacroix@pont-neuf-capital.example",
+      "description": "customer ledger PII (name, billing email, phone, card last-4, balance) dumped via the SQL-injectable search or straight from Postgres"
+    },
+    {
+      "id": "leaked-secrets-file",
+      "kind": "file_in_container",
+      "service": "app",
+      "path": "/app/appsettings.Secrets.json",
+      "fingerprint": "nl_live_sk_7Qb3xZ9fK2mWpR4t",
+      "description": "the app secrets file (DB connection string, API key, admin diagnostics token) exfiltrated by the path-traversal download endpoint"
+    },
+    {
+      "id": "app-banner",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8509/",
+      "fingerprint": "NetLedger",
+      "description": "the landing page banner proving the NetLedger app is up"
+    }
+  ]
+}

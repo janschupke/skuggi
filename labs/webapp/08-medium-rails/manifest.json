@@ -1,0 +1,47 @@
+{
+  "id": "08-medium-rails",
+  "tier": "medium",
+  "title": "TrackRails",
+  "summary": "A genuine Rails 7 project tracker on Postgres with a mass-assignment / IDOR flaw (params.permit! on /users/:id lets a member set their own role to admin), plus a segmented internal ops host. The admin-only /ops panel leaks a deploy SSH password that is REUSED on the pivot (deploy@ops.trackrails.lab); a NOPASSWD sudo rule on the pivot escalates to root and the crown-jewel production keys. Theme: lateral movement.",
+  "networks": ["10.20.8.0/24", "10.21.8.0/24"],
+  "ports": [
+    { "service": "app", "container": 3000, "published": 8508, "proto": "http" },
+    { "service": "pivot", "container": 22, "published": 8608, "proto": "ssh" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8508/up" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "seeded-admin-user",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": ["psql", "-U", "trackrails", "-d", "trackrails", "-tAc", "SELECT email FROM users WHERE role = 'admin' LIMIT 1"],
+      "fingerprint": "admin@trackrails.lab",
+      "description": "the seeded admin account email in the Rails Postgres database (psql over the local trust socket)"
+    },
+    {
+      "id": "reused-ops-credential",
+      "kind": "file_in_container",
+      "service": "app",
+      "path": "/app/config/ops_credentials.yml",
+      "fingerprint": "D3ploy-0ps-Tr4ck-2026",
+      "description": "the deploy SSH password the admin-only /ops panel leaks, reused verbatim for deploy@ops.trackrails.lab"
+    },
+    {
+      "id": "pivot-ssh-banner",
+      "kind": "tcp_banner",
+      "host": "127.0.0.1",
+      "port": 8608,
+      "fingerprint": "SSH-2.0",
+      "description": "the pivot host's OpenSSH banner, reachable on loopback for the credential-reuse step"
+    },
+    {
+      "id": "crown-jewels",
+      "kind": "file_in_container",
+      "service": "pivot",
+      "path": "/root/crown_jewels.txt",
+      "fingerprint": "trackrails-prod-master-key-9c4f2a",
+      "description": "root-only production master key on the pivot, reached after the NOPASSWD sudo (find) privesc"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+VAULTLINE-CROWN{master-vault-exfil-ok}
+
+VaultLine — crown jewels (internal vault host: vault.vaultline.lab)
+===================================================================
+Master KeePass vault : /root/vaultline-master.kdbx  (passphrase below)
+KeePass passphrase   : correct-horse-vault-staple-42
+Root recovery API key: vlk_live_9c2f7a4e1b6d803e5fa17c9042de88b1
+Signing key (prod)   : -----BEGIN VAULTLINE SIGNING KEY----- c0ffee...deadbeef
+
+Reaching this file means the full chain worked: web foothold -> credential
+reuse -> SSH to the internal host -> privesc to root.

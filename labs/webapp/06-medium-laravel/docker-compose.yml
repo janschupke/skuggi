@@ -1,0 +1,52 @@
+# LumenPay (medium) — a genuine Laravel app on php:8.2-apache + MySQL.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-webapp-06
+
+networks:
+  lumenpay-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.6.0/24
+          gateway: 10.20.6.1
+
+volumes:
+  dbdata:
+
+services:
+  db:
+    image: mysql:8
+    container_name: skuggi-webapp-06-db
+    hostname: db.lumenpay.lab
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root-lumenpay-2024
+      MYSQL_DATABASE: lumenpay
+    volumes:
+      - dbdata:/var/lib/mysql
+      - ./db/seed:/docker-entrypoint-initdb.d:ro
+    networks:
+      lumenpay-net:
+        ipv4_address: 10.20.6.10
+
+  app:
+    build: ./app
+    image: skuggi-webapp-06-app
+    container_name: skuggi-webapp-06-app
+    hostname: app.lumenpay.lab
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "127.0.0.1:8506:80"
+    networks:
+      lumenpay-net:
+        ipv4_address: 10.20.6.20
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/up"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s

@@ -1,0 +1,7 @@
+SwiftCart receipt #1001
+Customer: Jordan Lee <jordan.lee@swiftcart.example>
+Items:
+  1 x Aurora Wireless Earbuds        $79.99
+  2 x USB-C Braided Cable            $ 9.98
+Total: $89.97  (card ending 1180)
+Thank you for shopping with SwiftCart.

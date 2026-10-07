@@ -1,0 +1,5 @@
+# Pinned to 5.0.x: UnsaltedMD5PasswordHasher (the legacy md5$$ hasher) is still
+# shipped here; it is removed in Django 5.1+.
+Django>=5.0,<5.1
+psycopg[binary]==3.2.1
+gunicorn==22.0.0

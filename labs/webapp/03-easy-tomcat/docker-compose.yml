@@ -1,0 +1,33 @@
+# Orionline Deploy (easy) — Apache Tomcat 9 with the Manager app exposed to the
+# network and guarded by weak credentials.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-webapp-03
+
+networks:
+  orionline-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.3.0/24
+          gateway: 10.20.3.1
+
+services:
+  app:
+    build: ./app
+    image: skuggi-webapp-03-app
+    container_name: skuggi-webapp-03-app
+    hostname: app.orionline.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8503:8080"
+    networks:
+      orionline-net:
+        ipv4_address: 10.20.3.20
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s

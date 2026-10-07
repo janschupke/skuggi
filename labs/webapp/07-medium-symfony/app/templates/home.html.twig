@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>CiviDoc — document management for growing firms</title>
+</head>
+<body>
+    <h1>CiviDoc</h1>
+    <p>Secure document management and invoicing for professional-services firms.
+       Every tenant's contracts, invoices and documents in one place.</p>
+
+    <h2>Sign in</h2>
+    <p><a href="{{ path('portal_login') }}">Portal sign in</a> for your team.</p>
+
+    <h2>For developers</h2>
+    <p>CiviDoc exposes a small JSON API for integrations:</p>
+    <ul>
+        <li><code>GET /api/invoices/{id}</code> — fetch an invoice</li>
+        <li><code>GET /api/documents?id={id}</code> — fetch a document record</li>
+        <li><code>GET /portal/documents/download?file={name}</code> — download a stored document</li>
+    </ul>
+
+    <footer>
+        <p><small>CiviDoc Platform · built on Symfony</small></p>
+    </footer>
+</body>
+</html>

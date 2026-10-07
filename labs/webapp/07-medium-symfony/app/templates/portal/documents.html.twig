@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>CiviDoc — documents</title>
+</head>
+<body>
+    <h1>CiviDoc documents</h1>
+    <p>Signed in as <strong>{{ email }}</strong> (tenant #{{ tenant_id }}) —
+       <a href="{{ path('home') }}">home</a></p>
+
+    <table border="1" cellpadding="4">
+        <tr><th>#</th><th>Title</th><th>File</th><th>Confidential</th><th></th></tr>
+        {% for doc in documents %}
+            <tr>
+                <td>{{ doc.id }}</td>
+                <td>{{ doc.title }}</td>
+                <td>{{ doc.filename }}</td>
+                <td>{{ doc.confidential ? 'yes' : 'no' }}</td>
+                <td><a href="{{ path('portal_download', { file: doc.filename }) }}">download</a></td>
+            </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

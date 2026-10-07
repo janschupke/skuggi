@@ -1,0 +1,2 @@
+# Release assets land here. Empty in a pristine lab — the webshell is the
+# attacker's to upload (vector C). Served by Apache; PHP executes here.

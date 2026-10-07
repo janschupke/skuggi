@@ -1,0 +1,98 @@
+# TrackRails (medium) — a Rails 7 project tracker on Postgres, plus a small
+# internal ops/SSH pivot host. Theme: LATERAL MOVEMENT.
+#   web foothold (mass-assignment / IDOR privesc) -> recover reused ops secret
+#   -> ssh deploy@ops (same password) -> easy privesc to root on the pivot.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-webapp-08
+
+networks:
+  # Primary app<->db segment.
+  trackrails-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.8.0/24
+          gateway: 10.20.8.1
+  # Internal ops segment: the pivot host lives here. The app bridges both nets
+  # (how a compromised app host reaches the internal ops box over 10.21.8.0/24).
+  # The pivot's SSH is loopback-published (8608) so the cred-reuse step and the
+  # tcp_banner oracle are reachable — which is why this net is NOT internal:true
+  # (Docker will not DNAT a published port into an internal-only network, so an
+  # internal:true pivot would be unreachable on 127.0.0.1:8608).
+  trackrails-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.21.8.0/24
+          gateway: 10.21.8.1
+
+volumes:
+  pgdata:
+
+services:
+  db:
+    image: postgres:16
+    container_name: skuggi-webapp-08-db
+    hostname: db.trackrails.lab
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trackrails
+      POSTGRES_PASSWORD: trackrails-db-pw-2026
+      POSTGRES_DB: trackrails
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      trackrails-net:
+        ipv4_address: 10.20.8.10
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trackrails -d trackrails"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  app:
+    build: ./app
+    image: skuggi-webapp-08-app
+    container_name: skuggi-webapp-08-app
+    hostname: app.trackrails.lab
+    restart: unless-stopped
+    environment:
+      RAILS_ENV: development
+      DATABASE_URL: postgres://trackrails:trackrails-db-pw-2026@db:5432/trackrails
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8508:3000"
+    networks:
+      trackrails-net:
+        ipv4_address: 10.20.8.20
+      trackrails-internal:
+        ipv4_address: 10.21.8.20
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/up || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  pivot:
+    build: ./pivot
+    image: skuggi-webapp-08-pivot
+    container_name: skuggi-webapp-08-pivot
+    hostname: ops.trackrails.lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8608:22"
+    networks:
+      trackrails-internal:
+        ipv4_address: 10.21.8.30
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/22"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 10s

@@ -1,0 +1,37 @@
+{
+  "id": "05-easy-django",
+  "tier": "easy",
+  "title": "FernData",
+  "summary": "A Django 5 + Postgres customer-billing portal: an IDOR on both a numeric account route and an /api/profile query param leaks every customer's billing PII, a bio field rendered with |safe is stored XSS, and a legacy-import auth row carries an unsalted MD5 hash that cracks offline alongside the normal pbkdf2 users.",
+  "networks": ["10.20.5.0/24"],
+  "ports": [
+    { "service": "app", "container": 8000, "published": 8505, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8505/health/" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "customer-pii",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": ["psql", "-U", "fern", "-d", "fernportal", "-tAc", "SELECT email FROM billing_customers"],
+      "fingerprint": "a.morales@alder-finch.example",
+      "description": "customer billing PII (name, billing email, phone, card last-4, MRR), reachable via the IDOR and directly in Postgres"
+    },
+    {
+      "id": "legacy-md5-hash",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": ["psql", "-U", "fern", "-d", "fernportal", "-tAc", "SELECT password FROM auth_user WHERE username='svc_import'"],
+      "fingerprint": "md5$$0571749e2ac330a7455809c6b0e7af90",
+      "description": "a legacy-import auth row stored as an unsalted MD5 (md5$$ format) that cracks to sunshine, alongside normal pbkdf2 users"
+    },
+    {
+      "id": "stored-xss",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8505/account/2/",
+      "fingerprint": "<script>alert('ferndata-xss-7f3a')</script>",
+      "description": "a stored <script> payload in a customer bio rendered through |safe on the public account page"
+    }
+  ]
+}

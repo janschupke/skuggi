@@ -1,0 +1,20 @@
+parameters:
+    app.document_dir: '%kernel.project_dir%/var/documents'
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/Kernel.php'
+
+    App\Controller\:
+        resource: '../src/Controller/'
+        tags: ['controller.service_arguments']
+
+    App\Controller\PortalController:
+        arguments:
+            $documentDir: '%app.document_dir%'

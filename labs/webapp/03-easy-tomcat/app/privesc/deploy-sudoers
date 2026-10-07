@@ -1,0 +1,8 @@
+# Orionline deploy automation.
+# The deploy service account may run the release helper as root without a
+# password so the CI webhook can promote a build unattended.
+#
+# INTENTIONALLY INSECURE: the authorised target script
+# (/opt/orionline/bin/deploy-release.sh) is world-writable, so anyone who lands
+# as `deploy` can rewrite it and have root execute their content.
+deploy ALL=(root) NOPASSWD: /opt/orionline/bin/deploy-release.sh

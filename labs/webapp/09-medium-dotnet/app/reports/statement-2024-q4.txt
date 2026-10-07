@@ -1,0 +1,9 @@
+NetLedger — Quarterly Statement (2024 Q4)
+=========================================
+Account: Pont-Neuf Capital
+Opening balance:   48,900.00
+Invoices issued:   21,300.00
+Payments received: 20,000.00
+Closing balance:   50,200.00
+
+This is a routine billing report served by /api/reports/download.

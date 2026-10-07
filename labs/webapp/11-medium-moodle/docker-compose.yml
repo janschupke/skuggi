@@ -1,0 +1,117 @@
+# LearnHub (medium) — a Moodle LMS on MariaDB (both Bitnami images).
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# Stack: bitnami/moodle (the LMS, listens on 8080) + bitnami/mariadb (its DB).
+# A one-shot `seed` sidecar waits for Moodle's first-boot install to finish, then
+# injects the student PII rows and the stored-XSS profile record into mdl_user.
+#
+# Vectors: H stored XSS · G IDOR (?id= / ?userid=) · F db-dump customer/student PII.
+name: skuggi-webapp-11
+
+networks:
+  learnhub-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.11.0/24
+          gateway: 10.20.11.1
+
+volumes:
+  mariadb_data:
+  moodle_data:
+  moodledata_data:
+
+services:
+  db:
+  # Bitnami removed versioned free tags from docker.io/bitnami (2025); the old
+  # images live, frozen, under bitnamilegacy/ — fine for an offline practice lab.
+    image: bitnamilegacy/mariadb:latest
+    container_name: skuggi-webapp-11-db
+    hostname: db.learnhub.lab
+    restart: unless-stopped
+    environment:
+      # Bitnami MariaDB bootstrap. The DB name/user/creds below are what the
+      # bitnami/moodle image expects by convention (bitnami_moodle / bn_moodle).
+      MARIADB_ROOT_PASSWORD: root-learnhub-2024
+      MARIADB_DATABASE: bitnami_moodle
+      MARIADB_USER: bn_moodle
+      MARIADB_PASSWORD: bn-moodle-pw-2024
+      MARIADB_CHARACTER_SET: utf8mb4
+      MARIADB_COLLATE: utf8mb4_unicode_ci
+    volumes:
+      - mariadb_data:/bitnami/mariadb
+    networks:
+      learnhub-net:
+        ipv4_address: 10.20.11.10
+    healthcheck:
+      # mysqladmin ships in the bitnami mariadb image; FLAG: verify the binary
+      # name/path on the pinned tag if this probe never goes healthy.
+      test: ["CMD-SHELL", "mysqladmin ping -uroot -p\"$$MARIADB_ROOT_PASSWORD\" --silent || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  app:
+    image: bitnamilegacy/moodle:latest
+    container_name: skuggi-webapp-11-app
+    hostname: app.learnhub.lab
+    restart: unless-stopped
+    environment:
+      MOODLE_DATABASE_TYPE: mariadb
+      MOODLE_DATABASE_HOST: db
+      MOODLE_DATABASE_PORT_NUMBER: "3306"
+      MOODLE_DATABASE_NAME: bitnami_moodle
+      MOODLE_DATABASE_USER: bn_moodle
+      MOODLE_DATABASE_PASSWORD: bn-moodle-pw-2024
+      # First-boot admin + site identity (auto-install on an empty data volume).
+      MOODLE_USERNAME: admin
+      MOODLE_PASSWORD: LearnHub!Admin2024
+      MOODLE_EMAIL: admin@learnhub.lab
+      MOODLE_SITE_NAME: LearnHub
+      # wwwroot must match the URL the tester reaches the app on (loopback:8511),
+      # or Moodle redirects away. FLAG: confirm the env key name for the pinned tag.
+      MOODLE_HOST: "127.0.0.1:8511"
+      ALLOW_EMPTY_PASSWORD: "no"
+    volumes:
+      - moodle_data:/bitnami/moodle
+      - moodledata_data:/bitnami/moodledata
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # The ONLY published port — loopback only. Container listens on 8080.
+      - "127.0.0.1:8511:8080"
+    networks:
+      learnhub-net:
+        ipv4_address: 10.20.11.20
+    healthcheck:
+      # Moodle's first-boot install is slow (~120s). The bitnamilegacy image has
+      # no curl/wget, so probe the port with bash's /dev/tcp (bash IS present).
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8080"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+
+  # One-shot seeder: waits for Moodle to create its schema + the admin row, then
+  # plants student PII and the stored-XSS profile record into mdl_user. Exits 0.
+  seed:
+    image: mariadb:11
+    container_name: skuggi-webapp-11-seed
+    environment:
+      DB_HOST: db
+      DB_NAME: bitnami_moodle
+      DB_ROOT_PW: root-learnhub-2024
+    volumes:
+      - ./seed:/seed:ro
+    entrypoint: ["bash", "/seed/seed.sh"]
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      learnhub-net:
+        ipv4_address: 10.20.11.30
+    restart: "no"

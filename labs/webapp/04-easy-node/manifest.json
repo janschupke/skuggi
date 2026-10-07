@@ -1,0 +1,36 @@
+{
+  "id": "04-easy-node",
+  "tier": "easy",
+  "title": "SwiftCart",
+  "summary": "A Node/Express order portal with an in-memory store: an unsanitised download endpoint that path-traverses to a baked-in secrets file, an IDOR that exposes other customers' invoices and accounts (route param and query param), and a stored XSS in product reviews seeded with a raw <script> payload.",
+  "networks": ["10.20.4.0/24"],
+  "ports": [
+    { "service": "app", "container": 3000, "published": 8504, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8504/health" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "stored-xss-review",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8504/product/1",
+      "fingerprint": "<script>alert(document.domain)</script>",
+      "description": "a product review stored verbatim and rendered raw on the product page (stored XSS)"
+    },
+    {
+      "id": "idor-invoice",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8504/api/invoices/2",
+      "fingerprint": "a.okonkwo@brightwater-logistics.example",
+      "description": "another customer's invoice, reachable unauthenticated by walking the id (IDOR)"
+    },
+    {
+      "id": "leaked-api-key",
+      "kind": "file_in_container",
+      "service": "app",
+      "path": "/app/secrets/app.env",
+      "fingerprint": "sk_live_swiftcart_9f8e7d6c5b4a3210",
+      "description": "a live payment-gateway API key in a baked-in secrets file the download endpoint traverses to"
+    }
+  ]
+}

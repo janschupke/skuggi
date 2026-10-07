@@ -1,0 +1,34 @@
+# SwiftCart (easy) — Node/Express order portal with an in-memory seeded store.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-webapp-04
+
+networks:
+  swiftcart-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.4.0/24
+          gateway: 10.20.4.1
+
+services:
+  app:
+    build: ./app
+    image: skuggi-webapp-04-app
+    container_name: skuggi-webapp-04-app
+    hostname: app.swiftcart.lab
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+    ports:
+      - "127.0.0.1:8504:3000"
+    networks:
+      swiftcart-net:
+        ipv4_address: 10.20.4.20
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s

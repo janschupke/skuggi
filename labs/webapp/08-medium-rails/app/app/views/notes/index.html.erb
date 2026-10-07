@@ -1,0 +1,7 @@
+<h1>Project notes</h1>
+<table>
+  <tr><th>ID</th><th>Title</th><th>Owner</th></tr>
+  <% @notes.each do |n| %>
+    <tr><td><%= n.id %></td><td><a href="<%= note_path(n) %>"><%= n.title %></a></td><td><%= n.user&.email %></td></tr>
+  <% end %>
+</table>

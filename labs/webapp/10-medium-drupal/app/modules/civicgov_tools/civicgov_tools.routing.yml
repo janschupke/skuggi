@@ -1,0 +1,17 @@
+# Both routes are exposed to anonymous users (_access: 'TRUE') — no permission
+# gate — which is exactly what makes them reachable pre-auth.
+civicgov_tools.citizen_lookup:
+  path: '/civicgov/lookup'
+  defaults:
+    _controller: '\Drupal\civicgov_tools\Controller\CitizenLookupController::lookup'
+    _title: 'Citizen record lookup'
+  requirements:
+    _access: 'TRUE'
+
+civicgov_tools.diag:
+  path: '/civicgov/diag'
+  defaults:
+    _controller: '\Drupal\civicgov_tools\Controller\CitizenLookupController::diag'
+    _title: 'Maintenance diagnostics'
+  requirements:
+    _access: 'TRUE'

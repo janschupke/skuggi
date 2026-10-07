@@ -1,0 +1,63 @@
+# NetLedger (medium) — ASP.NET Core 8 accounting API on Postgres.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-webapp-09
+
+networks:
+  netledger-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.9.0/24
+          gateway: 10.20.9.1
+
+volumes:
+  dbdata:
+
+services:
+  db:
+    image: postgres:16
+    container_name: skuggi-webapp-09-db
+    hostname: db.netledger.lab
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: netledger
+      POSTGRES_USER: netledger
+      POSTGRES_PASSWORD: netledger-db-pw-2024
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./db/seed:/docker-entrypoint-initdb.d:ro
+    networks:
+      netledger-net:
+        ipv4_address: 10.20.9.10
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "netledger", "-d", "netledger"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  app:
+    build: ./app
+    image: skuggi-webapp-09-app
+    container_name: skuggi-webapp-09-app
+    hostname: app.netledger.lab
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=netledger;Username=netledger;Password=netledger-db-pw-2024"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8509:8080"
+    networks:
+      netledger-net:
+        ipv4_address: 10.20.9.20
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s

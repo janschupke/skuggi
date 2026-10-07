@@ -1,0 +1,37 @@
+{
+  "id": "11-medium-moodle",
+  "tier": "medium",
+  "title": "LearnHub",
+  "summary": "A Moodle LMS (LearnHub) on MariaDB, both Bitnami images: a stored-XSS profile/forum field that keeps user HTML, IDOR on the ?id=/?userid= user and resource endpoints, and a MariaDB holding student PII plus bcrypt ($2y$) password hashes a DB dump exfiltrates directly.",
+  "networks": ["10.20.11.0/24"],
+  "ports": [
+    { "service": "app", "container": 8080, "published": 8511, "proto": "http" }
+  ],
+  "health": { "kind": "http", "url": "http://127.0.0.1:8511/login/index.php" },
+  "restore": { "strategy": "recreate" },
+  "loot": [
+    {
+      "id": "student-pii",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": ["mariadb", "-uroot", "-proot-learnhub-2024", "bitnami_moodle", "-N", "-e", "SELECT email FROM mdl_user"],
+      "fingerprint": "maya.lindqvist@northvale-students.example",
+      "description": "student billing/contact PII (names + emails) dumped straight from mdl_user"
+    },
+    {
+      "id": "password-hashes",
+      "kind": "container_exec",
+      "service": "db",
+      "cmd": ["mariadb", "-uroot", "-proot-learnhub-2024", "bitnami_moodle", "-N", "-e", "SELECT password FROM mdl_user"],
+      "fingerprint": "$2y$",
+      "description": "Moodle account password hashes — bcrypt ($2y$ prefix), proving credential material is present in the DB"
+    },
+    {
+      "id": "moodle-fingerprint",
+      "kind": "http_contains",
+      "where": "http://127.0.0.1:8511/",
+      "fingerprint": "Moodle",
+      "description": "the LearnHub front page's generator/footer string, proving the Moodle LMS is up and fingerprintable"
+    }
+  ]
+}

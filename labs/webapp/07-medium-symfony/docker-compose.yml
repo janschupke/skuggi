@@ -1,0 +1,65 @@
+# CiviDoc (medium) — a genuine Symfony 6.4 app on php:8.2-apache + PostgreSQL 16.
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-webapp-07
+
+networks:
+  cividoc-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.7.0/24
+          gateway: 10.20.7.1
+
+volumes:
+  dbdata:
+
+services:
+  db:
+    image: postgres:16
+    container_name: skuggi-webapp-07-db
+    hostname: db.cividoc.lab
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cividoc
+      POSTGRES_PASSWORD: cividoc-pg-prod-2024
+      POSTGRES_DB: cividoc
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./db/seed:/docker-entrypoint-initdb.d:ro
+    networks:
+      cividoc-net:
+        ipv4_address: 10.20.7.10
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cividoc -d cividoc"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  app:
+    build: ./app
+    image: skuggi-webapp-07-app
+    container_name: skuggi-webapp-07-app
+    hostname: app.cividoc.lab
+    restart: unless-stopped
+    environment:
+      APP_ENV: prod
+      APP_DEBUG: "0"
+      APP_SECRET: 4f9a2c7e51b8d360a1e94c7f20d6b8e3
+      DATABASE_URL: "postgresql://cividoc:cividoc-pg-prod-2024@db:5432/cividoc?serverVersion=16&charset=utf8"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8507:80"
+    networks:
+      cividoc-net:
+        ipv4_address: 10.20.7.20
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s

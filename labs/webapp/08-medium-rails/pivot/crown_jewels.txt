@@ -1,0 +1,10 @@
+TrackRails — production secrets (ROOT ONLY)
+=============================================
+environment: production
+provider: self-hosted
+master_key: trackrails-prod-master-key-9c4f2a
+db_superuser: trackrails / trackrails-db-pw-2026
+stripe_live_key: sk_live_TRACKRAILS_fake_do_not_use_9c4f2a
+backup_s3_bucket: trackrails-prod-backups
+
+Do NOT copy off this host. Rotated quarterly by the ops team.

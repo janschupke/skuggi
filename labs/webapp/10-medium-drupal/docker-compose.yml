@@ -1,0 +1,96 @@
+# CivicGov (medium) — Drupal 10 municipal portal on Postgres, auto-installed on
+# first boot by a one-shot init container (drush site:install + enable the
+# planted civicgov_tools module).
+# ┌─ SAFETY ──────────────────────────────────────────────────────────────────┐
+# │ INTENTIONALLY insecure. Loopback-published only. Never expose this.        │
+# └─────────────────────────────────────────────────────────────────────────────┘
+name: skuggi-webapp-10
+
+networks:
+  civicgov-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.10.0/24
+          gateway: 10.20.10.1
+
+volumes:
+  dbdata:
+  drupaldata:
+
+services:
+  db:
+    image: postgres:16
+    container_name: skuggi-webapp-10-db
+    hostname: db.civicgov.lab
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: civicgov
+      POSTGRES_PASSWORD: civicgov-db-2024
+      POSTGRES_DB: civicgov
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./db/seed:/docker-entrypoint-initdb.d:ro
+    networks:
+      civicgov-net:
+        ipv4_address: 10.20.10.10
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U civicgov -d civicgov"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  # Drupal front end. Shares the /opt/drupal codebase volume with init so it
+  # serves the site that init installs; the planted module is mounted read-only.
+  app:
+    build: ./app
+    image: skuggi-webapp-10-app
+    container_name: skuggi-webapp-10-app
+    hostname: app.civicgov.lab
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - drupaldata:/opt/drupal
+      - ./app/modules/civicgov_tools:/opt/drupal/web/modules/custom/civicgov_tools:ro
+    ports:
+      - "127.0.0.1:8510:80"
+    networks:
+      civicgov-net:
+        ipv4_address: 10.20.10.20
+    # Drupal's first install is slow — give it a generous grace period.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/user/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+
+  # One-shot installer. Waits for the DB, runs drush site:install with a known
+  # admin account, enables the planted module, seeds citizen PII, then exits 0.
+  init:
+    build: ./app
+    image: skuggi-webapp-10-app
+    container_name: skuggi-webapp-10-init
+    hostname: init.civicgov.lab
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_USER: civicgov
+      DB_PASS: civicgov-db-2024
+      DB_NAME: civicgov
+      DRUPAL_ADMIN_USER: admin
+      DRUPAL_ADMIN_PASS: Civic-Admin-2024!
+    volumes:
+      - drupaldata:/opt/drupal
+      - ./app/modules/civicgov_tools:/opt/drupal/web/modules/custom/civicgov_tools:ro
+      - ./init/init.sh:/civicgov-init.sh:ro
+      - ./db/seed/01-citizens.sql:/civicgov-seed.sql:ro
+    command: ["bash", "/civicgov-init.sh"]
+    networks:
+      civicgov-net:
+        ipv4_address: 10.20.10.30

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FernData — customer portal</title>
+</head>
+<body>
+  <h1>FernData</h1>
+  <p>Internal customer-billing portal.</p>
+  {% if user.is_authenticated %}
+    <p>Signed in as <strong>{{ user.username }}</strong> — <a href="/logout/">log out</a>.</p>
+  {% else %}
+    <p><a href="/login/">Staff sign-in</a></p>
+  {% endif %}
+  <h2>Accounts</h2>
+  <ul>
+    {% for c in customers %}
+      <li><a href="/account/{{ c.id }}/">{{ c.name }}</a></li>
+    {% endfor %}
+  </ul>
+</body>
+</html>

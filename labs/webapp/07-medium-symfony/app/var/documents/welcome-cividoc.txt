@@ -1,0 +1,8 @@
+Welcome to CiviDoc
+==================
+
+Thanks for choosing CiviDoc for your firm's document management. This folder
+holds the documents your team has uploaded. Use the portal to browse, download
+and share them with your tenant.
+
+— The CiviDoc team
